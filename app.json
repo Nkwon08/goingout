@@ -7,13 +7,26 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to take photos and videos",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone to record audio with videos"
+        }
+      ]
+    ],
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow access to your camera to take photos and videos",
+        "NSMicrophoneUsageDescription": "Allow access to your microphone to record audio with videos"
+      }
     },
     "android": {
       "adaptiveIcon": {
