@@ -6,7 +6,7 @@ import { Video } from 'expo-av';
 
 const IU_CRIMSON = '#990000';
 
-export default function MediaPreview({ visible, media, onDelete, onAddToGroup, onCancel, groups }) {
+export default function MediaPreview({ visible, media, onDelete, onAddToGroup, onPostToFeed, onCancel, groups }) {
   const [selectedGroup, setSelectedGroup] = React.useState(null);
   const isVideo = media?.type === 'video';
 
@@ -38,6 +38,13 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
               <MaterialCommunityIcons name="delete-outline" size={24} color="#FF6B6B" />
               <Text style={styles.deleteText}>Delete</Text>
             </TouchableOpacity>
+
+            {onPostToFeed && (
+              <TouchableOpacity style={styles.postButton} onPress={onPostToFeed}>
+                <MaterialCommunityIcons name="share-outline" size={24} color="#FFFFFF" />
+                <Text style={[styles.postText, { marginLeft: 8 }]}>Post to Feed</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity style={styles.saveButton} onPress={() => onAddToGroup(selectedGroup)}>
               <MaterialCommunityIcons name="account-group" size={24} color="#FFFFFF" />
@@ -79,6 +86,17 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
             <Button mode="outlined" textColor="#FFFFFF" onPress={onCancel}>
               Cancel
             </Button>
+            {onPostToFeed && (
+              <Button
+                mode="contained"
+                buttonColor={IU_CRIMSON}
+                textColor="#FFFFFF"
+                onPress={onPostToFeed}
+                style={{ marginRight: 8 }}
+              >
+                Post to Feed
+              </Button>
+            )}
             <Button
               mode="contained"
               buttonColor={IU_CRIMSON}
@@ -86,7 +104,7 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
               onPress={() => onAddToGroup(selectedGroup)}
               disabled={!selectedGroup}
             >
-              Save
+              Save to Group
             </Button>
           </View>
         </View>
@@ -139,6 +157,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  postButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: IU_CRIMSON,
+  },
+  postText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   saveButton: {
     flexDirection: 'row',

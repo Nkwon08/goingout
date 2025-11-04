@@ -338,11 +338,13 @@ export default function FeedPost({ post, onDelete }) {
         </View>
       )}
 
-      {/* Location */}
-      {post.location && (
+      {/* Location - show bar if available, otherwise show city location */}
+      {(post.bar || post.location) && (
         <View style={styles.locationContainer}>
           <MaterialCommunityIcons name="map-marker-outline" size={16} color={subText} />
-          <Text style={[styles.locationText, { color: subText }]}>{post.location}</Text>
+          <Text style={[styles.locationText, { color: subText }]}>
+            {post.bar || post.location}
+          </Text>
         </View>
       )}
 

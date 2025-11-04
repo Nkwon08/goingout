@@ -60,6 +60,7 @@ export const createPost = async (userId, userData, postData) => {
       lng: postLng, // GPS longitude (required for distance filtering)
       image: postData.image || (imagesArray && imagesArray.length > 0 ? imagesArray[0] : null), // Backwards compatibility
       images: imagesArray, // Carousel post images array
+      bar: postData.bar || null, // Bar name (optional)
       likes: 0,
       retweets: 0,
       replies: 0,

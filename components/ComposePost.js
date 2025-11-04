@@ -4,12 +4,24 @@ import { View, Modal, TextInput, StyleSheet, TouchableOpacity, Image, ScrollView
 import { Text, Avatar, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // Removed albums import - images will come from user's own photos
 // Removed getCurrentLocation import - using account location instead of GPS
 
 const IU_CRIMSON = '#990000';
 
-export default function ComposePost({ visible, onClose, onSubmit, currentUser, submitting = false }) {
+// Predefined bar options (same as TonightSelector)
+const PREDEFINED_BARS = [
+  'Kilroys on Kirkwood',
+  'Kilroys Sports',
+  'Bluebird',
+  'La Una',
+  'Brothers',
+  'The Upstairs Pub',
+  'Nicks English Hut',
+];
+
+export default function ComposePost({ visible, onClose, onSubmit, currentUser, submitting = false, initialImages = [] }) {
   // State for post content
   const [text, setText] = React.useState('');
   const [location, setLocation] = React.useState(''); // City name from GPS
@@ -18,6 +30,9 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
   const [images, setImages] = React.useState([]);
   const [chooseFromOutlink, setChooseFromOutlink] = React.useState(false);
   const [visibility, setVisibility] = React.useState('location'); // 'friends' or 'location' - default to 'location'
+  const [bar, setBar] = React.useState(''); // Bar name (used for location field)
+  const [barDropdownVisible, setBarDropdownVisible] = React.useState(false);
+  const [cityLocation, setCityLocation] = React.useState(''); // City location for filtering (hidden)
 
   // Empty - images will come from user's own photos/Firebase in the future
   const appImages = [];
@@ -81,10 +96,10 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
     
     Keyboard.dismiss();
     
-    // Location is required - check if it's filled in
-    if (!location.trim()) {
-      console.log('❌ Location is required');
-      alert('Location is required. Please enter your location.');
+    // Bar location is required - check if it's filled in
+    if (!bar.trim()) {
+      console.log('❌ Bar location is required');
+      alert('Please select a bar location.');
       return;
     }
     
@@ -95,67 +110,84 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       return;
     }
     
-    // Location is required - check if account location is set
-    if (!location.trim()) {
-      console.log('❌ Account location missing');
-      alert('Location is required. Please set your location in your profile.');
-      return;
-    }
-    
     console.log('✅ Submitting post...');
     console.log('✅ Total images selected:', images.length);
     console.log('✅ Visibility:', visibility);
-    console.log('✅ Location:', location);
+    console.log('✅ Bar location:', bar);
+    console.log('✅ City location (for filtering):', cityLocation);
     // Submit all images together in one post - user can swipe through them
       onSubmit({
       text: text.trim() || '',
-      location: location.trim() || 'Unknown Location', // Account location for filtering
+      location: cityLocation.trim() || 'Unknown Location', // City location for filtering
       lat: null, // GPS not needed for location-based filtering anymore
       lng: null, // GPS not needed for location-based filtering anymore
       image: images.length > 0 ? images[0] : null, // Keep for backwards compatibility
       images: images.length > 0 ? images : null, // All selected images in one post
       visibility: visibility, // 'friends' or 'location'
+      bar: bar.trim() || null, // Bar name (used as location display)
     });
     // Clear form only after successful submission (handled by parent)
     // Keep form open during submission in case of error
   };
 
+  // Track previous visible state to detect when modal actually closes
+  const prevVisibleRef = React.useRef(visible);
+  
   // Set account location when modal opens (use account location, not GPS)
   React.useEffect(() => {
+    const prevVisible = prevVisibleRef.current;
+    prevVisibleRef.current = visible;
+    
     if (visible) {
       // Reset form when modal opens
       console.log('🔄 Modal opened, resetting form');
       setText('');
-      setImages([]);
+      // Set initial images if provided (from camera), otherwise reset
+      setImages(initialImages && initialImages.length > 0 ? [...initialImages] : []);
       setVisibility('location'); // Reset to default
       
-      // Use account location from userData (not GPS)
+      // Use account location from userData for filtering (hidden, stored in cityLocation)
       // Get location from currentUser prop (which should be userData from AuthContext)
       const accountLocation = currentUser?.location;
       
       // Check if location exists and is valid
       if (accountLocation && accountLocation.trim() && accountLocation !== 'Unknown Location') {
-        setLocation(accountLocation.trim());
-        console.log('✅ Using account location from profile:', accountLocation.trim());
+        setCityLocation(accountLocation.trim());
+        setLocation(accountLocation.trim()); // Keep for backwards compatibility
+        console.log('✅ Using account city location from profile:', accountLocation.trim());
       } else {
         // Fallback to default location if not set in profile
         console.warn('⚠️ Location not set in profile, using default');
-        setLocation('Bloomington, IN'); // Default location
+        const defaultLocation = 'Bloomington, IN';
+        setCityLocation(defaultLocation);
+        setLocation(defaultLocation); // Keep for backwards compatibility
       }
       
       setLat(null); // GPS not needed for location filtering
       setLng(null); // GPS not needed for location filtering
-    } else {
-      // Reset form when modal closes
+      
+      // Load last voted bar from AsyncStorage for auto-fill
+      AsyncStorage.getItem('lastVotedBar')
+        .then(lastBar => {
+          if (lastBar && lastBar.trim()) {
+            setBar(lastBar.trim());
+            console.log('✅ Auto-filled bar from last vote:', lastBar.trim());
+          }
+        })
+        .catch(err => console.error('Error loading last voted bar:', err));
+    } else if (prevVisible && !visible) {
+      // Only reset when modal actually closes (was visible, now not visible)
       console.log('🔄 Modal closed, resetting form');
       setText('');
       setLocation('');
+      setCityLocation('');
       setLat(null);
       setLng(null);
       setImages([]);
       setVisibility('location');
+      setBar(''); // Reset bar field
     }
-  }, [visible, currentUser]);
+  }, [visible, currentUser]); // Removed initialImages from dependencies to prevent infinite loop
 
   const handleClose = () => {
     Keyboard.dismiss();
@@ -186,10 +218,10 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                   </View>
                       <TouchableOpacity
               onPress={handleSubmit}
-                        disabled={(!text.trim() && images.length === 0) || !location.trim() || submitting}
+                        disabled={(!text.trim() && images.length === 0) || !bar.trim() || submitting}
                         style={[
                           styles.postButtonTouchable,
-                          ((!text.trim() && images.length === 0) || !location.trim() || submitting) && styles.postButtonDisabled
+                          ((!text.trim() && images.length === 0) || !bar.trim() || submitting) && styles.postButtonDisabled
                         ]}
             >
                         {submitting ? (
@@ -250,19 +282,24 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                           <Text style={styles.imagesPreviewHint}>Swipe left/right to see all photos • All photos will be in one post</Text>
                         </View>
               )}
+              {/* Bar Location Selector (replaces location field) */}
               <View style={styles.locationRow}>
-                            <MaterialCommunityIcons name="map-marker-outline" size={20} color={location.trim() ? "#990000" : "#666666"} />
-                <TextInput
-                  style={styles.locationInput}
-                              placeholder="Location (required)"
-                  placeholderTextColor="#666666"
-                  value={location}
-                              editable={false} // Location is set from account location
-                  returnKeyType="done"
-                  blurOnSubmit={true}
-                  onSubmitEditing={Keyboard.dismiss}
-                />
-                          </View>
+                <MaterialCommunityIcons name="map-marker-outline" size={20} color={bar.trim() ? "#990000" : "#666666"} />
+                <TouchableOpacity
+                  style={styles.locationInputTouchable}
+                  onPress={() => setBarDropdownVisible(true)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.locationInputText, !bar.trim() && styles.locationInputPlaceholder]}>
+                    {bar.trim() || 'Select a bar (required)'}
+                  </Text>
+                  <MaterialCommunityIcons 
+                    name={barDropdownVisible ? 'chevron-up' : 'chevron-down'} 
+                    size={20} 
+                    color="#666666" 
+                  />
+                </TouchableOpacity>
+              </View>
                       
                       {/* Privacy/Visibility Selector */}
                       <View style={styles.visibilityRow}>
@@ -307,7 +344,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                                 visibility === 'location' && styles.visibilityButtonTextActive,
                               ]}
                             >
-                              Everyone in {location.trim() || 'Location'}
+                              Everyone in {cityLocation.trim() || 'Location'}
                             </Text>
                           </TouchableOpacity>
                         </View>
@@ -363,6 +400,50 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
             </ScrollView>
           </View>
         </View>
+      </Modal>
+
+      {/* Bar Selector Dropdown */}
+      <Modal
+        visible={barDropdownVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBarDropdownVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setBarDropdownVisible(false)}
+        >
+          <View style={styles.barDropdownContainer}>
+            <ScrollView style={styles.barDropdownScroll} keyboardShouldPersistTaps="handled">
+              {PREDEFINED_BARS.map((barOption) => (
+                <TouchableOpacity
+                  key={barOption}
+                  style={[styles.barDropdownItem, bar === barOption && styles.barDropdownItemSelected]}
+                  onPress={() => {
+                    setBar(barOption);
+                    setBarDropdownVisible(false);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.barDropdownItemText, bar === barOption && styles.barDropdownItemTextSelected]}>
+                    {barOption}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={styles.barDropdownItem}
+                onPress={() => {
+                  setBar('');
+                  setBarDropdownVisible(false);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.barDropdownItemText, { color: '#666666' }]}>Clear</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
       </Modal>
     </Modal>
   );
@@ -556,11 +637,21 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#D0CFCD',
   },
-  locationInput: {
+  locationInputTouchable: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginLeft: 8,
+    paddingVertical: 8,
+  },
+  locationInputText: {
     flex: 1,
     color: '#1A1A1A',
     fontSize: 14,
-    marginLeft: 8,
+  },
+  locationInputPlaceholder: {
+    color: '#666666',
   },
   locationLoading: {
     flex: 1,
@@ -572,6 +663,65 @@ const styles = StyleSheet.create({
   locationLoadingText: {
     color: '#666666',
     fontSize: 14,
+  },
+  barRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#D0CFCD',
+  },
+  barInput: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginLeft: 8,
+    paddingVertical: 8,
+  },
+  barInputText: {
+    color: '#1A1A1A',
+    fontSize: 14,
+    flex: 1,
+  },
+  barInputPlaceholder: {
+    color: '#666666',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  barDropdownContainer: {
+    width: '80%',
+    maxHeight: '60%',
+    backgroundColor: '#EEEDEB',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#D0CFCD',
+    overflow: 'hidden',
+  },
+  barDropdownScroll: {
+    maxHeight: 400,
+  },
+  barDropdownItem: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  barDropdownItemSelected: {
+    backgroundColor: '#F5F4F2',
+  },
+  barDropdownItemText: {
+    fontSize: 16,
+    color: '#1A1A1A',
+  },
+  barDropdownItemTextSelected: {
+    color: IU_CRIMSON,
+    fontWeight: '600',
   },
   visibilityRow: {
     marginTop: 12,

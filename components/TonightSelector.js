@@ -3,20 +3,20 @@ import * as React from 'react';
 import { View, Modal, TouchableOpacity, TextInput, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Card, Text, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeColors } from '../hooks/useThemeColors';
 
 const IU_CRIMSON = '#990000';
 
 // Predefined bar options
 const PREDEFINED_BARS = [
-  'Kilroys on Kirkwook',
+  'Kilroys on Kirkwood',
   'Kilroys Sports',
-  'Blue Bird',
-  'Brothers',
-  'The Vid',
-  'Nicks English Hut',
+  'Bluebird',
   'La Una',
-  'Root Cellar',
+  'Brothers',
+  'The Upstairs Pub',
+  'Nicks English Hut',
 ];
 
 export default function TonightSelector() {
@@ -33,15 +33,20 @@ export default function TonightSelector() {
     return [...PREDEFINED_BARS, ...customBars];
   }, [customBars]);
 
-  // Filter to only show bars with votes > 0 (for both dropdown and results)
+  // Filter to only show bars with votes > 0 (for results display)
   const barsWithVotes = React.useMemo(() => {
     return allBars.filter(bar => (votes[bar] || 0) > 0);
   }, [allBars, votes]);
 
-  // Sort by votes (descending)
+  // Sort all bars by votes (descending) - highest votes on top, lowest on bottom
   const sortedBars = React.useMemo(() => {
     return [...barsWithVotes].sort((a, b) => (votes[b] || 0) - (votes[a] || 0));
   }, [barsWithVotes, votes]);
+
+  // Sort all predefined bars by votes for dropdown (highest first, lowest last)
+  const sortedPredefinedBars = React.useMemo(() => {
+    return [...PREDEFINED_BARS].sort((a, b) => (votes[b] || 0) - (votes[a] || 0));
+  }, [votes]);
 
   const totalVotes = React.useMemo(() => {
     return Object.values(votes).reduce((sum, count) => sum + count, 0);
@@ -58,6 +63,8 @@ export default function TonightSelector() {
       }));
       setSelectedBar(bar);
       setDropdownVisible(false);
+      // Save last voted bar to AsyncStorage for auto-fill in compose post
+      AsyncStorage.setItem('lastVotedBar', bar).catch(err => console.error('Error saving last voted bar:', err));
     }
   };
 
@@ -74,6 +81,8 @@ export default function TonightSelector() {
         [newBar]: (prev[newBar] || 0) + 1
       }));
       setSelectedBar(newBar);
+      // Save last voted bar to AsyncStorage for auto-fill in compose post
+      AsyncStorage.setItem('lastVotedBar', newBar).catch(err => console.error('Error saving last voted bar:', err));
       setOtherText('');
       setOtherModalVisible(false);
     }
@@ -99,7 +108,7 @@ export default function TonightSelector() {
             activeOpacity={0.7}
           >
             <Text style={[styles.dropdownText, { color: selectedBar ? text : subText }]}>
-              {selectedBar || 'Select a bar...'}
+              {selectedBar || 'Select'}
             </Text>
             <MaterialCommunityIcons 
               name={dropdownVisible ? 'chevron-up' : 'chevron-down'} 
@@ -155,7 +164,7 @@ export default function TonightSelector() {
         >
           <View style={[styles.dropdownContainer, { backgroundColor: surface, borderColor: border }]}>
             <ScrollView style={styles.dropdownScroll} keyboardShouldPersistTaps="handled">
-              {barsWithVotes.map((bar) => (
+              {sortedPredefinedBars.map((bar) => (
                 <TouchableOpacity
                   key={bar}
                   style={styles.dropdownItem}
@@ -163,6 +172,11 @@ export default function TonightSelector() {
                   activeOpacity={0.7}
                 >
                   <Text style={[styles.dropdownItemText, { color: text }]}>{bar}</Text>
+                  {votes[bar] > 0 && (
+                    <Text style={[styles.dropdownVoteCount, { color: subText }]}>
+                      {votes[bar]} vote{votes[bar] !== 1 ? 's' : ''}
+                    </Text>
+                  )}
                 </TouchableOpacity>
               ))}
               <TouchableOpacity
@@ -306,9 +320,17 @@ const styles = StyleSheet.create({
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   dropdownItemText: {
     fontSize: 16,
+    flex: 1,
+  },
+  dropdownVoteCount: {
+    fontSize: 14,
+    marginLeft: 8,
   },
   keyboardView: {
     flex: 1,

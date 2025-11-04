@@ -209,6 +209,7 @@ export default function ActivityRecent() {
           image: imageUrls.length > 0 ? imageUrls[0] : null,
           images: imageUrls.length > 0 ? imageUrls : null,
           visibility: postData.visibility || 'location',
+          bar: postData.bar || null, // Bar name (optional)
         };
 
         // Create post - NO TIMEOUT, let it complete naturally
