@@ -1,11 +1,12 @@
 import * as React from 'react';
-import { View, ScrollView, Image } from 'react-native';
+import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback } from 'react-native';
 import { Appbar, FAB, Text, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import MapView, { Marker } from 'react-native-maps';
 import { GiftedChat } from 'react-native-gifted-chat';
 import * as ImagePicker from 'expo-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GroupCard from '../components/GroupCard';
 import PollCard from '../components/PollCard';
 import { groups, polls } from '../data/mock';
@@ -157,13 +158,31 @@ function GroupDetail({ onBack }) {
   );
 }
 
-export default function GroupsScreen() {
+export default function GroupsScreen({ navigation }) {
   const [selected, setSelected] = React.useState(null);
-  const { background, text, subText } = useThemeColors();
+  const [showGroupMenu, setShowGroupMenu] = React.useState(false);
+  const { background, text, subText, surface } = useThemeColors();
+  const insets = useSafeAreaInsets();
+  
+  // Calculate bottom position for FAB - position in bottom right corner
+  // Account for bottom tab bar height (~70px)
+  const fabBottom = insets.bottom - 17;
+  
+  const handleCreateGroup = () => {
+    setShowGroupMenu(false);
+    navigation.navigate('CreateGroup');
+  };
+  
+  const handleJoinGroup = () => {
+    setShowGroupMenu(false);
+    // TODO: Navigate to join group screen
+    console.log('Join Group');
+  };
   
   if (selected) {
     return <GroupDetail onBack={() => setSelected(null)} />;
   }
+  
   return (
     <View style={{ flex: 1, backgroundColor: background }}>
       <Appbar.Header mode="center-aligned" style={{ backgroundColor: background }}>
@@ -178,18 +197,105 @@ export default function GroupsScreen() {
           <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>Empty</Text>
         )}
       </ScrollView>
-      <FAB 
-        icon="plus" 
-        style={{ 
-          position: 'absolute', 
-          right: 16, 
-          bottom: 16,
+      
+      {/* Round FAB button - matches ActivityRecent style */}
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          right: 16,
+          bottom: fabBottom,
+          width: 56,
+          height: 56,
+          borderRadius: 28,
           backgroundColor: IU_CRIMSON,
-        }} 
-        iconColor="#FFFFFF"
-        onPress={() => {}} 
-        customSize={56} 
-      />
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000,
+          elevation: 8,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 4,
+        }}
+        onPress={() => setShowGroupMenu(true)}
+        activeOpacity={0.8}
+      >
+        <MaterialCommunityIcons name="plus" size={28} color="#FFFFFF" />
+      </TouchableOpacity>
+      
+      {/* Menu Modal - Create Group or Join Group */}
+      <Modal
+        visible={showGroupMenu}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowGroupMenu(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowGroupMenu(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' }}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={{ backgroundColor: surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: insets.bottom + 20 }}>
+                <Text style={{ color: text, fontSize: 20, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' }}>
+                  Group Options
+                </Text>
+                
+                {/* Create Group Button */}
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: IU_CRIMSON,
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 12,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onPress={handleCreateGroup}
+                  activeOpacity={0.8}
+                >
+                  <MaterialCommunityIcons name="account-plus" size={24} color="#FFFFFF" />
+                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginLeft: 12 }}>
+                    Create Group
+                  </Text>
+                </TouchableOpacity>
+                
+                {/* Join Group Button */}
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: surface,
+                    borderRadius: 12,
+                    padding: 16,
+                    borderWidth: 2,
+                    borderColor: IU_CRIMSON,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onPress={handleJoinGroup}
+                  activeOpacity={0.8}
+                >
+                  <MaterialCommunityIcons name="account-group" size={24} color={IU_CRIMSON} />
+                  <Text style={{ color: IU_CRIMSON, fontSize: 16, fontWeight: '600', marginLeft: 12 }}>
+                    Join Group
+                  </Text>
+                </TouchableOpacity>
+                
+                {/* Cancel Button */}
+                <TouchableOpacity
+                  style={{
+                    marginTop: 12,
+                    padding: 12,
+                  }}
+                  onPress={() => setShowGroupMenu(false)}
+                >
+                  <Text style={{ color: subText, fontSize: 16, textAlign: 'center' }}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </View>
   );
 }

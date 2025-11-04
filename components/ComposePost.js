@@ -130,11 +130,21 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       setVisibility('location'); // Reset to default
       
       // Use account location from userData (not GPS)
-      const accountLocation = currentUser?.location || 'Unknown Location';
-      setLocation(accountLocation);
+      // Get location from currentUser prop (which should be userData from AuthContext)
+      const accountLocation = currentUser?.location;
+      
+      // Check if location exists and is valid
+      if (accountLocation && accountLocation.trim() && accountLocation !== 'Unknown Location') {
+        setLocation(accountLocation.trim());
+        console.log('✅ Using account location from profile:', accountLocation.trim());
+      } else {
+        // Fallback to default location if not set in profile
+        console.warn('⚠️ Location not set in profile, using default');
+        setLocation('Bloomington, IN'); // Default location
+      }
+      
       setLat(null); // GPS not needed for location filtering
       setLng(null); // GPS not needed for location filtering
-      console.log('✅ Using account location:', accountLocation);
     } else {
       // Reset form when modal closes
       console.log('🔄 Modal closed, resetting form');

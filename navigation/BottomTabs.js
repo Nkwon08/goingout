@@ -3,7 +3,7 @@ import * as React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ActivityScreen from '../screens/ActivityScreen';
-import GroupsScreen from '../screens/GroupsScreen';
+import GroupsStack from './GroupsStack';
 import CameraScreen from '../screens/CameraScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import AccountStack from './AccountStack';
@@ -48,7 +48,7 @@ export default function BottomTabs() {
     >
       {/* Define all tab screens */}
       <Tab.Screen name="Activity" component={ActivityScreen} />
-      <Tab.Screen name="Groups" component={GroupsScreen} />
+      <Tab.Screen name="Groups" component={GroupsStack} />
       <Tab.Screen name="Camera" component={CameraScreen} />
       <Tab.Screen name="Notifications" component={NotificationsScreen} />
       <Tab.Screen name="Account" component={AccountStack} />

@@ -326,7 +326,12 @@ export default function ActivityRecent() {
           setError(null); // Clear any errors
         }}
         onSubmit={handlePostSubmit}
-        currentUser={userData || { name: user.displayName || user.email || 'User', username: user.email?.split('@')[0] || 'user', avatar: 'https://i.pravatar.cc/100?img=12' }}
+        currentUser={userData || { 
+          name: user?.displayName || user?.email || 'User', 
+          username: user?.email?.split('@')[0] || 'user', 
+          avatar: 'https://i.pravatar.cc/100?img=12',
+          location: userData?.location || 'Bloomington, IN' // Include location in fallback
+        }}
         submitting={submitting}
       />
 

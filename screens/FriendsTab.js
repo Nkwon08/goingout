@@ -3,343 +3,343 @@ import { View, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { Searchbar, Button, Avatar, List, Divider, Text } from 'react-native-paper';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { 
-  subscribeToFriends, 
-  addFriend,
-  checkFriendship,
-} from '../services/friendsService';
+import { subscribeToFriends, addFriend, checkFriendship, getFriends } from '../services/friendsService';
 import { getCurrentUserData as getUserData } from '../services/authService';
 import { searchUsersByUsername } from '../services/usersService';
 
 export default function FriendsTab() {
-  const [searchQuery, setSearchQuery] = React.useState(''); // Search query for user lookup
+  const { isDarkMode } = useTheme();
+  const { user } = useAuth();
+
+  const [searchQuery, setSearchQuery] = React.useState('');
   const [friends, setFriends] = React.useState([]);
-  const [friendsWithUserData, setFriendsWithUserData] = React.useState([]);
+  const [friendsWithData, setFriendsWithData] = React.useState([]);
   const [searchResults, setSearchResults] = React.useState([]);
   const [searchLoading, setSearchLoading] = React.useState(false);
   const [searchResultsWithStatus, setSearchResultsWithStatus] = React.useState([]);
-  const [loading, setLoading] = React.useState(false); // Start with false - show UI immediately
-  const [loadingUserData, setLoadingUserData] = React.useState(false);
-  const { isDarkMode } = useTheme();
-  const { user } = useAuth();
-  
-  const bgColor = isDarkMode ? '#1A1A1A' : '#EEEDEB';
-  const surfaceColor = isDarkMode ? '#2A2A2A' : '#F5F4F2';
-  const textColor = isDarkMode ? '#E6E8F0' : '#1A1A1A';
-  const subTextColor = isDarkMode ? '#8A90A6' : '#666666';
-  const dividerColor = isDarkMode ? '#3A3A3A' : '#D0CFCD';
+  const [loading, setLoading] = React.useState(false); // Start with false to show UI immediately
 
-  // Removed friend requests subscription - using direct add friend now
+  const colors = {
+    bg: isDarkMode ? '#1A1A1A' : '#EEEDEB',
+    surface: isDarkMode ? '#2A2A2A' : '#F5F4F2',
+    text: isDarkMode ? '#E6E8F0' : '#1A1A1A',
+    subText: isDarkMode ? '#8A90A6' : '#666666',
+    divider: isDarkMode ? '#3A3A3A' : '#D0CFCD',
+    primary: '#990000',
+  };
 
-  // Subscribe to friends list
+  /** Load friends list and fetch user data - optimized for fast initial load */
   React.useEffect(() => {
-    if (!user) {
-      return;
-    }
+    if (!user) return;
 
-    const unsubscribe = subscribeToFriends(user.uid, (result) => {
-      if (result.error) {
-        console.error('❌ Error getting friends:', result.error);
-        setLoading(false);
-        return;
-      }
+    // Fast initial load: fetch friends list immediately (one-time read)
+    let isMounted = true;
+    let unsubscribe = null;
 
-      setFriends(result.friends);
-      setLoading(false); // Stop loading spinner once we have friends list
+    const loadFriends = async () => {
+      try {
+        // Fetch initial friends list quickly (one-time read, faster than waiting for subscription)
+        const initialResult = await getFriends(user.uid);
+        if (!isMounted) return;
 
-      // Fetch user data for each friend in background
-      if (result.friends.length > 0) {
-        // Show friends immediately with placeholder data
-        const friendsWithPlaceholders = result.friends.map((friendId) => ({
-          username: 'Loading...',
-          name: 'Loading...',
-          avatar: null,
-          uid: friendId,
-        }));
-        setFriendsWithUserData(friendsWithPlaceholders);
+        const friendIds = initialResult.friends || [];
+        setFriends(friendIds);
 
-        // Fetch user data in parallel (faster)
-        const userDataPromises = result.friends.map(async (friendId) => {
+        if (!friendIds.length) {
+          setFriendsWithData([]);
+        } else {
+          // Show placeholders immediately
+          setFriendsWithData(friendIds.map((uid) => ({
+            uid,
+            username: 'Loading...',
+            name: 'Loading...',
+            avatar: null,
+          })));
+
+          // Fetch friend data in parallel (optimized)
           try {
-            const { userData } = await getUserData(friendId);
-            return userData || { username: 'Unknown', name: 'Unknown User', avatar: null, uid: friendId };
-          } catch (error) {
-            console.error('Error fetching friend data:', error);
-            return { username: 'Unknown', name: 'Unknown User', avatar: null, uid: friendId };
+            const friendData = await Promise.all(
+              friendIds.map(async (uid) => {
+                try {
+                  const { userData } = await getUserData(uid);
+                  return userData || { uid, username: 'Unknown', name: 'Unknown User', avatar: null };
+                } catch {
+                  return { uid, username: 'Unknown', name: 'Unknown User', avatar: null };
+                }
+              })
+            );
+            if (isMounted) {
+              setFriendsWithData(friendData);
+            }
+          } catch (err) {
+            console.error('Error fetching friend data:', err);
           }
-        });
-        
-        // Update as data loads (don't wait for all)
-        Promise.all(userDataPromises).then((friendsWithData) => {
-          setFriendsWithUserData(friendsWithData);
-        });
-      } else {
-        setFriendsWithUserData([]);
+        }
+      } catch (err) {
+        console.error('Error loading initial friends:', err);
       }
-    });
 
-    return () => unsubscribe();
+      // Then subscribe for real-time updates (non-blocking)
+      unsubscribe = subscribeToFriends(user.uid, async (result) => {
+        if (!isMounted) return;
+
+        if (result.error) {
+          console.error('Error in friends subscription:', result.error);
+          return;
+        }
+
+        const friendIds = result.friends || [];
+        setFriends(friendIds);
+
+        if (!friendIds.length) {
+          setFriendsWithData([]);
+          return;
+        }
+
+        // Update placeholders if needed - use current state via callback
+        setFriendsWithData((prev) => {
+          const currentIds = new Set(prev.map(f => f.uid));
+          const newIds = new Set(friendIds);
+          const hasChanges = friendIds.length !== prev.length || 
+            friendIds.some(id => !currentIds.has(id)) ||
+            prev.some(f => !newIds.has(f.uid));
+
+          if (!hasChanges) {
+            return prev; // No changes, keep existing data
+          }
+
+          // Show placeholders for new friends, keep existing loaded data
+          const prevMap = new Map(prev.map(f => [f.uid, f]));
+          const updated = friendIds.map((uid) => {
+            const existing = prevMap.get(uid);
+            if (existing && existing.username !== 'Loading...') {
+              return existing; // Keep loaded data
+            }
+            return {
+              uid,
+              username: 'Loading...',
+              name: 'Loading...',
+              avatar: null,
+            };
+          });
+
+          // Fetch data for new friends only (in background)
+          const newFriendIds = friendIds.filter(id => !currentIds.has(id));
+          if (newFriendIds.length > 0) {
+            // Don't await - fetch in background
+            Promise.all(
+              newFriendIds.map(async (uid) => {
+                try {
+                  const { userData } = await getUserData(uid);
+                  return userData || { uid, username: 'Unknown', name: 'Unknown User', avatar: null };
+                } catch {
+                  return { uid, username: 'Unknown', name: 'Unknown User', avatar: null };
+                }
+              })
+            ).then((newFriendData) => {
+              if (isMounted) {
+                // Use current friendIds from the latest subscription update
+                setFriendsWithData((current) => {
+                  const currentMap = new Map(current.map(f => [f.uid, f]));
+                  newFriendData.forEach(f => currentMap.set(f.uid, f));
+                  // Use the latest friendIds from state (setFriends was called earlier)
+                  const latestFriendIds = friendIds; // Captured from subscription callback
+                  return latestFriendIds.map(uid => currentMap.get(uid) || {
+                    uid,
+                    username: 'Loading...',
+                    name: 'Loading...',
+                    avatar: null,
+                  });
+                });
+              }
+            }).catch((err) => {
+              console.error('Error fetching new friend data:', err);
+            });
+          }
+
+          return updated;
+        });
+      });
+    };
+
+    loadFriends();
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe && typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
   }, [user]);
 
-  // Removed accept/decline handlers - using direct add friend now
-
-  // Search for users by username (with debouncing)
+  /** Handle user search with debounce */
   React.useEffect(() => {
-    if (!user) {
-      return;
-    }
-
-    // Clear search results if search query is empty
+    if (!user) return;
     if (!searchQuery.trim()) {
       setSearchResults([]);
       setSearchResultsWithStatus([]);
       return;
     }
 
-    // Debounce search - wait 300ms after user stops typing (faster)
-    const searchTimeout = setTimeout(async () => {
+    const timeout = setTimeout(async () => {
       setSearchLoading(true);
-      
       try {
-        const { users, error } = await searchUsersByUsername(searchQuery.trim());
-        
-        if (error) {
-          console.error('Search error:', error);
-          setSearchResults([]);
-          setSearchResultsWithStatus([]);
-          setSearchLoading(false);
-          return;
-        }
+        const result = await searchUsersByUsername(searchQuery.trim());
+        const users = Array.isArray(result?.users) ? result.users : [];
+        const filtered = users.filter((u) => u?.uid !== user.uid);
 
-        // Filter out current user from results
-        const filteredUsers = users.filter((u) => u.uid !== user.uid);
-        setSearchResults(filteredUsers);
-
-        // Show results immediately without friendship status (optimistic UI)
-        setSearchResultsWithStatus(filteredUsers.map(userData => ({
-          ...userData,
-          isFriend: false, // Will update below
-        })));
-
-        // Check friendship status in parallel (faster)
-        // Use the current friends list if available to avoid individual queries
+        // Optimistic UI - use cached friends list if available (optimized)
         const friendsSet = new Set(friends);
-        const usersWithStatus = filteredUsers.map((userData) => ({
-          ...userData,
-          isFriend: friendsSet.has(userData.uid), // Use cached friends list
-        }));
+        setSearchResults(filtered);
+        setSearchResultsWithStatus(
+          filtered.map((u) => ({
+            ...u,
+            isFriend: friendsSet.has(u.uid), // Optimized: uses cached friends array
+          }))
+        );
 
-        // If friends list isn't loaded yet, check individually (but don't block UI)
-        if (friends.length === 0) {
-          // Background check for friendship status
-          Promise.all(
-            filteredUsers.map(async (userData) => {
+        // Background check if friends list not loaded yet (fallback)
+        if (!friends.length) {
+          const statuses = await Promise.all(
+            filtered.map(async (u) => {
               try {
-                const areFriends = await checkFriendship(user.uid, userData.uid);
-                return { uid: userData.uid, isFriend: areFriends };
-              } catch (error) {
-                console.error('Error checking friendship for user:', error);
-                return { uid: userData.uid, isFriend: false };
+                // Query Firestore when friends array not available
+                const isFriend = await checkFriendship(user.uid, u.uid);
+                return { uid: u.uid, isFriend };
+              } catch {
+                return { uid: u.uid, isFriend: false };
               }
             })
-          ).then((friendshipStatuses) => {
-            // Update only the friendship status without re-fetching all data
-            setSearchResultsWithStatus((prev) =>
-              prev.map((user) => {
-                const status = friendshipStatuses.find((s) => s.uid === user.uid);
-                return status ? { ...user, isFriend: status.isFriend } : user;
-              })
-            );
-          });
-        } else {
-          // Use cached friends list
-          setSearchResultsWithStatus(usersWithStatus);
+          );
+          setSearchResultsWithStatus((prev) =>
+            prev.map((u) => {
+              const status = statuses.find((s) => s.uid === u.uid);
+              return status ? { ...u, isFriend: status.isFriend } : u;
+            })
+          );
         }
-      } catch (error) {
-        console.error('Error in search effect:', error);
+      } catch (err) {
+        console.error('Search error:', err);
         setSearchResults([]);
         setSearchResultsWithStatus([]);
       } finally {
         setSearchLoading(false);
       }
-    }, 300); // 300ms debounce (faster response)
+    }, 300);
 
-    return () => clearTimeout(searchTimeout);
-  }, [searchQuery, user, friends]); // Include friends in dependencies
+    return () => clearTimeout(timeout);
+  }, [searchQuery, user, friends]);
 
-  // Handle add friend from search results (direct mutual friendship)
-  const handleAddFriend = async (targetUserId) => {
-    if (!user || targetUserId === user.uid) {
-      return;
-    }
-
+  /** Add a friend */
+  const handleAddFriend = React.useCallback(async (targetUid) => {
+    if (!user || targetUid === user.uid) return;
     try {
-      const result = await addFriend(user.uid, targetUserId);
-      
-      if (result.success) {
+      const result = await addFriend(user.uid, targetUid);
+      if (result.success || result.error === 'Already friends') {
         Alert.alert('Success', 'Friend added!', [{ text: 'OK' }]);
-        // Update the search result status
         setSearchResultsWithStatus((prev) =>
-          prev.map((u) =>
-            u.uid === targetUserId
-              ? { ...u, isFriend: true }
-              : u
-          )
-        );
-      } else if (result.error === 'Already friends') {
-        Alert.alert('Already Friends', 'You are already friends with this user.', [{ text: 'OK' }]);
-        // Update status
-        setSearchResultsWithStatus((prev) =>
-          prev.map((u) => (u.uid === targetUserId ? { ...u, isFriend: true } : u))
+          prev.map((u) => (u.uid === targetUid ? { ...u, isFriend: true } : u))
         );
       } else {
         Alert.alert('Error', result.error || 'Failed to add friend', [{ text: 'OK' }]);
       }
-    } catch (error) {
-      console.error('Error adding friend:', error);
+    } catch (err) {
+      console.error('Error adding friend:', err);
       Alert.alert('Error', 'Failed to add friend. Please try again.', [{ text: 'OK' }]);
     }
-  };
+  }, [user]);
 
   if (!user) {
     return (
-      <View style={{ flex: 1, backgroundColor: bgColor, justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ color: subTextColor }}>Please sign in to view friends</Text>
+      <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: colors.subText }}>Please sign in to view friends</Text>
       </View>
     );
   }
 
-  // Only show loading spinner on initial load (wait for subscription to connect)
-  // Show UI immediately once we have friends data (even if user data is still loading)
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: bgColor, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#990000" />
+      <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: bgColor }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
-        {/* Search for new users */}
-        <Text style={{ color: textColor, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
-          Find Friends
-        </Text>
-        <Searchbar 
-          placeholder="Search by username..." 
-          onChangeText={setSearchQuery} 
-          value={searchQuery} 
-          style={{ backgroundColor: surfaceColor, marginBottom: 12 }} 
-          inputStyle={{ color: textColor }} 
-          iconColor={subTextColor}
-          placeholderTextColor={subTextColor}
+        {/* Search */}
+        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>Find Friends</Text>
+        <Searchbar
+          placeholder="Search by username..."
+          onChangeText={setSearchQuery}
+          value={searchQuery}
+          style={{ backgroundColor: colors.surface, marginBottom: 12 }}
+          inputStyle={{ color: colors.text }}
+          iconColor={colors.subText}
+          placeholderTextColor={colors.subText}
         />
-        
+
         {/* Search Results */}
-        {searchQuery.trim() && (
+        {searchQuery.trim() ? (
           <View style={{ marginBottom: 24 }}>
             {searchLoading ? (
               <View style={{ padding: 20, alignItems: 'center' }}>
-                <ActivityIndicator size="small" color="#990000" />
-                <Text style={{ color: subTextColor, marginTop: 8, fontSize: 14 }}>Searching...</Text>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={{ color: colors.subText, marginTop: 8, fontSize: 14 }}>Searching...</Text>
               </View>
-            ) : searchResultsWithStatus.length > 0 ? (
-              <View style={{ backgroundColor: surfaceColor, borderRadius: 16, overflow: 'hidden' }}>
-                {searchResultsWithStatus.map((userData, idx) => (
-                  <View key={userData.uid}>
-                    <View 
-                      style={{ 
-                        flexDirection: 'row', 
-                        alignItems: 'center', 
-                        justifyContent: 'space-between',
-                        padding: 12,
-                      }}
-                    >
+            ) : searchResultsWithStatus.length ? (
+              <View style={{ backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden' }}>
+                {searchResultsWithStatus.map((u, idx) => (
+                  <View key={u.uid}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                        <Avatar.Image 
-                          size={40} 
-                          source={{ uri: userData.avatar || 'https://i.pravatar.cc/100?img=12' }} 
-                        />
+                        <Avatar.Image size={40} source={{ uri: u.avatar || 'https://i.pravatar.cc/100?img=12' }} />
                         <View style={{ flex: 1 }}>
-                          <Text style={{ color: textColor, fontSize: 14, fontWeight: '600' }}>
-                            {userData.name || 'Unknown User'}
-                          </Text>
-                          <Text style={{ color: subTextColor, fontSize: 12 }}>
-                            @{userData.username || 'unknown'}
-                          </Text>
+                          <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600' }}>{u.name || 'Unknown User'}</Text>
+                          <Text style={{ color: colors.subText, fontSize: 12 }}>@{u.username || 'unknown'}</Text>
                         </View>
                       </View>
-                      {userData.isFriend ? (
-                        <Button 
-                          mode="outlined" 
-                          textColor={subTextColor}
-                          compact
-                          disabled
-                          icon="account-check"
-                        >
-                          Friends
-                        </Button>
+                      {u.isFriend ? (
+                        <Button mode="outlined" textColor={colors.subText} compact disabled icon="account-check">Friends</Button>
                       ) : (
-                        <Button 
-                          mode="contained" 
-                          buttonColor="#990000"
-                          textColor="#FFFFFF"
-                          compact
-                          onPress={() => handleAddFriend(userData.uid)}
-                          icon="account-plus"
-                        >
-                          Add Friend
-                        </Button>
+                        <Button mode="contained" buttonColor={colors.primary} textColor="#fff" compact onPress={() => handleAddFriend(u.uid)} icon="account-plus">Add Friend</Button>
                       )}
                     </View>
-                    {idx < searchResultsWithStatus.length - 1 && (
-                      <Divider style={{ backgroundColor: dividerColor }} />
-                    )}
+                    {idx < searchResultsWithStatus.length - 1 && <Divider style={{ backgroundColor: colors.divider }} />}
                   </View>
                 ))}
               </View>
             ) : (
               <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={{ color: subTextColor, textAlign: 'center', fontSize: 14, marginBottom: 8 }}>
-                  No users found
-                </Text>
-                <Text style={{ color: subTextColor, textAlign: 'center', fontSize: 12 }}>
-                  Make sure you're typing the exact username
-                </Text>
+                <Text style={{ color: colors.subText, textAlign: 'center', fontSize: 14, marginBottom: 8 }}>No users found</Text>
+                <Text style={{ color: colors.subText, textAlign: 'center', fontSize: 12 }}>Check spelling or try another username</Text>
               </View>
             )}
           </View>
-        )}
+        ) : null}
 
-        <Text style={{ color: subTextColor, marginVertical: 6, marginTop: 20, fontSize: 14, fontWeight: '600' }}>
-          Friends ({friendsWithUserData.length})
-        </Text>
-        {friendsWithUserData.length > 0 ? (
-          <View style={{ backgroundColor: surfaceColor, borderRadius: 16 }}>
-            {friendsWithUserData.map((friend, idx) => (
-              <View key={friend?.uid || idx}>
-                <List.Item 
-                  title={friend?.name || 'Unknown User'} 
-                  description={`@${friend?.username || 'unknown'}`}
-                  titleStyle={{ color: textColor }} 
-                  descriptionStyle={{ color: subTextColor, fontSize: 12 }}
-                  left={() => (
-                    <Avatar.Image 
-                      size={36} 
-                      source={{ uri: friend?.avatar || 'https://i.pravatar.cc/100?img=12' }} 
-                    />
-                  )} 
+        {/* Friends List */}
+        <Text style={{ color: colors.subText, marginVertical: 6, fontSize: 14, fontWeight: '600' }}>Friends ({friendsWithData.length})</Text>
+        {friendsWithData.length ? (
+          <View style={{ backgroundColor: colors.surface, borderRadius: 16 }}>
+            {friendsWithData.map((f, idx) => (
+              <View key={f.uid || idx}>
+                <List.Item
+                  title={f.name || 'Unknown User'}
+                  description={`@${f.username || 'unknown'}`}
+                  titleStyle={{ color: colors.text }}
+                  descriptionStyle={{ color: colors.subText, fontSize: 12 }}
+                  left={() => <Avatar.Image size={36} source={{ uri: f.avatar || 'https://i.pravatar.cc/100?img=12' }} />}
                 />
-                {idx < friendsWithUserData.length - 1 && <Divider style={{ backgroundColor: dividerColor }} />}
+                {idx < friendsWithData.length - 1 && <Divider style={{ backgroundColor: colors.divider }} />}
               </View>
             ))}
           </View>
         ) : (
-          <Text style={{ color: subTextColor, textAlign: 'center', padding: 10 }}>Empty</Text>
+          <Text style={{ color: colors.subText, textAlign: 'center', padding: 10 }}>Empty</Text>
         )}
       </ScrollView>
     </View>
   );
 }
-

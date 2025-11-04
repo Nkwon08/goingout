@@ -3,7 +3,6 @@ import * as React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import AccountScreen from '../screens/AccountScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
-import MigrateUsernamesScreen from '../screens/MigrateUsernamesScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -16,7 +15,6 @@ export default function AccountStack() {
     >
       <Stack.Screen name="AccountMain" component={AccountScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-      <Stack.Screen name="MigrateUsernames" component={MigrateUsernamesScreen} />
     </Stack.Navigator>
   );
 }

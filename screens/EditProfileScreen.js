@@ -121,7 +121,7 @@ export default function EditProfileScreen({ navigation }) {
       const updateData = {
         name: name.trim(),
         username: finalUsername,
-        usernameLowercase: finalUsername.trim().toLowerCase(), // For faster username search (trim again to be safe)
+        username_lowercase: finalUsername.trim().toLowerCase(), // For faster username search (trim again to be safe)
         avatar: profilePicture || userData?.avatar || '',
         bio: bio.trim() || null,
         age: age ? parseInt(age) : null,

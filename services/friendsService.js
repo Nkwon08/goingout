@@ -1,17 +1,22 @@
 // Friends service - handles friendships using simple array structure
 //
-// DATABASE STRUCTURE:
+// DATABASE STRUCTURE (matches Firestore schema):
 // ==================
 // users (collection):
-//   userId (document ID):
-//     username: string
-//     email: string
-//     friends: [userId1, userId2, ...]  // Array of friend user IDs
+//   userId (document ID = Firebase Auth UID):
+//     uid: string (matches document ID)
+//     username: string (case-sensitive for display)
+//     username_lowercase: string (lowercase for case-insensitive search)
+//     email: string (Firebase Auth email)
+//     name: string (full name for display)
+//     avatar: string (URL for profile picture)
+//     friends: [userId1, userId2, ...]  // Array of friend UIDs (strings)
+//     createdAt: timestamp (optional, useful for sorting/debugging)
 //     otherProfileInfo: {...}
 //
 // DESIGN DECISIONS:
 // ================
-// 1. Simple Array Storage:
+// 1. Simple Array Storage:  
 //    - Each user document has a `friends` array field
 //    - When adding a friend, both users get each other in their arrays
 //    - Uses Firestore `arrayUnion` to avoid duplicates
@@ -43,64 +48,71 @@ import {
   onSnapshot,
   arrayUnion,
   arrayRemove,
+  runTransaction,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
-// Add a friend (mutual friendship)
-// Adds friendId to currentUser's friends array and currentUserId to friend's friends array
-// Returns: { success: boolean, error: string }
+/**
+ * Add friend (mutual)
+ * Adds friendId to currentUser's friends array and currentUserId to friend's friends array
+ * Uses transaction for atomic updates (both users updated together or neither)
+ * @param {string} currentUserId
+ * @param {string} friendUserId
+ * @returns {Promise<{ success: boolean, error: string|null }>}
+ */
 export const addFriend = async (currentUserId, friendUserId) => {
   try {
-    console.log('👥 Adding friend:', currentUserId, '→', friendUserId);
-    
-    // Check if Firestore is configured
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
       return { success: false, error: 'Firestore not configured' };
     }
 
-    // Prevent self-friend
-    if (currentUserId === friendUserId) {
-      return { success: false, error: 'Cannot add yourself as a friend' };
+    if (!currentUserId || !friendUserId || currentUserId === friendUserId) {
+      return { success: false, error: 'Invalid friend IDs' };
     }
 
-    // Check if already friends
-    const areFriends = await checkFriendship(currentUserId, friendUserId);
-    if (areFriends) {
-      return { success: false, error: 'Already friends' };
-    }
-
-    // Check if friend user exists
-    const friendUserRef = doc(db, 'users', friendUserId);
-    const friendUserDoc = await getDoc(friendUserRef);
-    if (!friendUserDoc.exists()) {
-      return { success: false, error: 'User not found' };
-    }
-
-    // Update both users' friends arrays atomically
     const currentUserRef = doc(db, 'users', currentUserId);
     const friendRef = doc(db, 'users', friendUserId);
 
-    // Use arrayUnion to add friend IDs (prevents duplicates)
-    await Promise.all([
-      updateDoc(currentUserRef, {
+    // Use transaction to ensure atomic updates (both users updated together or neither)
+    await runTransaction(db, async (transaction) => {
+      // Read both documents in the transaction
+      const [currentUserDoc, friendDoc] = await Promise.all([
+        transaction.get(currentUserRef),
+        transaction.get(friendRef),
+      ]);
+
+      if (!currentUserDoc.exists() || !friendDoc.exists()) {
+        throw new Error('User not found');
+      }
+
+      const currentUserData = currentUserDoc.data();
+      const friendData = friendDoc.data();
+
+      // Check if already friends
+      if ((currentUserData.friends || []).includes(friendUserId)) {
+        throw new Error('Already friends');
+      }
+
+      // Add each other atomically
+      transaction.update(currentUserRef, {
         friends: arrayUnion(friendUserId),
         updatedAt: serverTimestamp(),
-      }),
-      updateDoc(friendRef, {
+      });
+
+      transaction.update(friendRef, {
         friends: arrayUnion(currentUserId),
         updatedAt: serverTimestamp(),
-      }),
-    ]);
+      });
+    });
 
-    console.log('✅ Friend added successfully');
     return { success: true, error: null };
   } catch (error) {
-    console.error('❌ Error adding friend:', error);
+    console.error('❌ addFriend error:', error);
     return { success: false, error: error.message || 'Failed to add friend' };
   }
 };
 
-// Remove a friend (unfriend)
+// Remove a friend (unfriend) - uses transaction for atomic updates
 // Removes friendId from currentUser's friends array and currentUserId from friend's friends array
 // Returns: { success: boolean, error: string }
 export const removeFriend = async (currentUserId, friendId) => {
@@ -111,23 +123,35 @@ export const removeFriend = async (currentUserId, friendId) => {
       return { success: false, error: 'Firestore not configured' };
     }
 
-    // Update both users' friends arrays atomically
-    const currentUserRef = doc(db, 'users', currentUserId);
-    const friendRef = doc(db, 'users', friendId);
+    // Use transaction to ensure atomic updates (both users updated together or neither)
+    await runTransaction(db, async (transaction) => {
+      const currentUserRef = doc(db, 'users', currentUserId);
+      const friendRef = doc(db, 'users', friendId);
 
-    // Use arrayRemove to remove friend IDs
-    await Promise.all([
-      updateDoc(currentUserRef, {
+      // Read both documents in the transaction
+      const [currentUserDoc, friendDoc] = await Promise.all([
+        transaction.get(currentUserRef),
+        transaction.get(friendRef),
+      ]);
+
+      // Check if documents exist
+      if (!currentUserDoc.exists() || !friendDoc.exists()) {
+        throw new Error('User not found');
+      }
+
+      // Update both users' friends arrays atomically within transaction
+      transaction.update(currentUserRef, {
         friends: arrayRemove(friendId),
         updatedAt: serverTimestamp(),
-      }),
-      updateDoc(friendRef, {
+      });
+
+      transaction.update(friendRef, {
         friends: arrayRemove(currentUserId),
         updatedAt: serverTimestamp(),
-      }),
-    ]);
+      });
+    });
 
-    console.log('✅ Friend removed successfully');
+    console.log('✅ Friend removed successfully (atomic update)');
     return { success: true, error: null };
   } catch (error) {
     console.error('❌ Error removing friend:', error);
@@ -136,14 +160,25 @@ export const removeFriend = async (currentUserId, friendId) => {
 };
 
 // Check if two users are friends
-// Returns: boolean
-export const checkFriendship = async (userId1, userId2) => {
+// Optimized: if friends array is provided, use it directly (no Firestore query)
+// Otherwise, query Firestore (slower but works when friends array not available)
+// Usage:
+//   - Optimized: checkFriendship(friendsArray, targetUserId) - returns boolean immediately
+//   - Fallback: checkFriendship(userId1, userId2) - queries Firestore, returns Promise<boolean>
+// Returns: boolean (if friends array provided) or Promise<boolean> (if querying Firestore)
+export const checkFriendship = async (userId1OrFriendsArray, userId2) => {
+  // If first argument is an array, use optimized check (no Firestore query)
+  if (Array.isArray(userId1OrFriendsArray)) {
+    return userId1OrFriendsArray.includes(userId2);
+  }
+  
+  // Otherwise, query Firestore (backward compatibility)
   try {
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
       return false;
     }
 
-    // Check if userId2 is in userId1's friends array
+    const userId1 = userId1OrFriendsArray; // First arg is userId when not an array
     const userRef = doc(db, 'users', userId1);
     const userDoc = await getDoc(userRef);
 
@@ -185,7 +220,24 @@ export const getFriends = async (userId) => {
     return { friends, error: null };
   } catch (error) {
     console.error('❌ Error getting friends:', error);
-    return { friends: [], error: error.message };
+    console.error('❌ Error code:', error.code);
+    console.error('❌ Error message:', error.message);
+    
+    // Handle different error types
+    if (error.code === 'unavailable') {
+      // unavailable can mean offline OR connection issues
+      return { friends: [], error: 'Unable to connect to database. Please check your internet connection and try again.' };
+    }
+    if (error.code === 'deadline-exceeded') {
+      return { friends: [], error: 'Request timed out. Please check your internet connection and try again.' };
+    }
+    if (error.code === 'permission-denied') {
+      return { friends: [], error: 'Permission denied. Please check Firestore security rules.' };
+    }
+    if (error.message?.includes('offline') || error.message?.includes('network')) {
+      return { friends: [], error: 'Network error. Please check your internet connection and try again.' };
+    }
+    return { friends: [], error: error.message || 'Failed to get friends' };
   }
 };
 
@@ -217,7 +269,19 @@ export const subscribeToFriends = (userId, callback) => {
       },
       (error) => {
         console.error('❌ Friends subscription error:', error);
-        callback({ friends: [], error: error.message });
+        console.error('❌ Error code:', error.code);
+        console.error('❌ Error message:', error.message);
+        
+        // Handle different error types
+        if (error.code === 'unavailable') {
+          callback({ friends: [], error: 'Unable to connect to database. Please check your internet connection and try again.' });
+        } else if (error.code === 'permission-denied') {
+          callback({ friends: [], error: 'Permission denied. Please check Firestore security rules.' });
+        } else if (error.message?.includes('offline') || error.message?.includes('network')) {
+          callback({ friends: [], error: 'Network error. Please check your internet connection and try again.' });
+        } else {
+          callback({ friends: [], error: error.message || 'Failed to subscribe to friends' });
+        }
       }
     );
 
