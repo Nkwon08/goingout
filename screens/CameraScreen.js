@@ -6,7 +6,12 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Text } from 'react-native-paper';
 import { useGroupPhotos } from '../context/GroupPhotosContext';
 import MediaPreview from '../components/MediaPreview';
+import ComposePost from '../components/ComposePost';
 import { groups } from '../data/mock';
+import { useAuth } from '../context/AuthContext';
+import { useNavigation } from '@react-navigation/native';
+import { uploadImages } from '../services/storageService';
+import { createPost } from '../services/postsService';
 
 const IU_CRIMSON = '#990000';
 
@@ -23,6 +28,10 @@ export default function CameraScreen() {
   const { addPhoto, addVideo } = useGroupPhotos();
   const cameraRef = React.useRef(null);
   const cameraReadyRef = React.useRef(false);
+  const [composeVisible, setComposeVisible] = React.useState(false);
+  const [submitting, setSubmitting] = React.useState(false);
+  const { user, userData } = useAuth();
+  const navigation = useNavigation();
 
   // Request microphone permission for video recording
   React.useEffect(() => {
@@ -294,6 +303,83 @@ export default function CameraScreen() {
     setPreviewVisible(false);
   };
 
+  const handlePostPublicly = () => {
+    if (!capturedMedia) {
+      Alert.alert('Error', 'No media to post.');
+      return;
+    }
+    setPreviewVisible(false);
+    setComposeVisible(true);
+  };
+
+  const handlePostSubmit = async (postData) => {
+    if (!user) {
+      Alert.alert('Error', 'Please sign in to create a post');
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      // Upload images if any
+      let imageUrls = postData.images && Array.isArray(postData.images) && postData.images.length > 0 
+        ? postData.images 
+        : postData.image 
+          ? [postData.image] 
+          : [];
+      
+      // If images are local URIs, upload them to Firebase Storage
+      if (imageUrls.length > 0 && imageUrls[0]?.startsWith('file://')) {
+        const uploadResult = await uploadImages(imageUrls, user.uid, 'posts');
+        
+        if (uploadResult.errors && uploadResult.errors.length > 0) {
+          throw new Error('Failed to upload some images: ' + uploadResult.errors.join(', '));
+        }
+        imageUrls = uploadResult.urls || [];
+      }
+
+      // Prepare post data
+      if (!postData.location || !postData.location.trim()) {
+        throw new Error('Location is required for all posts');
+      }
+
+      const currentUserData = userData || {
+        name: user.displayName || user.email || 'User',
+        username: user.email?.split('@')[0] || 'user',
+        avatar: user.photoURL || null,
+      };
+
+      const postPayload = {
+        text: postData.text || '',
+        location: postData.location.trim(),
+        image: imageUrls.length > 0 ? imageUrls[0] : null,
+        images: imageUrls.length > 0 ? imageUrls : null,
+        visibility: postData.visibility || 'location',
+        bar: postData.bar || null,
+      };
+
+      // Create post
+      const result = await createPost(user.uid, currentUserData, postPayload);
+      
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      // Close modal and reset
+      setComposeVisible(false);
+      setCapturedMedia(null);
+      setSubmitting(false);
+
+      // Navigate to Activity tab
+      navigation.navigate('Activity', { screen: 'Recent' });
+      
+    } catch (error) {
+      console.error('Error creating post:', error);
+      Alert.alert('Error', error.message || 'Failed to create post. Please try again.');
+      setSubmitting(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <CameraView
@@ -363,7 +449,27 @@ export default function CameraScreen() {
         groups={groups}
         onDelete={handleDeleteMedia}
         onAddToGroup={handleAddToGroup}
+        onPostPublicly={handlePostPublicly}
         onCancel={handleCancelPreview}
+      />
+
+      {/* Compose Post Modal */}
+      <ComposePost
+        visible={composeVisible}
+        onClose={() => {
+          setComposeVisible(false);
+          setCapturedMedia(null);
+        }}
+        onSubmit={handlePostSubmit}
+        currentUser={{
+          ...(userData || { 
+            name: user?.displayName || user?.email || 'User', 
+            username: user?.email?.split('@')[0] || 'user'
+          }),
+          uid: user?.uid
+        }}
+        submitting={submitting}
+        initialImages={capturedMedia?.type === 'photo' ? [capturedMedia.uri] : []}
       />
     </View>
   );

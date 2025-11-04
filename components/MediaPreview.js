@@ -6,7 +6,7 @@ import { Video } from 'expo-av';
 
 const IU_CRIMSON = '#990000';
 
-export default function MediaPreview({ visible, media, onDelete, onAddToGroup, onPostToFeed, onCancel, groups }) {
+export default function MediaPreview({ visible, media, onDelete, onAddToGroup, onPostToFeed, onPostPublicly, onCancel, groups }) {
   const [selectedGroup, setSelectedGroup] = React.useState(null);
   const isVideo = media?.type === 'video';
 
@@ -39,10 +39,10 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
               <Text style={styles.deleteText}>Delete</Text>
             </TouchableOpacity>
 
-            {onPostToFeed && (
-              <TouchableOpacity style={styles.postButton} onPress={onPostToFeed}>
+            {onPostPublicly && (
+              <TouchableOpacity style={styles.postButton} onPress={onPostPublicly}>
                 <MaterialCommunityIcons name="share-outline" size={24} color="#FFFFFF" />
-                <Text style={[styles.postText, { marginLeft: 8 }]}>Post to Feed</Text>
+                <Text style={[styles.postText, { marginLeft: 8 }]}>Post</Text>
               </TouchableOpacity>
             )}
 
@@ -86,15 +86,15 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
             <Button mode="outlined" textColor="#FFFFFF" onPress={onCancel}>
               Cancel
             </Button>
-            {onPostToFeed && (
+            {onPostPublicly && (
               <Button
                 mode="contained"
                 buttonColor={IU_CRIMSON}
                 textColor="#FFFFFF"
-                onPress={onPostToFeed}
+                onPress={onPostPublicly}
                 style={{ marginRight: 8 }}
               >
-                Post to Feed
+                Post
               </Button>
             )}
             <Button
