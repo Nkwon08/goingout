@@ -14,7 +14,8 @@
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to take photos and videos",
           "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone to record audio with videos"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -25,15 +26,25 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Allow access to your camera to take photos and videos",
-        "NSMicrophoneUsageDescription": "Allow access to your microphone to record audio with videos"
-      }
+        "NSMicrophoneUsageDescription": "Allow access to your microphone to record audio with videos",
+        "NSLocationWhenInUseUsageDescription": "Allow access to your location to show nearby posts and events",
+        "NSLocationAlwaysUsageDescription": "Allow access to your location to show nearby posts and events"
+      },
+      "bundleIdentifier": "com.anonymous.outlink"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ],
+      "package": "com.anonymous.outlink"
     },
     "web": {
       "favicon": "./assets/favicon.png"

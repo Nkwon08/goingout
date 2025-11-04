@@ -1,11 +1,15 @@
+// Theme context - manages dark/light mode for the entire app
 import * as React from 'react';
 import { createContext, useContext, useState } from 'react';
 
 const ThemeContext = createContext();
 
+// Provider component - wraps app to provide theme state
 export function ThemeProvider({ children }) {
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  // Track if dark mode is enabled - default to dark mode
+  const [isDarkMode, setIsDarkMode] = useState(true);
 
+  // Toggle between dark and light mode
   const toggleTheme = () => {
     setIsDarkMode((prev) => !prev);
   };
@@ -17,6 +21,7 @@ export function ThemeProvider({ children }) {
   );
 }
 
+// Hook to use theme context in components
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (!context) {

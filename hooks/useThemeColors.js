@@ -1,8 +1,10 @@
+// Hook to get theme colors based on dark/light mode
 import { useTheme } from '../context/ThemeContext';
 
 export function useThemeColors() {
   const { isDarkMode } = useTheme();
 
+  // Return color palette that changes based on theme
   return {
     isDarkMode,
     background: isDarkMode ? '#1A1A1A' : '#EEEDEB',
@@ -11,7 +13,6 @@ export function useThemeColors() {
     subText: isDarkMode ? '#8A90A6' : '#666666',
     divider: isDarkMode ? '#3A3A3A' : '#D0CFCD',
     border: isDarkMode ? '#3A3A3A' : '#D0CFCD',
-    // Legacy colors for compatibility
     card: isDarkMode ? '#2A2A2A' : '#F5F4F2',
   };
 }

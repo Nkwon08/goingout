@@ -1,3 +1,4 @@
+// Activity screen - main screen with tabs for Feed and Tonight
 import * as React from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
@@ -13,6 +14,7 @@ export default function ActivityScreen() {
   
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: background }} edges={['top']}>
+      {/* Top tab navigator with Feed and Tonight tabs */}
       <TopTab.Navigator
         initialRouteName="Feed"
         screenOptions={{

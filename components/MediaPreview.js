@@ -49,25 +49,29 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
           <View style={styles.groupSelection}>
             <Text style={styles.groupSelectionTitle}>Select Group:</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.groupList}>
-              {groups?.map((group) => (
-                <TouchableOpacity
-                  key={group.id}
-                  style={[
-                    styles.groupChip,
-                    selectedGroup?.id === group.id && styles.groupChipSelected,
-                  ]}
-                  onPress={() => setSelectedGroup(group)}
-                >
-                  <Text
+              {groups && groups.length > 0 ? (
+                groups.map((group) => (
+                  <TouchableOpacity
+                    key={group.id}
                     style={[
-                      styles.groupChipText,
-                      selectedGroup?.id === group.id && styles.groupChipTextSelected,
+                      styles.groupChip,
+                      selectedGroup?.id === group.id && styles.groupChipSelected,
                     ]}
+                    onPress={() => setSelectedGroup(group)}
                   >
-                    {group.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      style={[
+                        styles.groupChipText,
+                        selectedGroup?.id === group.id && styles.groupChipTextSelected,
+                      ]}
+                    >
+                      {group.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              ) : (
+                <Text style={{ color: '#8A90A6', padding: 12 }}>Empty</Text>
+              )}
             </ScrollView>
           </View>
 

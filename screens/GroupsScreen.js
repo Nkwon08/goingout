@@ -8,7 +8,7 @@ import { GiftedChat } from 'react-native-gifted-chat';
 import * as ImagePicker from 'expo-image-picker';
 import GroupCard from '../components/GroupCard';
 import PollCard from '../components/PollCard';
-import { groups, albums, polls } from '../data/mock';
+import { groups, polls } from '../data/mock';
 import { useGroupPhotos } from '../context/GroupPhotosContext';
 import { useThemeColors } from '../hooks/useThemeColors';
 
@@ -17,40 +17,53 @@ const TopTab = createMaterialTopTabNavigator();
 const IU_CRIMSON = '#990000';
 
 function MapTab() {
+  const { background, subText } = useThemeColors();
   const region = { latitude: 37.7749, longitude: -122.4194, latitudeDelta: 0.05, longitudeDelta: 0.05 };
-  const members = [
-    { id: 'm1', name: 'Alex', lat: 37.77, lng: -122.42 },
-    { id: 'm2', name: 'Morgan', lat: 37.78, lng: -122.41 },
-  ];
+  const members = []; // Empty - will come from Firebase
+  
   return (
-    <MapView style={{ flex: 1 }} initialRegion={region}>
-      {members.map((m) => (
-        <Marker key={m.id} coordinate={{ latitude: m.lat, longitude: m.lng }} title={m.name} />
-      ))}
-    </MapView>
+    <View style={{ flex: 1, backgroundColor: background, justifyContent: 'center', alignItems: 'center' }}>
+      {members.length > 0 ? (
+        <MapView style={{ flex: 1 }} initialRegion={region}>
+          {members.map((m) => (
+            <Marker key={m.id} coordinate={{ latitude: m.lat, longitude: m.lng }} title={m.name} />
+          ))}
+        </MapView>
+      ) : (
+        <Text style={{ color: subText }}>Empty</Text>
+      )}
+    </View>
   );
 }
 
 function ChatTab() {
-  const [messages, setMessages] = React.useState([
-    { _id: 1, text: 'Meet at Neon Lounge at 9?', createdAt: new Date(), user: { _id: 2, name: 'Alex' } },
-    { _id: 2, text: 'I’m in!', createdAt: new Date(Date.now() - 1000 * 60), user: { _id: 1, name: 'You' } },
-  ]);
+  const { background, subText } = useThemeColors();
+  const [messages, setMessages] = React.useState([]); // Empty - will come from Firebase
   const onSend = React.useCallback((newMessages = []) => {
     setMessages((prev) => GiftedChat.append(prev, newMessages));
   }, []);
+  
   return (
-    <GiftedChat messages={messages} onSend={(msgs) => onSend(msgs)} user={{ _id: 1, name: 'You' }} />
+    <View style={{ flex: 1, backgroundColor: background }}>
+      {messages.length > 0 ? (
+        <GiftedChat messages={messages} onSend={(msgs) => onSend(msgs)} user={{ _id: 1, name: 'You' }} />
+      ) : (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: subText }}>Empty</Text>
+        </View>
+      )}
+    </View>
   );
 }
 
 function AlbumTab() {
   const { groupPhotos } = useGroupPhotos();
-  const { background, divider } = useThemeColors();
-  const [items, setItems] = React.useState([...albums[0]?.photos?.map(p => ({ type: 'photo', uri: p })) ?? [], ...groupPhotos]);
+  const { background, divider, subText } = useThemeColors();
+  // Remove albums dependency - only use groupPhotos from context
+  const [items, setItems] = React.useState([...groupPhotos]);
   
   React.useEffect(() => {
-    setItems([...albums[0]?.photos?.map(p => ({ type: 'photo', uri: p })) ?? [], ...groupPhotos]);
+    setItems([...groupPhotos]);
   }, [groupPhotos]);
 
   const pick = async () => {
@@ -69,8 +82,9 @@ function AlbumTab() {
   
   return (
     <View style={{ flex: 1, padding: 12, backgroundColor: background }}>
-      <ScrollView contentContainerStyle={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        {items.map((item, i) => {
+      {items.length > 0 ? (
+        <ScrollView contentContainerStyle={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {items.map((item, i) => {
           const uri = typeof item === 'string' ? item : item.uri;
           const isVideo = typeof item === 'object' && item.type === 'video';
           return (
@@ -88,20 +102,29 @@ function AlbumTab() {
             </View>
           );
         })}
-      </ScrollView>
+        </ScrollView>
+      ) : (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: subText }}>Empty</Text>
+        </View>
+      )}
       <FAB icon="plus" onPress={pick} style={{ position: 'absolute', right: 16, bottom: 16, backgroundColor: IU_CRIMSON }} iconColor="#FFFFFF" customSize={56} variant="primary" />
     </View>
   );
 }
 
 function PollsTab() {
-  const { background } = useThemeColors();
+  const { background, subText } = useThemeColors();
   
   return (
     <ScrollView style={{ flex: 1, backgroundColor: background }} contentContainerStyle={{ padding: 12 }}>
-      {polls.map((p) => (
-        <PollCard key={p.id} poll={p} onVote={() => {}} />
-      ))}
+      {polls.length > 0 ? (
+        polls.map((p) => (
+          <PollCard key={p.id} poll={p} onVote={() => {}} />
+        ))
+      ) : (
+        <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>Empty</Text>
+      )}
     </ScrollView>
   );
 }
@@ -136,7 +159,7 @@ function GroupDetail({ onBack }) {
 
 export default function GroupsScreen() {
   const [selected, setSelected] = React.useState(null);
-  const { background, text } = useThemeColors();
+  const { background, text, subText } = useThemeColors();
   
   if (selected) {
     return <GroupDetail onBack={() => setSelected(null)} />;
@@ -147,9 +170,13 @@ export default function GroupsScreen() {
         <Appbar.Content title="My Groups" color={text} />
       </Appbar.Header>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
-        {groups.map((g) => (
-          <GroupCard key={g.id} group={g} onPress={() => setSelected(g)} />
-        ))}
+        {groups.length > 0 ? (
+          groups.map((g) => (
+            <GroupCard key={g.id} group={g} onPress={() => setSelected(g)} />
+          ))
+        ) : (
+          <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>Empty</Text>
+        )}
       </ScrollView>
       <FAB 
         icon="plus" 

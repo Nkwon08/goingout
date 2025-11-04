@@ -1,3 +1,4 @@
+// Activity Main screen - shows polls, trending locations, and events
 import * as React from 'react';
 import { ScrollView, View } from 'react-native';
 import { Text } from 'react-native-paper';
@@ -13,7 +14,7 @@ const SectionHeader = ({ title, textColor }) => (
 
 export default function ActivityMain() {
   const [selectedLocation, setSelectedLocation] = React.useState(null);
-  const { background, text } = useThemeColors();
+  const { background, text, subText } = useThemeColors();
 
   // Calculate trending locations from feed posts
   const trendingLocations = React.useMemo(() => {
@@ -33,22 +34,34 @@ export default function ActivityMain() {
   return (
     <ScrollView style={{ flex: 1, backgroundColor: background }} contentContainerStyle={{ padding: 16 }}>
       <SectionHeader title="Where's everyone going tonight?" textColor={text} />
-      {polls.length > 0 && <PollCard poll={polls[0]} onVote={() => {}} />}
+      {polls.length > 0 ? (
+        <PollCard poll={polls[0]} onVote={() => {}} />
+      ) : (
+        <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>Empty</Text>
+      )}
 
       <View style={{ height: 24 }} />
-      <TrendingSection
-        trendingLocations={trendingLocations}
-        onLocationPress={setSelectedLocation}
-        selectedLocation={selectedLocation}
-      />
+      {trendingLocations.length > 0 ? (
+        <TrendingSection
+          trendingLocations={trendingLocations}
+          onLocationPress={setSelectedLocation}
+          selectedLocation={selectedLocation}
+        />
+      ) : (
+        <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>Empty</Text>
+      )}
 
       <View style={{ height: 24 }} />
       <SectionHeader title="Upcoming Events Near You" textColor={text} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
-        {events.map((e) => (
-          <EventCard key={e.id} event={e} onJoin={() => {}} onSave={() => {}} />
-        ))}
-      </ScrollView>
+      {events.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+          {events.map((e) => (
+            <EventCard key={e.id} event={e} onJoin={() => {}} onSave={() => {}} />
+          ))}
+        </ScrollView>
+      ) : (
+        <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>Empty</Text>
+      )}
     </ScrollView>
   );
 }

@@ -16,18 +16,22 @@ export default function NotificationsTab() {
   return (
     <View style={{ flex: 1, backgroundColor: bgColor }}>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
-        <View style={{ backgroundColor: surfaceColor, borderRadius: 16 }}>
-          {notifications.map((n, idx) => (
-            <View key={n.id}>
-              <List.Item 
-                title={n.text} 
-                titleStyle={{ color: textColor }} 
-                left={(props) => <List.Icon {...props} color={textColor} icon="bell-outline" />} 
-              />
-              {idx < notifications.length - 1 && <Divider style={{ backgroundColor: dividerColor }} />}
-            </View>
-          ))}
-        </View>
+        {notifications.length > 0 ? (
+          <View style={{ backgroundColor: surfaceColor, borderRadius: 16 }}>
+            {notifications.map((n, idx) => (
+              <View key={n.id}>
+                <List.Item 
+                  title={n.text} 
+                  titleStyle={{ color: textColor }} 
+                  left={(props) => <List.Icon {...props} color={textColor} icon="bell-outline" />} 
+                />
+                {idx < notifications.length - 1 && <Divider style={{ backgroundColor: dividerColor }} />}
+              </View>
+            ))}
+          </View>
+        ) : (
+          <Text style={{ color: textColor === '#E6E8F0' ? '#8A90A6' : '#666666', textAlign: 'center', padding: 20 }}>Empty</Text>
+        )}
       </ScrollView>
     </View>
   );

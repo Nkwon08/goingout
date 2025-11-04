@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { View, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Camera, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Text } from 'react-native-paper';
 import { useGroupPhotos } from '../context/GroupPhotosContext';
@@ -82,7 +82,12 @@ export default function CameraScreen() {
   }, [mode, cameraReady]);
 
   if (!permission) {
-    return <View style={styles.container} />;
+    // Still loading permission status
+    return (
+      <View style={styles.container}>
+        <Text style={styles.message}>Checking camera permissions...</Text>
+      </View>
+    );
   }
 
   if (!permission.granted) {
@@ -103,18 +108,34 @@ export default function CameraScreen() {
   };
 
   const takePicture = async () => {
-    if (cameraRef.current && mode === 'photo') {
-      try {
-        const photo = await cameraRef.current.takePictureAsync({
-          quality: 0.8,
-        });
-        if (photo) {
-          setCapturedMedia({ type: 'photo', uri: photo.uri });
-          setPreviewVisible(true);
-        }
-      } catch (error) {
-        Alert.alert('Error', 'Failed to take picture. Please try again.');
+    if (!cameraRef.current) {
+      Alert.alert('Error', 'Camera is not ready. Please wait a moment.');
+      return;
+    }
+
+    if (mode !== 'photo') {
+      return;
+    }
+
+    try {
+      console.log('Taking picture...');
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.8,
+        skipProcessing: false,
+      });
+      
+      if (photo && photo.uri) {
+        console.log('Picture taken successfully:', photo.uri);
+        setCapturedMedia({ type: 'photo', uri: photo.uri });
+        setPreviewVisible(true);
+      } else {
+        console.error('No photo data received');
+        Alert.alert('Error', 'No photo data received. Please try again.');
       }
+    } catch (error) {
+      console.error('Error taking picture:', error);
+      const errorMessage = error?.message || error?.toString() || 'Unknown error';
+      Alert.alert('Error', `Failed to take picture: ${errorMessage}`);
     }
   };
 
@@ -177,44 +198,36 @@ export default function CameraScreen() {
         return;
       }
       
-      console.log('Calling recordAsync...');
+      console.log('Calling startRecording...');
       
-      // Start recording - this returns a promise that resolves when recording stops
-      const promise = cameraRef.current.recordAsync({
+      // expo-camera v17+ uses startRecording() with callbacks (not promise-based)
+      // Set up callbacks before starting recording
+      cameraRef.current.startRecording({
         maxDuration: 60,
-      });
-      
-      if (!promise) {
-        console.error('recordAsync returned null');
-        setIsRecording(false);
-        Alert.alert('Error', 'Failed to start recording.');
-        return;
-      }
-      
-      console.log('Recording promise created');
-      setRecordingPromise(promise);
-      
-      // Handle the promise when recording completes
-      promise
-        .then((video) => {
-          console.log('Recording completed:', video);
+        onRecordingFinished: (video) => {
+          console.log('Recording finished:', video);
           setIsRecording(false);
           setRecordingPromise(null);
           if (video && video.uri) {
             setCapturedMedia({ type: 'video', uri: video.uri });
             setPreviewVisible(true);
           } else {
-            console.error('No video data:', video);
+            console.error('No video data received');
             Alert.alert('Error', 'No video data received.');
           }
-        })
-        .catch((error) => {
+        },
+        onRecordingError: (error) => {
+          console.error('Recording error:', error);
           setIsRecording(false);
           setRecordingPromise(null);
-          console.error('Recording promise error:', error);
           const errorMessage = error?.message || error?.toString() || 'Unknown error';
           Alert.alert('Error', `Failed to record video: ${errorMessage}`);
-        });
+        },
+      });
+      
+      console.log('Recording started');
+      // Store a dummy promise reference for state tracking
+      setRecordingPromise(Promise.resolve());
     } catch (error) {
       setIsRecording(false);
       setRecordingPromise(null);
@@ -235,8 +248,9 @@ export default function CameraScreen() {
 
     try {
       console.log('Stopping video recording...');
-      // Stop recording - this will cause the promise to resolve
+      // expo-camera v17+ uses stopRecording() to stop recording
       cameraRef.current.stopRecording();
+      // Note: The actual stop and video data will be handled by onRecordingFinished callback
     } catch (error) {
       console.error('Stop recording error:', error);
       // If stopRecording fails, manually resolve the state
@@ -280,24 +294,14 @@ export default function CameraScreen() {
     setPreviewVisible(false);
   };
 
-  // Get camera type - handle both Constants and direct string values
-  const getCameraType = () => {
-    if (Camera?.Constants?.Type) {
-      return facing === 'back' ? Camera.Constants.Type.back : Camera.Constants.Type.front;
-    }
-    // Fallback to string if Constants don't exist
-    return facing;
-  };
-
   return (
     <View style={styles.container}>
-      <Camera
+      <CameraView
         ref={cameraRef}
         style={styles.camera}
-        type={getCameraType()}
-        ratio="16:9"
+        facing={facing}
+        mode={mode === 'photo' ? 'picture' : 'video'}
         onCameraReady={handleCameraReady}
-        video={true}
       >
         {/* Mode Toggle */}
         <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -350,7 +354,7 @@ export default function CameraScreen() {
             </TouchableOpacity>
           )}
         </View>
-      </Camera>
+      </CameraView>
 
 
       <MediaPreview
