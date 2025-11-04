@@ -2,10 +2,10 @@
 import * as React from 'react';
 import { ScrollView, View } from 'react-native';
 import { Text } from 'react-native-paper';
-import PollCard from '../components/PollCard';
+import TonightSelector from '../components/TonightSelector';
 import EventCard from '../components/EventCard';
 import TrendingSection from '../components/TrendingSection';
-import { polls, events, feedPosts } from '../data/mock';
+import { events, feedPosts } from '../data/mock';
 import { useThemeColors } from '../hooks/useThemeColors';
 
 const SectionHeader = ({ title, textColor }) => (
@@ -33,12 +33,7 @@ export default function ActivityMain() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: background }} contentContainerStyle={{ padding: 16 }}>
-      <SectionHeader title="Where's everyone going tonight?" textColor={text} />
-      {polls.length > 0 ? (
-        <PollCard poll={polls[0]} onVote={() => {}} />
-      ) : (
-        <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>Empty</Text>
-      )}
+      <TonightSelector />
 
       <View style={{ height: 24 }} />
       {trendingLocations.length > 0 ? (
