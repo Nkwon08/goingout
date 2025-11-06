@@ -366,6 +366,40 @@ export const markNotificationAsRead = async (userId, notificationId) => {
 };
 
 /**
+ * Delete multiple notifications
+ * @param {string} userId - User ID
+ * @param {Array<string>} notificationIds - Array of notification IDs
+ * @returns {Promise<{ success: boolean, error: string|null }>}
+ */
+export const deleteNotifications = async (userId, notificationIds) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { success: false, error: 'Firestore not configured' };
+    }
+
+    // Get username from authUid (document IDs are usernames, not authUids)
+    const { getUsernameFromAuthUid } = await import('./friendsService');
+    const username = await getUsernameFromAuthUid(userId);
+    
+    if (!username) {
+      return { success: false, error: 'User not found' };
+    }
+
+    const deletePromises = notificationIds.map(notificationId => {
+      const notificationRef = doc(db, 'users', username, 'notifications', notificationId);
+      return deleteDoc(notificationRef);
+    });
+
+    await Promise.all(deletePromises);
+
+    return { success: true, error: null };
+  } catch (error) {
+    console.error('Error deleting notifications:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
  * Mark all notifications as read
  * @param {string} userId - User ID
  * @returns {Promise<{ success: boolean, error: string|null }>}

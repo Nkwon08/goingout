@@ -5,6 +5,7 @@ import { Appbar, Avatar, Text, Button, Switch, List, Divider } from 'react-nativ
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useRoute } from '@react-navigation/native';
 import { signOutUser } from '../services/authService';
 import { getCurrentLocation } from '../services/locationService';
 import { subscribeToUserPosts } from '../services/postsService';
@@ -339,6 +340,9 @@ function SettingsTab({ navigation, user, userData, isDarkMode, toggleTheme, publ
 }
 
 export default function ProfileScreen({ navigation }) {
+  const route = useRoute();
+  const { highlightPostId } = route.params || {};
+  
   // State for user settings
   const [publicAlbums, setPublicAlbums] = React.useState(true);
   const [loggingOut, setLoggingOut] = React.useState(false);
@@ -351,6 +355,10 @@ export default function ProfileScreen({ navigation }) {
   const [showFriendsList, setShowFriendsList] = React.useState(false);
   const [selectedPost, setSelectedPost] = React.useState(null);
   const [avatarKey, setAvatarKey] = React.useState(0);
+  
+  
+  // Track if we've already opened the post from highlightPostId to prevent reopening
+  const hasOpenedHighlightPost = React.useRef(false);
   
   const { isDarkMode, toggleTheme } = useTheme();
   const { user, userData, refreshUserData, friendsList } = useAuth();
@@ -478,6 +486,37 @@ export default function ProfileScreen({ navigation }) {
 
     return unsubscribe;
   }, [navigation, user, refreshUserData]);
+
+  // Listen for route params changes (for highlightPostId from navigation)
+  React.useEffect(() => {
+    // Reset the flag when highlightPostId changes (new notification tapped)
+    if (highlightPostId) {
+      hasOpenedHighlightPost.current = false;
+    }
+  }, [highlightPostId]);
+
+  // Auto-open highlighted post when posts are loaded (from initial highlightPostId)
+  React.useEffect(() => {
+    if (highlightPostId && posts.length > 0 && !postsLoading && !selectedPost && !hasOpenedHighlightPost.current) {
+      const post = posts.find(p => p.id === highlightPostId);
+      if (post) {
+        hasOpenedHighlightPost.current = true;
+        // Small delay to ensure UI is ready
+        setTimeout(() => {
+          setSelectedPost(post);
+        }, 300);
+      }
+    }
+  }, [highlightPostId, posts, postsLoading, selectedPost]);
+
+  // Handle closing the post modal - clear route params to prevent reopening
+  const handleClosePost = React.useCallback(() => {
+    setSelectedPost(null);
+    // Clear the highlightPostId from route params
+    if (highlightPostId) {
+      navigation.setParams({ highlightPostId: undefined });
+    }
+  }, [highlightPostId, navigation]);
 
   // Calculate statistics
   const photosCount = posts.filter(post => (post.images || []).length > 0).length;
@@ -900,14 +939,14 @@ export default function ProfileScreen({ navigation }) {
           visible={selectedPost !== null}
           transparent={false}
           animationType="slide"
-          onRequestClose={() => setSelectedPost(null)}
+          onRequestClose={handleClosePost}
         >
           <View style={{ flex: 1, backgroundColor: '#000000' }}>
             <Appbar.Header mode="center-aligned" style={{ backgroundColor: '#000000' }}>
               <Appbar.Action 
                 icon="arrow-left" 
                 color="#FFFFFF" 
-                onPress={() => setSelectedPost(null)}
+                onPress={handleClosePost}
               />
               <Appbar.Content title="" color="#FFFFFF" />
             </Appbar.Header>

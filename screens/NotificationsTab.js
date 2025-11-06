@@ -1,11 +1,12 @@
 import * as React from 'react';
-import { View, ScrollView, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
+import { View, ScrollView, ActivityIndicator, Alert, TouchableOpacity, FlatList } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { List, Divider, Text, Avatar, Button } from 'react-native-paper';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { subscribeToFriendRequests, acceptFriendRequest, declineFriendRequest } from '../services/friendsService';
-import { subscribeToNotifications, markNotificationAsRead } from '../services/notificationsService';
+import { subscribeToNotifications, markNotificationAsRead, deleteNotifications } from '../services/notificationsService';
 import { acceptGroupInvitation, declineGroupInvitation } from '../services/groupsService';
 import { getUserById } from '../services/usersService';
 
@@ -22,6 +23,9 @@ export default function NotificationsTab() {
   const [loading, setLoading] = React.useState(true);
   const [processingRequest, setProcessingRequest] = React.useState(null);
   const [processingInvitation, setProcessingInvitation] = React.useState(null);
+  const [clearingPostNotifications, setClearingPostNotifications] = React.useState(false);
+  const [selectionMode, setSelectionMode] = React.useState(false);
+  const [selectedNotifications, setSelectedNotifications] = React.useState(new Set());
   
   const bgColor = isDarkMode ? '#1A1A1A' : '#EEEDEB';
   const surfaceColor = isDarkMode ? '#2A2A2A' : '#F5F4F2';
@@ -30,7 +34,7 @@ export default function NotificationsTab() {
   const dividerColor = isDarkMode ? '#3A3A3A' : '#D0CFCD';
   const primaryColor = '#990000';
 
-  // Subscribe to friend requests
+  // ---------- subscriptions (unchanged) ----------
   React.useEffect(() => {
     if (!user?.uid) {
       setFriendRequests([]);
@@ -40,34 +44,19 @@ export default function NotificationsTab() {
     }
 
     setLoading(true);
-    console.log('🔔 [NotificationsTab] Setting up friend requests subscription for user:', user.uid);
     const unsubscribe = subscribeToFriendRequests(user.uid, (result) => {
-      console.log('🔔 [NotificationsTab] Friend requests callback received:', {
-        hasError: !!result.error,
-        error: result.error,
-        requestCount: result.requests?.length || 0,
-      });
-      
       if (result.error) {
-        console.error('❌ [NotificationsTab] Error in friend requests subscription:', result.error);
         setFriendRequests([]);
         setLoading(false);
         return;
       }
-
-      console.log('✅ [NotificationsTab] Setting', result.requests?.length || 0, 'friend requests');
       setFriendRequests(result.requests || []);
       setLoading(false);
     });
 
-    return () => {
-      if (unsubscribe && typeof unsubscribe === 'function') {
-        unsubscribe();
-      }
-    };
+    return () => unsubscribe && unsubscribe();
   }, [user?.uid]);
 
-  // Fetch sender profile data for each request
   React.useEffect(() => {
     if (!friendRequests.length) {
       setRequestsWithData([]);
@@ -75,64 +64,40 @@ export default function NotificationsTab() {
     }
 
     let isMounted = true;
-
     const loadRequestData = async () => {
       try {
         const requestsData = await Promise.all(
           friendRequests.map(async (request) => {
             try {
               const { userData } = await getUserById(request.fromUserId);
-              if (userData) {
-                return {
-                  ...request,
-                  sender: {
-                    name: userData.name || 'Unknown User',
-                    username: userData.username || 'unknown',
-                    avatar: userData.avatar || null,
-                    photoURL: userData.photoURL || userData.avatar || null,
-                  },
-                };
-              }
               return {
                 ...request,
                 sender: {
-                  name: 'Unknown User',
-                  username: 'unknown',
-                  avatar: null,
-                  photoURL: null,
+                  name: userData?.name || 'Unknown User',
+                  username: userData?.username || 'unknown',
+                  avatar: userData?.avatar || null,
+                  photoURL: userData?.photoURL || userData?.avatar || null,
                 },
               };
             } catch (error) {
-              console.error('Error fetching sender data:', error);
               return {
                 ...request,
-                sender: {
-                  name: 'Unknown User',
-                  username: 'unknown',
-                  avatar: null,
-                  photoURL: null,
-                },
+                sender: { name: 'Unknown User', username: 'unknown', avatar: null, photoURL: null },
               };
             }
           })
         );
 
-        if (isMounted) {
-          setRequestsWithData(requestsData);
-        }
+        if (isMounted) setRequestsWithData(requestsData);
       } catch (error) {
-        console.error('Error loading request data:', error);
+        console.error(error);
       }
     };
 
     loadRequestData();
-
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, [friendRequests]);
 
-  // Subscribe to notifications for group invitations and post interactions
   React.useEffect(() => {
     if (!user?.uid) {
       setGroupInvitations([]);
@@ -141,35 +106,42 @@ export default function NotificationsTab() {
       return;
     }
 
+    // IMPORTANT: when modal is open we avoid replacing the array (to prevent jump),
+    // but here we still compute the incoming notifications and update only when modal closed.
     const unsubscribe = subscribeToNotifications(user.uid, (result) => {
       if (result.error) {
-        console.error('Error loading notifications:', result.error);
         setGroupInvitations([]);
         setPostNotifications([]);
         return;
       }
 
-      // Filter for group invitations
       const invitations = (result.notifications || []).filter(
         (notif) => notif.type === 'group_invitation' && !notif.read
       );
       setGroupInvitations(invitations);
 
-      // Filter for post interactions (likes and comments)
       const postNotifs = (result.notifications || []).filter(
         (notif) => (notif.type === 'like' || notif.type === 'comment') && notif.postId
       );
-      setPostNotifications(postNotifs);
+      
+      // Only update if the list actually changed (to prevent unnecessary re-renders)
+      setPostNotifications(prev => {
+        const prevIds = prev.map(n => n.id).sort().join(',');
+        const newIds = postNotifs.map(n => n.id).sort().join(',');
+        if (prevIds !== newIds) {
+          return postNotifs;
+        }
+        // Update read status without causing full re-render
+        return prev.map(prevNotif => {
+          const updated = postNotifs.find(n => n.id === prevNotif.id);
+          return updated ? { ...prevNotif, read: updated.read } : prevNotif;
+        });
+      });
     });
 
-    return () => {
-      if (unsubscribe && typeof unsubscribe === 'function') {
-        unsubscribe();
-      }
-    };
+    return () => unsubscribe && unsubscribe();
   }, [user?.uid]);
 
-  // Fetch group and sender data for each invitation
   React.useEffect(() => {
     if (!groupInvitations.length) {
       setInvitationsWithData([]);
@@ -177,7 +149,6 @@ export default function NotificationsTab() {
     }
 
     let isMounted = true;
-
     const loadInvitationData = async () => {
       try {
         const invitationsData = await Promise.all(
@@ -195,46 +166,27 @@ export default function NotificationsTab() {
                   avatar: senderData?.avatar || null,
                   photoURL: senderData?.photoURL || senderData?.avatar || null,
                 },
-                group: group ? {
-                  name: group.name || 'Unknown Group',
-                  id: group.id,
-                } : null,
+                group: group ? { name: group.name || 'Unknown Group', id: group.id } : null,
               };
             } catch (error) {
-              console.error('Error fetching invitation data:', error);
-              return {
-                ...invitation,
-                sender: {
-                  name: 'Unknown User',
-                  username: 'unknown',
-                  avatar: null,
-                  photoURL: null,
-                },
-                group: null,
-              };
+              return { ...invitation, sender: { name: 'Unknown User', username: 'unknown', avatar: null, photoURL: null }, group: null };
             }
           })
         );
 
-        if (isMounted) {
-          setInvitationsWithData(invitationsData);
-        }
+        if (isMounted) setInvitationsWithData(invitationsData);
       } catch (error) {
-        console.error('Error loading invitation data:', error);
+        console.error(error);
       }
     };
 
     loadInvitationData();
-
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, [groupInvitations]);
 
-  // Handle accept friend request
+  // ---------- action handlers (unchanged) ----------
   const handleAccept = React.useCallback(async (requestId, fromUserId) => {
     if (!user?.uid || processingRequest) return;
-
     setProcessingRequest(requestId);
     try {
       const result = await acceptFriendRequest(requestId, fromUserId, user.uid);
@@ -251,16 +203,12 @@ export default function NotificationsTab() {
     }
   }, [user?.uid, processingRequest]);
 
-  // Handle decline friend request
   const handleDecline = React.useCallback(async (requestId) => {
     if (!user?.uid || processingRequest) return;
-
     setProcessingRequest(requestId);
     try {
       const result = await declineFriendRequest(requestId);
-      if (result.success) {
-        // Request removed, will update automatically via subscription
-      } else {
+      if (!result.success) {
         Alert.alert('Error', result.error || 'Failed to decline friend request', [{ text: 'OK' }]);
       }
     } catch (error) {
@@ -271,10 +219,8 @@ export default function NotificationsTab() {
     }
   }, [user?.uid, processingRequest]);
 
-  // Handle accept group invitation
   const handleAcceptGroupInvitation = React.useCallback(async (groupId, notificationId) => {
     if (!user?.uid || processingInvitation) return;
-
     setProcessingInvitation(notificationId);
     try {
       const result = await acceptGroupInvitation(groupId, user.uid, notificationId);
@@ -291,16 +237,12 @@ export default function NotificationsTab() {
     }
   }, [user?.uid, processingInvitation]);
 
-  // Handle decline group invitation
   const handleDeclineGroupInvitation = React.useCallback(async (notificationId) => {
     if (!user?.uid || processingInvitation) return;
-
     setProcessingInvitation(notificationId);
     try {
       const result = await declineGroupInvitation(notificationId, user.uid);
-      if (result.success) {
-        // Invitation removed, will update automatically via subscription
-      } else {
+      if (!result.success) {
         Alert.alert('Error', result.error || 'Failed to decline group invitation', [{ text: 'OK' }]);
       }
     } catch (error) {
@@ -311,11 +253,53 @@ export default function NotificationsTab() {
     }
   }, [user?.uid, processingInvitation]);
 
-  // Handle notification tap - navigate to post
-  const handleNotificationTap = React.useCallback(async (notification) => {
-    if (!user?.uid || !notification.postId) return;
+  const handleToggleSelectionMode = React.useCallback(() => {
+    setSelectionMode(prev => !prev);
+    setSelectedNotifications(new Set());
+  }, []);
 
-    // Mark as read
+  const handleToggleNotificationSelection = React.useCallback((notificationId) => {
+    setSelectedNotifications(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(notificationId)) {
+        newSet.delete(notificationId);
+      } else {
+        newSet.add(notificationId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const handleClearSelectedNotifications = React.useCallback(async () => {
+    if (!user?.uid || clearingPostNotifications || selectedNotifications.size === 0) return;
+
+    setClearingPostNotifications(true);
+    const selectedIds = Array.from(selectedNotifications);
+    
+    try {
+      // Delete notifications from Firestore (they will be permanently removed)
+      const result = await deleteNotifications(user.uid, selectedIds);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to delete notifications');
+      }
+      
+      // Clear selection mode
+      setSelectionMode(false);
+      setSelectedNotifications(new Set());
+    } catch (error) {
+      console.error('Error deleting notifications:', error);
+      Alert.alert('Error', 'Failed to delete notifications. Please try again.', [{ text: 'OK' }]);
+    } finally {
+      setClearingPostNotifications(false);
+    }
+  }, [user?.uid, clearingPostNotifications, selectedNotifications]);
+
+  // Handle notification tap - navigate to own profile and highlight post
+  const handleNotificationTap = React.useCallback(async (notification) => {
+    if (!user?.uid || !notification?.postId) return;
+
+    // Mark as read if not already read (but allow navigation even if already read)
     if (!notification.read) {
       try {
         await markNotificationAsRead(user.uid, notification.id);
@@ -324,13 +308,85 @@ export default function NotificationsTab() {
       }
     }
 
-    // Navigate to Activity screen (where posts are displayed)
-    navigation.navigate('Activity', { 
-      screen: 'Recent',
-      params: { highlightPostId: notification.postId }
-    });
+    // Navigate to the current user's profile (Profile tab) with the post highlighted
+    try {
+      // Try multiple navigation approaches to find the right navigator
+      // Approach 1: Try to get RootNavigator and navigate through MainTabs
+      let currentNav = navigation;
+      let rootNavigator = null;
+      let parent = navigation.getParent();
+      
+      // Walk up the navigation tree to find RootNavigator
+      while (parent) {
+        const state = parent.getState();
+        const routeNames = state?.routeNames || state?.routes?.map(r => r.name);
+        
+        // Check if this navigator has 'MainTabs' (RootNavigator)
+        if (routeNames && routeNames.includes('MainTabs')) {
+          rootNavigator = parent;
+          break;
+        }
+        
+        // Check if this navigator has 'Profile' (BottomTabs)
+        if (routeNames && routeNames.includes('Profile')) {
+          // This is BottomTabs, navigate directly
+          parent.dispatch(
+            CommonActions.navigate({
+              name: 'Profile',
+              params: {
+                screen: 'ProfileMain',
+                params: {
+                  highlightPostId: notification.postId,
+                },
+              },
+            })
+          );
+          return;
+        }
+        
+        currentNav = parent;
+        parent = parent.getParent();
+      }
+      
+      // If we found RootNavigator, navigate through MainTabs
+      if (rootNavigator) {
+        rootNavigator.dispatch(
+          CommonActions.navigate({
+            name: 'MainTabs',
+            params: {
+              screen: 'Profile',
+              params: {
+                screen: 'ProfileMain',
+                params: {
+                  highlightPostId: notification.postId,
+                },
+              },
+            },
+          })
+        );
+        return;
+      }
+      
+      // Fallback: Try using the current navigation's navigate method
+      // This might work if we're already in the right context
+      try {
+        navigation.navigate('Profile', {
+          screen: 'ProfileMain',
+          params: {
+            highlightPostId: notification.postId,
+          },
+        });
+      } catch (fallbackError) {
+        console.error('Fallback navigation also failed:', fallbackError);
+        Alert.alert('Error', 'Failed to open profile. Please try again.', [{ text: 'OK' }]);
+      }
+    } catch (error) {
+      console.error('Error navigating to profile:', error);
+      Alert.alert('Error', 'Failed to open profile. Please try again.', [{ text: 'OK' }]);
+    }
   }, [user?.uid, navigation]);
 
+  // ---------- render ----------
   if (!user) {
     return (
       <View style={{ flex: 1, backgroundColor: bgColor, justifyContent: 'center', alignItems: 'center' }}>
@@ -350,28 +406,108 @@ export default function NotificationsTab() {
   const hasNotifications = requestsWithData.length > 0 || invitationsWithData.length > 0 || postNotifications.length > 0;
 
   return (
-    <View style={{ flex: 1, backgroundColor: bgColor }}>
-      <ScrollView contentContainerStyle={{ padding: 16 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: bgColor }} edges={['bottom']}>
+      <ScrollView
+        contentContainerStyle={{ padding: 16, paddingTop: 0, paddingBottom: 40 }}
+        contentInsetAdjustmentBehavior="automatic"
+        style={{ flex: 1, marginTop: 15 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Post notifications section */}
         {postNotifications.length > 0 && (
           <View style={{ backgroundColor: surfaceColor, borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}>
-            <Text style={{ color: textColor, fontSize: 16, fontWeight: '600', padding: 16, paddingBottom: 8 }}>
-              Post Activity ({postNotifications.length})
-            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingBottom: 8 }}>
+              <Text style={{ color: textColor, fontSize: 16, fontWeight: '600' }}>
+                Post Activity ({postNotifications.length})
+              </Text>
+              {selectionMode ? (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity
+                    onPress={handleToggleSelectionMode}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                      backgroundColor: dividerColor,
+                    }}
+                  >
+                    <Text style={{ color: textColor, fontSize: 12, fontWeight: '600' }}>
+                      Cancel
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleClearSelectedNotifications}
+                    disabled={clearingPostNotifications || selectedNotifications.size === 0}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                      backgroundColor: (clearingPostNotifications || selectedNotifications.size === 0) ? dividerColor : primaryColor,
+                    }}
+                  >
+                    <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>
+                      {clearingPostNotifications ? 'Clearing...' : `Clear (${selectedNotifications.size})`}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  onPress={handleToggleSelectionMode}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 8,
+                    backgroundColor: primaryColor,
+                  }}
+                >
+                  <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>
+                    Clear
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
             {postNotifications.map((notification, idx) => (
               <TouchableOpacity
                 key={notification.id}
-                onPress={() => handleNotificationTap(notification)}
+                onPress={() => {
+                  if (selectionMode) {
+                    handleToggleNotificationSelection(notification.id);
+                  } else {
+                    handleNotificationTap(notification);
+                  }
+                }}
                 activeOpacity={0.7}
+                disabled={false}
               >
-                <View style={{ padding: 16, opacity: notification.read ? 0.7 : 1 }}>
+                <View style={{ 
+                  padding: 16, 
+                  opacity: notification.read ? 0.7 : 1,
+                  backgroundColor: selectedNotifications.has(notification.id) ? (isDarkMode ? '#3A3A3A' : '#E0E0E0') : 'transparent',
+                }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {selectionMode && (
+                      <View style={{ marginRight: 12 }}>
+                        <View style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 4,
+                          borderWidth: 2,
+                          borderColor: selectedNotifications.has(notification.id) ? primaryColor : dividerColor,
+                          backgroundColor: selectedNotifications.has(notification.id) ? primaryColor : 'transparent',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}>
+                          {selectedNotifications.has(notification.id) && (
+                            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>✓</Text>
+                          )}
+                        </View>
+                      </View>
+                    )}
                     <Avatar.Image 
                       size={48} 
                       source={{ 
-                        uri: notification.fromUserAvatar || 
-                              notification.fromUser?.photoURL || 
-                              notification.fromUser?.avatar || 
-                              'https://i.pravatar.cc/100?img=12' 
+                        uri: notification.fromUserAvatar || notification.fromUser?.photoURL || notification.fromUser?.avatar || 'https://i.pravatar.cc/100?img=12' 
                       }} 
                     />
                     <View style={{ flex: 1, marginLeft: 12 }}>
@@ -379,11 +515,10 @@ export default function NotificationsTab() {
                         {notification.fromUserName || notification.fromUser?.name || 'Someone'}
                       </Text>
                       <Text style={{ color: subTextColor, fontSize: 14, marginTop: 2 }}>
-                        {notification.message || 
-                         (notification.type === 'like' ? 'liked your post' : 'commented on your post')}
+                        {notification.message || (notification.type === 'like' ? 'liked your post' : 'commented on your post')}
                       </Text>
                     </View>
-                    {!notification.read && (
+                    {!notification.read && !selectionMode && (
                       <View style={{
                         width: 8,
                         height: 8,
@@ -400,6 +535,7 @@ export default function NotificationsTab() {
           </View>
         )}
 
+        {/* Friend requests */}
         {requestsWithData.length > 0 && (
           <View style={{ backgroundColor: surfaceColor, borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}>
             <Text style={{ color: textColor, fontSize: 16, fontWeight: '600', padding: 16, paddingBottom: 8 }}>
@@ -453,6 +589,7 @@ export default function NotificationsTab() {
           </View>
         )}
 
+        {/* Group invitations */}
         {invitationsWithData.length > 0 && (
           <View style={{ backgroundColor: surfaceColor, borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}>
             <Text style={{ color: textColor, fontSize: 16, fontWeight: '600', padding: 16, paddingBottom: 8 }}>
@@ -512,7 +649,6 @@ export default function NotificationsTab() {
           </View>
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
-

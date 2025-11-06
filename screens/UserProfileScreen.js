@@ -14,7 +14,7 @@ import { useThemeColors } from '../hooks/useThemeColors';
 const IU_CRIMSON = '#990000';
 
 // Posts Tab Component
-function UserPostsTab({ userId, username, themeColors }) {
+function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
   const [posts, setPosts] = React.useState([]);
   const [refreshing, setRefreshing] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
@@ -47,6 +47,20 @@ function UserPostsTab({ userId, username, themeColors }) {
 
     return () => unsubscribe();
   }, [userId]);
+
+  // Auto-open highlighted post when posts are loaded
+  React.useEffect(() => {
+    if (highlightPostId && posts.length > 0 && !loading) {
+      const postIndex = posts.findIndex(p => p.id === highlightPostId);
+      if (postIndex !== -1) {
+        // Small delay to ensure UI is ready
+        setTimeout(() => {
+          setSelectedPostIndex(postIndex);
+          setCurrentPostIndex(postIndex);
+        }, 300);
+      }
+    }
+  }, [highlightPostId, posts, loading]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -298,7 +312,7 @@ function UserPostsTab({ userId, username, themeColors }) {
 }
 
 export default function UserProfileScreen({ route, navigation }) {
-  const { username: targetUsername } = route.params || {};
+  const { username: targetUsername, highlightPostId } = route.params || {};
   
   const [userProfile, setUserProfile] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
@@ -708,7 +722,7 @@ export default function UserProfileScreen({ route, navigation }) {
 
       {/* Posts - Full Width */}
       <View style={{ flex: 1 }}>
-        <UserPostsTab userId={userId} username={targetUsername} themeColors={themeColors} />
+        <UserPostsTab userId={userId} username={targetUsername} themeColors={themeColors} highlightPostId={highlightPostId} />
       </View>
     </View>
   );
