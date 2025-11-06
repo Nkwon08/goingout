@@ -298,7 +298,7 @@ function PostsTab({ user, userData, themeColors }) {
 }
 
 // Settings Tab Component
-function SettingsTab({ navigation, user, userData, isDarkMode, toggleTheme, publicAlbums, setPublicAlbums, location, loadingLocation, loggingOut, bgColor, surfaceColor, textColor, subTextColor, dividerColor }) {
+function SettingsTab({ navigation, user, userData, isDarkMode, toggleTheme, publicAlbums, setPublicAlbums, location, loadingLocation, loggingOut, handleLogout, bgColor, surfaceColor, textColor, subTextColor, dividerColor }) {
   return (
     <ScrollView contentContainerStyle={{ padding: 16 }}>
       {/* Settings section */}
@@ -360,11 +360,7 @@ function SettingsTab({ navigation, user, userData, isDarkMode, toggleTheme, publ
           title="Logout"
           titleStyle={{ color: '#FF6B6B' }}
           left={(p) => <List.Icon {...p} color="#FF6B6B" icon="logout" />}
-          onPress={async () => {
-            setLoggingOut(true);
-            await signOutUser();
-            setLoggingOut(false);
-          }}
+          onPress={handleLogout}
           disabled={loggingOut}
         />
       </View>
@@ -383,6 +379,28 @@ export default function ProfileScreen({ navigation }) {
   const { isDarkMode, toggleTheme } = useTheme();
   const { user, userData, refreshUserData } = useAuth();
   const themeColors = useThemeColors();
+  
+  // Logout handler
+  const handleLogout = React.useCallback(async () => {
+    try {
+      setLoggingOut(true);
+      console.log('🔄 Logging out user...');
+      const result = await signOutUser();
+      if (result.error) {
+        console.error('❌ Logout error:', result.error);
+        alert('Logout failed: ' + result.error);
+        setLoggingOut(false);
+      } else {
+        console.log('✅ Logout successful');
+        // Don't set loggingOut to false - let auth state change handle navigation
+        // The App.js will handle showing AuthStack when user becomes null
+      }
+    } catch (error) {
+      console.error('❌ Logout exception:', error);
+      alert('Logout failed: ' + (error.message || 'Unknown error'));
+      setLoggingOut(false);
+    }
+  }, []);
   
   // Theme colors based on dark/light mode
   const bgColor = isDarkMode ? '#1A1A1A' : '#EEEDEB';
@@ -542,6 +560,7 @@ export default function ProfileScreen({ navigation }) {
             location={location}
             loadingLocation={loadingLocation}
             loggingOut={loggingOut}
+            handleLogout={handleLogout}
             bgColor={bgColor}
             surfaceColor={surfaceColor}
             textColor={textColor}
