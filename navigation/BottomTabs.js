@@ -1,5 +1,6 @@
 // Bottom tab navigation - main navigation structure
 import * as React from 'react';
+import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ActivityScreen from '../screens/ActivityScreen';
@@ -19,7 +20,7 @@ export default function BottomTabs() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        // Style the bottom tab bar
+        // Style the bottom tab bar with rounded top corners
         tabBarStyle: {
           backgroundColor: background,
           borderTopColor: border,
@@ -28,12 +29,35 @@ export default function BottomTabs() {
           paddingTop: 8,
           elevation: 0,
           shadowOpacity: 0,
+          borderTopLeftRadius: 20,
+          borderTopRightRadius: 20,
+          height: 70,
         },
         // Active/inactive tab colors
         tabBarActiveTintColor: IU_CRIMSON,
         tabBarInactiveTintColor: subText,
+        // Custom tab button with circular background for active tab
+        tabBarButton: (props) => {
+          const { children, onPress, accessibilityState } = props;
+          const isFocused = accessibilityState?.selected;
+          
+          return (
+            <TouchableOpacity
+              {...props}
+              style={styles.tabButtonContainer}
+              activeOpacity={0.7}
+            >
+              {isFocused && (
+                <View style={styles.activeTabCircle} />
+              )}
+              <View style={styles.tabButton}>
+                {children}
+              </View>
+            </TouchableOpacity>
+          );
+        },
         // Render icons for each tab
-        tabBarIcon: ({ color, size }) => {
+        tabBarIcon: ({ color, size, focused }) => {
           const iconMap = {
             Activity: 'compass-outline',
             Groups: 'account-group-outline',
@@ -67,5 +91,29 @@ export default function BottomTabs() {
     </Tab.Navigator>
   );
 }
+
+const styles = StyleSheet.create({
+  tabButtonContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  activeTabCircle: {
+    position: 'absolute',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(153, 0, 0, 0.15)', // Semi-translucent red circle
+    zIndex: 0,
+  },
+  tabButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    zIndex: 1,
+  },
+});
 
 
