@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "outlink",
-    "slug": "outlink",
+    "name": "Roll",
+    "slug": "roll",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -30,7 +30,7 @@
         "NSLocationWhenInUseUsageDescription": "Allow access to your location to show nearby posts and events",
         "NSLocationAlwaysUsageDescription": "Allow access to your location to show nearby posts and events"
       },
-      "bundleIdentifier": "com.anonymous.outlink"
+      "bundleIdentifier": "com.anonymous.roll"
     },
     "android": {
       "adaptiveIcon": {
@@ -44,7 +44,7 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
       ],
-      "package": "com.anonymous.outlink"
+      "package": "com.anonymous.roll"
     },
     "web": {
       "favicon": "./assets/favicon.png"
