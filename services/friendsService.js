@@ -894,15 +894,17 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
     }
 
     // Use transaction to ensure atomic updates
-    // IMPORTANT: Only update the receiver's own document (no cross-user writes)
+    // IMPORTANT: Update BOTH users' friends arrays immediately for instant UI update
     await runTransaction(db, async (transaction) => {
       const requestRef = doc(db, 'friendRequests', requestId);
       const toUserRef = doc(db, 'users', toUsername);
+      const fromUserRef = doc(db, 'users', fromUsername);
 
       // Read documents
-      const [requestDoc, toUserDoc] = await Promise.all([
+      const [requestDoc, toUserDoc, fromUserDoc] = await Promise.all([
         transaction.get(requestRef),
         transaction.get(toUserRef),
+        transaction.get(fromUserRef),
       ]);
 
       if (!requestDoc.exists()) {
@@ -921,12 +923,13 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
         throw new Error('Friend request is not pending');
       }
 
-      if (!toUserDoc.exists()) {
+      if (!toUserDoc.exists() || !fromUserDoc.exists()) {
         throw new Error('User not found');
       }
 
       // Get user data
       const toUserData = toUserDoc.data();
+      const fromUserData = fromUserDoc.data();
 
       // Check if user has blocked the sender (blocked arrays now contain usernames)
       const toUserBlocked = toUserData.blocked || [];
@@ -935,11 +938,18 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
         throw new Error('Cannot accept friend request: User is blocked');
       }
 
-      // Ensure friends array exists (initialize if needed)
+      // Check if sender has blocked the receiver
+      const fromUserBlocked = fromUserData.blocked || [];
+      
+      if (fromUserBlocked.includes(toUsername)) {
+        throw new Error('Cannot accept friend request: User is blocked');
+      }
+
+      // Ensure friends arrays exist (initialize if needed)
       const toUserFriends = toUserData.friends || [];
+      const fromUserFriends = fromUserData.friends || [];
 
       // Add sender to receiver's friends array (only if not already friends)
-      // Only update the receiver's own document (no cross-user write)
       if (!toUserFriends.includes(fromUsername)) {
         transaction.update(toUserRef, {
           friends: arrayUnion(fromUsername),
@@ -947,7 +957,16 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
         });
       }
 
-      // Update request status to 'accepted' first (for sender to observe)
+      // Add receiver to sender's friends array immediately (complete reciprocity instantly)
+      // This ensures both users see the friend immediately without waiting for subscription
+      if (!fromUserFriends.includes(toUsername)) {
+        transaction.update(fromUserRef, {
+          friends: arrayUnion(toUsername),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      // Update request status to 'accepted'
       transaction.update(requestRef, {
         status: 'accepted',
         acceptedAt: serverTimestamp(),
