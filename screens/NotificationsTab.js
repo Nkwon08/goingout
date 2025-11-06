@@ -1,21 +1,24 @@
 import * as React from 'react';
-import { View, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, ScrollView, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
 import { List, Divider, Text, Avatar, Button } from 'react-native-paper';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useNavigation } from '@react-navigation/native';
 import { subscribeToFriendRequests, acceptFriendRequest, declineFriendRequest } from '../services/friendsService';
-import { subscribeToNotifications } from '../services/notificationsService';
+import { subscribeToNotifications, markNotificationAsRead } from '../services/notificationsService';
 import { acceptGroupInvitation, declineGroupInvitation } from '../services/groupsService';
 import { getUserById } from '../services/usersService';
 
 export default function NotificationsTab() {
   const { isDarkMode } = useTheme();
   const { user } = useAuth();
+  const navigation = useNavigation();
   
   const [friendRequests, setFriendRequests] = React.useState([]);
   const [requestsWithData, setRequestsWithData] = React.useState([]);
   const [groupInvitations, setGroupInvitations] = React.useState([]);
   const [invitationsWithData, setInvitationsWithData] = React.useState([]);
+  const [postNotifications, setPostNotifications] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [processingRequest, setProcessingRequest] = React.useState(null);
   const [processingInvitation, setProcessingInvitation] = React.useState(null);
@@ -129,11 +132,12 @@ export default function NotificationsTab() {
     };
   }, [friendRequests]);
 
-  // Subscribe to notifications for group invitations
+  // Subscribe to notifications for group invitations and post interactions
   React.useEffect(() => {
     if (!user?.uid) {
       setGroupInvitations([]);
       setInvitationsWithData([]);
+      setPostNotifications([]);
       return;
     }
 
@@ -141,6 +145,7 @@ export default function NotificationsTab() {
       if (result.error) {
         console.error('Error loading notifications:', result.error);
         setGroupInvitations([]);
+        setPostNotifications([]);
         return;
       }
 
@@ -149,6 +154,12 @@ export default function NotificationsTab() {
         (notif) => notif.type === 'group_invitation' && !notif.read
       );
       setGroupInvitations(invitations);
+
+      // Filter for post interactions (likes and comments)
+      const postNotifs = (result.notifications || []).filter(
+        (notif) => (notif.type === 'like' || notif.type === 'comment') && notif.postId
+      );
+      setPostNotifications(postNotifs);
     });
 
     return () => {
@@ -316,11 +327,79 @@ export default function NotificationsTab() {
     );
   }
 
-  const hasNotifications = requestsWithData.length > 0 || invitationsWithData.length > 0;
+  // Handle notification tap - navigate to post
+  const handleNotificationTap = React.useCallback(async (notification) => {
+    if (!user?.uid || !notification.postId) return;
+
+    // Mark as read
+    if (!notification.read) {
+      try {
+        await markNotificationAsRead(user.uid, notification.id);
+      } catch (error) {
+        console.error('Error marking notification as read:', error);
+      }
+    }
+
+    // Navigate to Activity screen (where posts are displayed)
+    navigation.navigate('Activity', { 
+      screen: 'Recent',
+      params: { highlightPostId: notification.postId }
+    });
+  }, [user?.uid, navigation]);
+
+  const hasNotifications = requestsWithData.length > 0 || invitationsWithData.length > 0 || postNotifications.length > 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: bgColor }}>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
+        {postNotifications.length > 0 && (
+          <View style={{ backgroundColor: surfaceColor, borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}>
+            <Text style={{ color: textColor, fontSize: 16, fontWeight: '600', padding: 16, paddingBottom: 8 }}>
+              Post Activity ({postNotifications.length})
+            </Text>
+            {postNotifications.map((notification, idx) => (
+              <TouchableOpacity
+                key={notification.id}
+                onPress={() => handleNotificationTap(notification)}
+                activeOpacity={0.7}
+              >
+                <View style={{ padding: 16, opacity: notification.read ? 0.7 : 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Avatar.Image 
+                      size={48} 
+                      source={{ 
+                        uri: notification.fromUserAvatar || 
+                              notification.fromUser?.photoURL || 
+                              notification.fromUser?.avatar || 
+                              'https://i.pravatar.cc/100?img=12' 
+                      }} 
+                    />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={{ color: textColor, fontSize: 15, fontWeight: '600' }}>
+                        {notification.fromUserName || notification.fromUser?.name || 'Someone'}
+                      </Text>
+                      <Text style={{ color: subTextColor, fontSize: 14, marginTop: 2 }}>
+                        {notification.message || 
+                         (notification.type === 'like' ? 'liked your post' : 'commented on your post')}
+                      </Text>
+                    </View>
+                    {!notification.read && (
+                      <View style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: primaryColor,
+                        marginLeft: 8,
+                      }} />
+                    )}
+                  </View>
+                </View>
+                {idx < postNotifications.length - 1 && <Divider style={{ backgroundColor: dividerColor }} />}
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
         {requestsWithData.length > 0 && (
           <View style={{ backgroundColor: surfaceColor, borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}>
             <Text style={{ color: textColor, fontSize: 16, fontWeight: '600', padding: 16, paddingBottom: 8 }}>
