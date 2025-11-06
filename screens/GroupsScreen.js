@@ -15,7 +15,7 @@ import { useGroupPhotos } from '../context/GroupPhotosContext';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { subscribeToUserGroups } from '../services/groupsService';
+import { subscribeToUserGroups, deleteGroup } from '../services/groupsService';
 
 const TopTab = createMaterialTopTabNavigator();
 
@@ -683,6 +683,12 @@ function PollsTab() {
 
 function GroupDetail({ group, onBack }) {
   const { background, text, subText } = useThemeColors();
+  const { user } = useAuth();
+  const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  
+  // Check if current user is the group owner
+  const isOwner = group?.creator === user?.uid;
   
   // Format time remaining for display
   const formatTimeRemaining = () => {
@@ -702,11 +708,53 @@ function GroupDetail({ group, onBack }) {
     return `${minutes}m`;
   };
   
+  // Handle delete group
+  const handleDeleteGroup = async () => {
+    if (!group?.id || !isOwner) return;
+    
+    setShowDeleteConfirm(true);
+  };
+  
+  const confirmDelete = async () => {
+    if (!group?.id || !isOwner) return;
+    
+    setDeleting(true);
+    try {
+      const { error } = await deleteGroup(group.id);
+      if (error) {
+        Alert.alert('Error', error);
+      } else {
+        Alert.alert('Success', 'Group deleted successfully', [
+          {
+            text: 'OK',
+            onPress: () => {
+              onBack();
+            },
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error('Error deleting group:', error);
+      Alert.alert('Error', error.message || 'Failed to delete group');
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+  
   return (
     <View style={{ flex: 1, backgroundColor: background }}>
       <Appbar.Header mode="small" elevated={false} style={{ backgroundColor: background }}>
         <Appbar.Action icon="arrow-left" onPress={onBack} color={text} />
         <Appbar.Content title={group?.name || 'Group'} color={text} />
+        {isOwner && (
+          <Appbar.Action 
+            icon="delete" 
+            onPress={handleDeleteGroup} 
+            color={IU_CRIMSON}
+            disabled={deleting}
+          />
+        )}
         <Button mode="contained" buttonColor={IU_CRIMSON} textColor="#FFFFFF" style={{ marginRight: 12 }}>
           {formatTimeRemaining()}
         </Button>
@@ -727,6 +775,46 @@ function GroupDetail({ group, onBack }) {
         <TopTab.Screen name="Polls" component={PollsTab} />
         <TopTab.Screen name="Album" component={AlbumTab} />
       </TopTab.Navigator>
+      
+      {/* Delete Confirmation Dialog */}
+      <Modal
+        visible={showDeleteConfirm}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDeleteConfirm(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: background, borderRadius: 16, padding: 20, width: '100%', maxWidth: 400 }}>
+            <Text style={{ color: text, fontSize: 20, fontWeight: 'bold', marginBottom: 12 }}>
+              Delete Group
+            </Text>
+            <Text style={{ color: subText, fontSize: 16, marginBottom: 20 }}>
+              Are you sure you want to delete "{group?.name}"? This action cannot be undone and all messages and data will be permanently deleted.
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 }}>
+              <Button
+                mode="text"
+                onPress={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                textColor={text}
+                style={{ marginRight: 8 }}
+              >
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor={IU_CRIMSON}
+                textColor="#FFFFFF"
+                onPress={confirmDelete}
+                disabled={deleting}
+                loading={deleting}
+              >
+                Delete
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -736,6 +824,9 @@ export default function GroupsScreen({ navigation }) {
   const [showGroupMenu, setShowGroupMenu] = React.useState(false);
   const [groups, setGroups] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
+  const [selectedGroupForDelete, setSelectedGroupForDelete] = React.useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const { background, text, subText, surface } = useThemeColors();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -777,6 +868,38 @@ export default function GroupsScreen({ navigation }) {
     console.log('Join Group');
   };
   
+  // Handle group menu (3 dots) press
+  const handleGroupMenuPress = (group) => {
+    // Check if user is the owner
+    const isOwner = group?.creator === user?.uid;
+    if (isOwner) {
+      setSelectedGroupForDelete(group);
+      setShowDeleteConfirm(true);
+    }
+  };
+  
+  // Handle delete group from list
+  const confirmDeleteGroup = async () => {
+    if (!selectedGroupForDelete?.id || selectedGroupForDelete?.creator !== user?.uid) return;
+    
+    setDeleting(true);
+    try {
+      const { error } = await deleteGroup(selectedGroupForDelete.id);
+      if (error) {
+        Alert.alert('Error', error);
+      } else {
+        Alert.alert('Success', 'Group deleted successfully');
+        setSelectedGroupForDelete(null);
+      }
+    } catch (error) {
+      console.error('Error deleting group:', error);
+      Alert.alert('Error', error.message || 'Failed to delete group');
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+  
   if (selected) {
     return <GroupDetail group={selected} onBack={() => setSelected(null)} />;
   }
@@ -793,9 +916,18 @@ export default function GroupsScreen({ navigation }) {
             <Text style={{ color: subText, marginTop: 8 }}>Loading groups...</Text>
           </View>
         ) : groups.length > 0 ? (
-          groups.map((g) => (
-            <GroupCard key={g.id} group={g} onPress={() => setSelected(g)} />
-          ))
+          groups.map((g) => {
+            const isOwner = g?.creator === user?.uid;
+            return (
+              <GroupCard 
+                key={g.id} 
+                group={g} 
+                onPress={() => setSelected(g)} 
+                onMenuPress={handleGroupMenuPress}
+                showMenu={isOwner}
+              />
+            );
+          })
         ) : (
           <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>No groups yet. Create one to get started!</Text>
         )}
@@ -898,6 +1030,49 @@ export default function GroupsScreen({ navigation }) {
             </TouchableWithoutFeedback>
           </View>
         </TouchableWithoutFeedback>
+      </Modal>
+      
+      {/* Delete Group Confirmation Modal */}
+      <Modal
+        visible={showDeleteConfirm}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDeleteConfirm(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: surface, borderRadius: 16, padding: 20, width: '100%', maxWidth: 400 }}>
+            <Text style={{ color: text, fontSize: 20, fontWeight: 'bold', marginBottom: 12 }}>
+              Delete Group
+            </Text>
+            <Text style={{ color: subText, fontSize: 16, marginBottom: 20 }}>
+              Are you sure you want to delete "{selectedGroupForDelete?.name}"? This action cannot be undone and all messages and data will be permanently deleted.
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 }}>
+              <Button
+                mode="text"
+                onPress={() => {
+                  setShowDeleteConfirm(false);
+                  setSelectedGroupForDelete(null);
+                }}
+                disabled={deleting}
+                textColor={text}
+                style={{ marginRight: 8 }}
+              >
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor={IU_CRIMSON}
+                textColor="#FFFFFF"
+                onPress={confirmDeleteGroup}
+                disabled={deleting}
+                loading={deleting}
+              >
+                Delete
+              </Button>
+            </View>
+          </View>
+        </View>
       </Modal>
     </View>
   );
