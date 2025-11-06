@@ -1,7 +1,8 @@
 // Profile screen - user profile with tabs for posts and settings
 import * as React from 'react';
-import { View, ScrollView, FlatList, RefreshControl } from 'react-native';
+import { View, ScrollView, FlatList, RefreshControl, TouchableOpacity, Image, Modal, Dimensions } from 'react-native';
 import { Appbar, Avatar, Text, Button, Switch, List, Divider } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { signOutUser } from '../services/authService';
@@ -17,7 +18,10 @@ function PostsTab({ user, userData, themeColors }) {
   const [posts, setPosts] = React.useState([]);
   const [refreshing, setRefreshing] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
-  const { text, subText, background } = themeColors;
+  const [selectedPost, setSelectedPost] = React.useState(null);
+  const [containerHeight, setContainerHeight] = React.useState(0);
+  const { text, subText, background, surface } = themeColors;
+  const { isDarkMode } = useTheme();
 
   React.useEffect(() => {
     if (!user?.uid) {
@@ -30,12 +34,13 @@ function PostsTab({ user, userData, themeColors }) {
         if (result.error) {
           console.error('Error loading posts:', result.error);
         } else {
-          setPosts(result.posts);
+          // Limit to 9 posts for 3x3 grid
+          setPosts(result.posts.slice(0, 9));
         }
         setLoading(false);
         setRefreshing(false);
       },
-      100 // Get up to 100 posts
+      9 // Get up to 9 posts
     );
 
     return () => unsubscribe();
@@ -47,9 +52,13 @@ function PostsTab({ user, userData, themeColors }) {
     setTimeout(() => setRefreshing(false), 1000);
   };
 
-  const renderPost = ({ item }) => (
-    <FeedPost post={item} onDelete={() => {}} />
-  );
+  const handlePostPress = (post) => {
+    setSelectedPost(post);
+  };
+
+  const handleCloseModal = () => {
+    setSelectedPost(null);
+  };
 
   if (loading) {
     return (
@@ -69,17 +78,154 @@ function PostsTab({ user, userData, themeColors }) {
     );
   }
 
+  // Calculate grid item size to fill available space
+  // 3 columns with gaps, 3 rows to fill vertical space
+  const screenWidth = Dimensions.get('window').width;
+  const gridPadding = 16;
+  const gridGap = 2;
+  const headerHeight = 40; // Height of the "Posts" header
+  
+  // Calculate item size based on available width and height
+  // Ensure 9 posts (3x3) fill the remaining vertical space
+  const availableWidth = screenWidth - (gridPadding * 2);
+  const availableHeight = containerHeight > 0 ? containerHeight - headerHeight - gridPadding : 0;
+  
+  // Calculate size based on width (3 columns)
+  const itemSizeByWidth = (availableWidth - (gridGap * 2)) / 3;
+  
+  // Calculate size based on height (3 rows) if we have container height
+  const itemSizeByHeight = availableHeight > 0 ? (availableHeight - (gridGap * 2)) / 3 : itemSizeByWidth;
+  
+  // Use the smaller of the two to ensure everything fits
+  const itemSize = availableHeight > 0 
+    ? Math.min(itemSizeByWidth, itemSizeByHeight) 
+    : itemSizeByWidth;
+
   return (
-    <FlatList
-      data={posts}
-      renderItem={renderPost}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={{ padding: 16, gap: 12 }}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-      }
-      showsVerticalScrollIndicator={false}
-    />
+    <>
+      <View 
+        style={{ flex: 1 }}
+        onLayout={(event) => {
+          const { height } = event.nativeEvent.layout;
+          setContainerHeight(height);
+        }}
+      >
+        {/* Header divider */}
+        <View style={{
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          borderBottomWidth: 1,
+          borderBottomColor: isDarkMode ? '#3A3A3A' : '#D0CFCD',
+          backgroundColor: background,
+        }}>
+          <Text style={{
+            color: text,
+            fontSize: 16,
+            fontWeight: '600',
+          }}>
+            Posts
+          </Text>
+        </View>
+
+        {/* Grid container */}
+        <View style={{
+          flex: 1,
+          padding: gridPadding,
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          gap: gridGap,
+          alignContent: 'flex-start',
+        }}>
+        {posts.map((post) => {
+          // Get first image from post
+          const images = post.images || [];
+          const firstImage = images.length > 0 ? images[0] : null;
+          
+          return (
+            <TouchableOpacity
+              key={post.id}
+              onPress={() => handlePostPress(post)}
+              style={{
+                width: itemSize,
+                height: itemSize,
+                backgroundColor: surface,
+                borderRadius: 4,
+                overflow: 'hidden',
+              }}
+              activeOpacity={0.8}
+            >
+              {firstImage ? (
+                <Image
+                  source={{ uri: firstImage }}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                  }}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={{
+                  width: '100%',
+                  height: '100%',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  backgroundColor: isDarkMode ? '#2A2A2A' : '#F5F4F2',
+                }}>
+                  <MaterialCommunityIcons 
+                    name="image-outline" 
+                    size={32} 
+                    color={subText} 
+                  />
+                </View>
+              )}
+              {/* Overlay for multiple images indicator */}
+              {images.length > 1 && (
+                <View style={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                  borderRadius: 12,
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                }}>
+                  <MaterialCommunityIcons 
+                    name="layers" 
+                    size={16} 
+                    color="#FFFFFF" 
+                  />
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+        </View>
+      </View>
+
+      {/* Modal for maximized post */}
+      {selectedPost && (
+        <Modal
+          visible={!!selectedPost}
+          transparent={false}
+          animationType="slide"
+          onRequestClose={handleCloseModal}
+        >
+          <View style={{ flex: 1, backgroundColor: background }}>
+            <Appbar.Header mode="center-aligned" style={{ backgroundColor: background }}>
+              <Appbar.Action 
+                icon="close" 
+                color={text} 
+                onPress={handleCloseModal}
+              />
+              <Appbar.Content title="Post" color={text} />
+            </Appbar.Header>
+            <View style={{ flex: 1 }}>
+              <FeedPost post={selectedPost} onDelete={() => {}} />
+            </View>
+          </View>
+        </Modal>
+      )}
+    </>
   );
 }
 
@@ -164,11 +310,7 @@ export default function ProfileScreen({ navigation }) {
   const [loggingOut, setLoggingOut] = React.useState(false);
   const [location, setLocation] = React.useState('');
   const [loadingLocation, setLoadingLocation] = React.useState(true);
-  const [index, setIndex] = React.useState(0);
-  const [routes] = React.useState([
-    { key: 'posts', title: 'Posts' },
-    { key: 'settings', title: 'Settings' },
-  ]);
+  const [showSettings, setShowSettings] = React.useState(false);
   
   const { isDarkMode, toggleTheme } = useTheme();
   const { user, userData, refreshUserData } = useAuth();
@@ -240,37 +382,17 @@ export default function ProfileScreen({ navigation }) {
     return unsubscribe;
   }, [navigation, user, refreshUserData]);
 
-  const renderScene = () => {
-    if (index === 0) {
-      return <PostsTab user={user} userData={userData} themeColors={themeColors} />;
-    } else {
-      return (
-        <SettingsTab
-          navigation={navigation}
-          user={user}
-          userData={userData}
-          isDarkMode={isDarkMode}
-          toggleTheme={toggleTheme}
-          publicAlbums={publicAlbums}
-          setPublicAlbums={setPublicAlbums}
-          location={location}
-          loadingLocation={loadingLocation}
-          loggingOut={loggingOut}
-          bgColor={bgColor}
-          surfaceColor={surfaceColor}
-          textColor={textColor}
-          subTextColor={subTextColor}
-          dividerColor={dividerColor}
-        />
-      );
-    }
-  };
 
   return (
     <View style={{ flex: 1, backgroundColor: bgColor }}>
       {/* Header */}
       <Appbar.Header mode="center-aligned" style={{ backgroundColor: bgColor }}>
         <Appbar.Content title="Profile" color={textColor} />
+        <Appbar.Action 
+          icon="cog" 
+          color={textColor} 
+          onPress={() => setShowSettings(true)}
+        />
       </Appbar.Header>
       
       {/* Profile Header Section */}
@@ -317,32 +439,49 @@ export default function ProfileScreen({ navigation }) {
         </View>
       </View>
 
-      {/* Tab Buttons */}
-      <View style={{ flexDirection: 'row', backgroundColor: bgColor, paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: dividerColor }}>
-        <Button
-          mode={index === 0 ? 'contained' : 'text'}
-          buttonColor={index === 0 ? IU_CRIMSON : 'transparent'}
-          textColor={index === 0 ? '#FFFFFF' : textColor}
-          onPress={() => setIndex(0)}
-          style={{ flex: 1, marginRight: 8 }}
-        >
-          Posts
-        </Button>
-        <Button
-          mode={index === 1 ? 'contained' : 'text'}
-          buttonColor={index === 1 ? IU_CRIMSON : 'transparent'}
-          textColor={index === 1 ? '#FFFFFF' : textColor}
-          onPress={() => setIndex(1)}
-          style={{ flex: 1, marginLeft: 8 }}
-        >
-          Settings
-        </Button>
+      {/* Posts Content - Always visible */}
+      <View style={{ flex: 1 }}>
+        <PostsTab user={user} userData={userData} themeColors={themeColors} />
       </View>
 
-      {/* Tab Content */}
-      <View style={{ flex: 1 }}>
-        {renderScene()}
-      </View>
+      {/* Settings Modal */}
+      {showSettings && (
+        <View style={{ 
+          position: 'absolute', 
+          top: 0, 
+          left: 0, 
+          right: 0, 
+          bottom: 0, 
+          backgroundColor: bgColor,
+          zIndex: 1000
+        }}>
+          <Appbar.Header mode="center-aligned" style={{ backgroundColor: bgColor }}>
+            <Appbar.Action 
+              icon="arrow-left" 
+              color={textColor} 
+              onPress={() => setShowSettings(false)}
+            />
+            <Appbar.Content title="Settings" color={textColor} />
+          </Appbar.Header>
+          <SettingsTab
+            navigation={navigation}
+            user={user}
+            userData={userData}
+            isDarkMode={isDarkMode}
+            toggleTheme={toggleTheme}
+            publicAlbums={publicAlbums}
+            setPublicAlbums={setPublicAlbums}
+            location={location}
+            loadingLocation={loadingLocation}
+            loggingOut={loggingOut}
+            bgColor={bgColor}
+            surfaceColor={surfaceColor}
+            textColor={textColor}
+            subTextColor={subTextColor}
+            dividerColor={dividerColor}
+          />
+        </View>
+      )}
     </View>
   );
 }

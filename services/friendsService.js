@@ -384,10 +384,37 @@ export const getFriends = async (userId) => {
     const blocked = userData.blocked || []; // Array of usernames (document IDs)
 
     // Filter out blocked users from friends list
-    const filteredFriends = friends.filter((friendUsername) => !blocked.includes(friendUsername));
+    let filteredFriends = friends.filter((friendUsername) => !blocked.includes(friendUsername));
 
-    console.log('✅ Found', filteredFriends.length, 'friends (filtered from', friends.length, 'total)');
-    return { friends: filteredFriends, error: null };
+    // Verify mutual friendships - only include friends where both users have each other
+    // This ensures that if someone removes you, they won't appear in your friends list
+    const mutualFriends = [];
+    
+    for (const friendUsername of filteredFriends) {
+      try {
+        const friendRef = doc(db, 'users', friendUsername);
+        const friendDoc = await getDoc(friendRef);
+        
+        if (friendDoc.exists()) {
+          const friendData = friendDoc.data();
+          const friendFriends = friendData.friends || [];
+          
+          // Only include if the friend also has the current user in their friends list
+          if (friendFriends.includes(username)) {
+            mutualFriends.push(friendUsername);
+          } else {
+            console.log('🔍 [getFriends] Removing non-mutual friend:', friendUsername);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error checking mutual friendship for', friendUsername, error);
+        // If we can't check, include them to avoid removing valid friends due to errors
+        mutualFriends.push(friendUsername);
+      }
+    }
+
+    console.log('✅ Found', mutualFriends.length, 'mutual friends (filtered from', friends.length, 'total)');
+    return { friends: mutualFriends, error: null };
   } catch (error) {
     console.error('❌ Error getting friends:', error);
     console.error('❌ Error code:', error.code);
@@ -479,9 +506,57 @@ export const subscribeToFriends = (userId, callback) => {
           const blocked = userData.blocked || []; // Array of usernames (document IDs)
           
           // Filter out blocked users from friends list
-          const filteredFriends = friends.filter((friendUsername) => !blocked.includes(friendUsername));
+          let filteredFriends = friends.filter((friendUsername) => !blocked.includes(friendUsername));
           
-          callback({ friends: filteredFriends, error: null });
+          // Verify mutual friendships - only include friends where both users have each other
+          // This ensures that if someone removes you, they won't appear in your friends list
+          const verifyMutualFriendships = async () => {
+            if (filteredFriends.length === 0) {
+              callback({ friends: [], error: null });
+              return;
+            }
+            
+            try {
+              // Check each friend to verify mutual friendship
+              const mutualFriends = [];
+              
+              for (const friendUsername of filteredFriends) {
+                try {
+                  const friendRef = doc(db, 'users', friendUsername);
+                  const friendDoc = await getDoc(friendRef);
+                  
+                  if (friendDoc.exists()) {
+                    const friendData = friendDoc.data();
+                    const friendFriends = friendData.friends || [];
+                    
+                    // Only include if the friend also has the current user in their friends list
+                    if (friendFriends.includes(username)) {
+                      mutualFriends.push(friendUsername);
+                    } else {
+                      console.log('🔍 [subscribeToFriends] Removing non-mutual friend:', friendUsername);
+                    }
+                  }
+                } catch (error) {
+                  console.error('❌ Error checking mutual friendship for', friendUsername, error);
+                  // If we can't check, include them to avoid removing valid friends due to errors
+                  mutualFriends.push(friendUsername);
+                }
+              }
+              
+              if (isMounted) {
+                callback({ friends: mutualFriends, error: null });
+              }
+            } catch (error) {
+              console.error('❌ Error verifying mutual friendships:', error);
+              // On error, return all friends (better to show them than hide valid friendships)
+              if (isMounted) {
+                callback({ friends: filteredFriends, error: null });
+              }
+            }
+          };
+          
+          // Verify mutual friendships asynchronously
+          verifyMutualFriendships();
         },
         (error) => {
           if (!isMounted) return;

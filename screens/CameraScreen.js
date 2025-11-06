@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Text } from 'react-native-paper';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useGroupPhotos } from '../context/GroupPhotosContext';
 import MediaPreview from '../components/MediaPreview';
 import ComposePost from '../components/ComposePost';
@@ -30,6 +31,7 @@ export default function CameraScreen() {
   const cameraReadyRef = React.useRef(false);
   const [composeVisible, setComposeVisible] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
+  const [squareMode, setSquareMode] = React.useState(false); // Square crop mode
   const { user, userData } = useAuth();
   const navigation = useNavigation();
 
@@ -135,7 +137,44 @@ export default function CameraScreen() {
       
       if (photo && photo.uri) {
         console.log('Picture taken successfully:', photo.uri);
-        setCapturedMedia({ type: 'photo', uri: photo.uri });
+        
+        // If square mode is enabled, crop the image to square
+        let finalUri = photo.uri;
+        if (squareMode && photo.width && photo.height) {
+          try {
+            // Calculate square crop region (center crop)
+            const size = Math.min(photo.width, photo.height);
+            const originX = (photo.width - size) / 2;
+            const originY = (photo.height - size) / 2;
+            
+            const manipulatedImage = await ImageManipulator.manipulateAsync(
+              photo.uri,
+              [
+                {
+                  crop: {
+                    originX,
+                    originY,
+                    width: size,
+                    height: size,
+                  },
+                },
+              ],
+              {
+                compress: 0.8,
+                format: ImageManipulator.SaveFormat.JPEG,
+              }
+            );
+            
+            finalUri = manipulatedImage.uri;
+            console.log('Image cropped to square:', finalUri);
+          } catch (cropError) {
+            console.error('Error cropping image to square:', cropError);
+            // Use original image if cropping fails
+            finalUri = photo.uri;
+          }
+        }
+        
+        setCapturedMedia({ type: 'photo', uri: finalUri });
         setPreviewVisible(true);
       } else {
         console.error('No photo data received');
@@ -413,9 +452,12 @@ export default function CameraScreen() {
         </SafeAreaView>
 
         <View style={styles.buttonContainer}>
+          {/* Flip button on the left */}
           <TouchableOpacity style={styles.flipButton} onPress={toggleCameraFacing}>
             <MaterialCommunityIcons name="camera-flip" size={32} color="#FFFFFF" />
           </TouchableOpacity>
+          
+          {/* Shutter button in the center */}
           {mode === 'photo' ? (
             <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
               <View style={styles.captureButtonInner} />
@@ -438,6 +480,22 @@ export default function CameraScreen() {
                 <View style={[styles.captureButtonInner, styles.videoButtonInner]} />
               )}
             </TouchableOpacity>
+          )}
+          
+          {/* Square crop button on the right (only in photo mode) */}
+          {mode === 'photo' ? (
+            <TouchableOpacity 
+              style={[styles.squareButton, squareMode && styles.squareButtonActive]} 
+              onPress={() => setSquareMode(!squareMode)}
+            >
+              <MaterialCommunityIcons 
+                name="crop-square" 
+                size={32} 
+                color={squareMode ? IU_CRIMSON : "#FFFFFF"} 
+              />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.squareButton} />
           )}
         </View>
       </CameraView>
@@ -526,9 +584,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: 'transparent',
     margin: 20,
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'flex-end',
     paddingBottom: 40,
+    paddingHorizontal: 20,
+    position: 'relative',
   },
   captureButton: {
     width: 70,
@@ -539,7 +599,10 @@ const styles = StyleSheet.create({
     borderColor: IU_CRIMSON,
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 40,
+    position: 'absolute',
+    left: '50%',
+    marginLeft: -35, // Half of width to center
+    bottom: 40,
   },
   captureButtonInner: {
     width: 50,
@@ -570,6 +633,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  squareButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  squareButtonActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderWidth: 2,
+    borderColor: IU_CRIMSON,
   },
   message: {
     color: '#E6E8F0',
