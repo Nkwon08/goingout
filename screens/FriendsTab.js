@@ -3,7 +3,7 @@ import { View, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { Searchbar, Button, Avatar, List, Divider, Text } from 'react-native-paper';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { addFriend, checkFriendship, getFriends, sendFriendRequest } from '../services/friendsService';
+import { addFriend, checkFriendship, getFriends, sendFriendRequest, cancelFriendRequest } from '../services/friendsService';
 import { getCurrentUserData as getUserData } from '../services/authService';
 import { searchUsersByUsername, getAllUsers } from '../services/usersService';
 
@@ -291,6 +291,29 @@ export default function FriendsTab() {
     }
   }, [user]);
 
+  /** Cancel a friend request (unsend) */
+  const handleCancelFriendRequest = React.useCallback(async (targetUid) => {
+    if (!user || targetUid === user.uid) return;
+    try {
+      const result = await cancelFriendRequest(targetUid);
+      if (result.success) {
+        Alert.alert('Success', 'Friend request cancelled', [{ text: 'OK' }]);
+        setSearchResultsWithStatus((prev) =>
+          prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: false } : u))
+        );
+        // Also update allUsers list
+        setAllUsers((prev) =>
+          prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: false } : u))
+        );
+      } else {
+        Alert.alert('Error', result.error || 'Failed to cancel friend request', [{ text: 'OK' }]);
+      }
+    } catch (err) {
+      console.error('Error cancelling friend request:', err);
+      Alert.alert('Error', 'Failed to cancel friend request. Please try again.', [{ text: 'OK' }]);
+    }
+  }, [user]);
+
   if (!user) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: 'center', alignItems: 'center' }}>
@@ -345,7 +368,7 @@ export default function FriendsTab() {
                       {u.isFriend ? (
                         <Button mode="outlined" textColor={colors.subText} compact disabled icon="account-check">Friends</Button>
                       ) : u.requestSent ? (
-                        <Button mode="outlined" textColor={colors.subText} compact disabled icon="account-plus">Request Sent</Button>
+                        <Button mode="outlined" textColor={colors.primary} compact onPress={() => handleCancelFriendRequest(u.uid)} icon="close">Request Sent</Button>
                       ) : (
                         <Button mode="contained" buttonColor={colors.primary} textColor="#fff" compact onPress={() => handleSendFriendRequest(u.uid)} icon="account-plus">Send Request</Button>
                       )}
@@ -400,7 +423,7 @@ export default function FriendsTab() {
                       {friends.includes(u.uid) ? (
                         <Button mode="outlined" textColor={colors.subText} compact disabled icon="account-check">Friends</Button>
                       ) : u.requestSent ? (
-                        <Button mode="outlined" textColor={colors.subText} compact disabled icon="account-plus">Request Sent</Button>
+                        <Button mode="outlined" textColor={colors.primary} compact onPress={() => handleCancelFriendRequest(u.uid)} icon="close">Request Sent</Button>
                       ) : (
                         <Button mode="contained" buttonColor={colors.primary} textColor="#fff" compact onPress={() => handleSendFriendRequest(u.uid)} icon="account-plus">Send Request</Button>
                       )}

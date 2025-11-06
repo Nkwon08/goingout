@@ -881,6 +881,63 @@ export const declineFriendRequest = async (requestId) => {
 };
 
 /**
+ * Cancel a friend request (unsend)
+ * Finds and deletes the pending friend request sent by the current user to the target user
+ * @param {string} targetUserId - User ID who received the request (UID)
+ * @returns {Promise<{ success: boolean, error: string|null }>}
+ */
+export const cancelFriendRequest = async (targetUserId) => {
+  try {
+    if (!auth || !auth.currentUser || !auth.currentUser.uid) {
+      return { success: false, error: 'User not authenticated' };
+    }
+
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { success: false, error: 'Firestore not configured' };
+    }
+
+    const fromUserId = auth.currentUser.uid;
+    
+    // Convert targetUserId to UID if it's a username
+    let toUserId = targetUserId;
+    if (targetUserId && targetUserId.length < 20) {
+      // Likely a username, convert to UID
+      const authUid = await getAuthUidFromUsername(targetUserId);
+      if (!authUid) {
+        return { success: false, error: 'User not found' };
+      }
+      toUserId = authUid;
+    }
+
+    // Find the pending friend request
+    const requestsRef = collection(db, 'friendRequests');
+    const q = query(
+      requestsRef,
+      where('fromUserId', '==', fromUserId),
+      where('toUserId', '==', toUserId),
+      where('status', '==', 'pending'),
+      limit(1)
+    );
+
+    const snapshot = await getDocs(q);
+
+    if (snapshot.empty) {
+      return { success: false, error: 'Friend request not found' };
+    }
+
+    // Delete the request
+    const requestDoc = snapshot.docs[0];
+    await deleteDoc(doc(db, 'friendRequests', requestDoc.id));
+
+    console.log('✅ Friend request cancelled:', fromUserId, '→', toUserId);
+    return { success: true, error: null };
+  } catch (error) {
+    console.error('❌ Error cancelling friend request:', error);
+    return { success: false, error: error.message || 'Failed to cancel friend request' };
+  }
+};
+
+/**
  * Get incoming friend requests for a user
  * @param {string} userId - User ID to get requests for
  * @returns {Promise<{ requests: Array, error: string|null }>}
