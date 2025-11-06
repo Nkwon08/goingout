@@ -505,9 +505,11 @@ function ChatTab({ groupId }) {
   
   // Create renderBubble function that updates when polls change
   const renderBubble = React.useCallback((props) => {
-    // Use GiftedChat's position prop to determine if message is from current user
-    // position === 'left' means other user, position === 'right' means current user
-    const isOwnMessage = props.position === 'right';
+    // Explicitly check user ID to ensure own messages are always right-aligned
+    // This prevents GiftedChat's consecutive message grouping from affecting alignment
+    const messageUserId = String(props.currentMessage?.user?._id || '');
+    const currentUserId = String(user?.uid || '');
+    const isOwnMessage = messageUserId === currentUserId;
     
     // Handle poll messages
     if (props.currentMessage.type === 'poll' && props.currentMessage.pollId) {
@@ -1020,8 +1022,13 @@ function ChatTab({ groupId }) {
           placeholderTextColor: textSecondary,
         }}
         renderAvatar={(props) => {
-          // Only show avatar for messages from other users (left position)
-          if (props.position === 'right') {
+          // Explicitly check user ID to determine if message is from current user
+          const messageUserId = String(props.currentMessage?.user?._id || '');
+          const currentUserId = String(user?.uid || '');
+          const isOwnMessage = messageUserId === currentUserId;
+          
+          // Only show avatar for messages from other users (not own messages)
+          if (isOwnMessage) {
             return null; // Don't show avatar for own messages
           }
           return (
@@ -1035,6 +1042,11 @@ function ChatTab({ groupId }) {
         }}
         renderBubble={renderBubble}
         renderTime={(props) => {
+          // Explicitly check user ID to determine alignment
+          const messageUserId = String(props.currentMessage?.user?._id || '');
+          const currentUserId = String(user?.uid || '');
+          const isOwnMessage = messageUserId === currentUserId;
+          
           return (
             <Text
               style={{
@@ -1042,7 +1054,7 @@ function ChatTab({ groupId }) {
                 color: textSecondary,
                 marginHorizontal: 8,
                 marginVertical: 4,
-                alignSelf: props.position === 'right' ? 'flex-end' : 'flex-start',
+                alignSelf: isOwnMessage ? 'flex-end' : 'flex-start',
               }}
             >
               {new Date(props.currentMessage.createdAt).toLocaleTimeString('en-US', {
@@ -1054,8 +1066,12 @@ function ChatTab({ groupId }) {
           );
         }}
         renderMessageContainer={(props) => {
-          // Ensure all messages have consistent full-width container with proper flex layout
-          const isOwnMessage = props.position === 'right';
+          // Explicitly check user ID to ensure own messages are always right-aligned
+          // This prevents GiftedChat's consecutive message grouping from affecting alignment
+          const messageUserId = String(props.currentMessage?.user?._id || '');
+          const currentUserId = String(user?.uid || '');
+          const isOwnMessage = messageUserId === currentUserId;
+          
           return (
             <View
               style={{
