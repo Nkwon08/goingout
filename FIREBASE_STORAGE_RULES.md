@@ -26,6 +26,12 @@ service firebase.storage {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
     
+    // Allow authenticated users to upload group chat images/videos
+    match /group-chat/{userId}/{allPaths=**} {
+      allow read: if request.auth != null; // Only authenticated users can read group chat media
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
     // Default: deny all other access
     match /{allPaths=**} {
       allow read, write: if false;
@@ -39,8 +45,9 @@ service firebase.storage {
 
 ## What these rules do:
 
-- **Authenticated users can upload** to their own folders (`posts/{userId}/` and `profile/{userId}/`)
-- **Anyone can read** the images (public viewing)
+- **Authenticated users can upload** to their own folders (`posts/{userId}/`, `profile/{userId}/`, and `group-chat/{userId}/`)
+- **Anyone can read** post and profile images (public viewing)
+- **Only authenticated users can read** group chat media (privacy)
 - **Users can only write to their own folders** (security)
 
 ## Common Error Codes:
