@@ -82,13 +82,33 @@ export const listAllUsernames = async () => {
   return await debugListUsernames(100); // Show up to 100 users
 };
 
-// Get user by ID
+// Get user by username (document ID is now username_lowercase)
+// Also supports getting by Firebase Auth UID for backward compatibility
 export const getUserById = async (userId) => {
   try {
-    const userDoc = await getDoc(doc(db, 'users', userId));
+    // Normalize input - could be username or authUid
+    const userId_lowercase = userId.toLowerCase().replace(/\s+/g, '');
+    
+    // First, try to get by username (document ID)
+    const userDoc = await getDoc(doc(db, 'users', userId_lowercase));
     if (userDoc.exists()) {
-      return { userData: { id: userDoc.id, ...userDoc.data() }, error: null };
+      const data = userDoc.data();
+      // Verify this is the right user (by checking authUid if it's a UID lookup)
+      if (data.authUid === userId || userId_lowercase === userDoc.id) {
+        return { userData: { id: userDoc.id, username: userDoc.id, ...data }, error: null };
+      }
     }
+    
+    // If not found by document ID, try to find by authUid (for backward compatibility)
+    const usersRef = collection(db, 'users');
+    const q = query(usersRef, where('authUid', '==', userId), limit(1));
+    const snapshots = await getDocs(q);
+    
+    if (!snapshots.empty) {
+      const doc = snapshots.docs[0];
+      return { userData: { id: doc.id, username: doc.id, ...doc.data() }, error: null };
+    }
+    
     return { userData: null, error: 'User not found' };
   } catch (error) {
     return { userData: null, error: error.message };

@@ -8,7 +8,7 @@ import {
   GoogleAuthProvider,
   signInWithCredential,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction, collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { ref, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
 import { auth, db, storage, GOOGLE_CLIENT_ID } from '../config/firebase';
 import * as AuthSession from 'expo-auth-session';
@@ -127,7 +127,7 @@ export const reserveUsername = async (uid, username) => {
   try {
     if (!username || !uid) return;
     
-    // Normalize username
+    // Normalize username - this will be the document ID
     const username_lowercase = username.toLowerCase().replace(/\s+/g, '');
     
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
@@ -135,28 +135,31 @@ export const reserveUsername = async (uid, username) => {
       return;
     }
     
-    const handleRef = doc(db, 'usernames', username_lowercase);
-    const userRef = doc(db, 'users', uid);
+    // Check if username document already exists (by another user)
+    const userRef = doc(db, 'users', username_lowercase);
     
     // Use transaction to ensure atomic username reservation
     await runTransaction(db, async (tx) => {
-      const handleDoc = await tx.get(handleRef);
+      const userDoc = await tx.get(userRef);
       
       // Check if username is already taken by another user
-      if (handleDoc.exists()) {
-        const handleData = handleDoc.data();
-        if (handleData.uid !== uid) {
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        // Check if this document belongs to a different user (different authUid)
+        if (userData.authUid && userData.authUid !== uid) {
           console.warn('[reserveUsername] taken', username);
           throw new Error('username_taken');
         }
         // Username is already reserved by this user - that's fine
       }
       
-      // Reserve username
-      tx.set(handleRef, { uid, createdAt: serverTimestamp() }, { merge: false });
-      
-      // Update user document
-      tx.set(userRef, { username, username_lowercase, updatedAt: serverTimestamp() }, { merge: true });
+      // Reserve username by creating/updating user document with username as document ID
+      tx.set(userRef, { 
+        authUid: uid,
+        username, 
+        username_lowercase, 
+        updatedAt: serverTimestamp() 
+      }, { merge: true });
     });
     
     console.log('[reserveUsername] reserved', username_lowercase, 'for', uid);
@@ -241,35 +244,80 @@ export const upsertUserProfile = async (uid, payload = {}) => {
       }
     }
     
-    // Derive username if not provided - always set a username
+    // Derive username if not provided - always preserve existing username
     let username = payload.username ?? null;
-    if (!username) {
-      // Derive from email or displayName
-      username = authUser?.displayName ?? (email ? email.split('@')[0] : `user_${uid.slice(0, 6)}`);
-    }
-    const username_lowercase = username.toLowerCase().replace(/\s+/g, '');
-    
-    // Read existing document first to preserve friends and blocked arrays if not provided
-    const userRef = doc(db, 'users', uid);
+    let username_lowercase = null;
     let existingFriends = [];
     let existingBlocked = [];
+    let oldUsername = null;
     
-    try {
-      const existingDoc = await getDoc(userRef);
-      if (existingDoc.exists()) {
+    if (!username) {
+      // First, try to find existing user document by authUid
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('authUid', '==', uid), limit(1));
+      const existingDocs = await getDocs(q);
+      
+      if (!existingDocs.empty) {
+        // User document exists - preserve existing username
+        const existingDoc = existingDocs.docs[0];
         const existingData = existingDoc.data();
+        username = existingData.username; // Use existing username
+        username_lowercase = existingDoc.id; // Document ID is the username_lowercase
         existingFriends = existingData.friends || [];
         existingBlocked = existingData.blocked || [];
+        oldUsername = existingDoc.id;
+      } else {
+        // No existing document - derive from displayName or email (for new users only)
+        username = authUser?.displayName ?? (email ? email.split('@')[0] : `user_${uid.slice(0, 6)}`);
+        username_lowercase = username.toLowerCase().replace(/\s+/g, '');
       }
-    } catch (readError) {
-      // Document doesn't exist yet - that's okay, use empty arrays
-      console.log('[upsertUserProfile] Document does not exist yet, will create new');
+    } else {
+      // Username provided in payload - use it
+      username_lowercase = username.toLowerCase().replace(/\s+/g, '');
+      
+      // Check if document exists at this username
+      const userRef = doc(db, 'users', username_lowercase);
+      try {
+        const existingDoc = await getDoc(userRef);
+        if (existingDoc.exists()) {
+          const existingData = existingDoc.data();
+          // Check if this document belongs to a different user (username conflict)
+          if (existingData.authUid && existingData.authUid !== uid) {
+            throw new Error('username_taken');
+          }
+          // Same user or unclaimed username - preserve existing data
+          existingFriends = existingData.friends || [];
+          existingBlocked = existingData.blocked || [];
+          oldUsername = existingData.username_lowercase;
+        } else {
+          // Document doesn't exist at this username - check if user exists with different username
+          const usersRef = collection(db, 'users');
+          const q = query(usersRef, where('authUid', '==', uid), limit(1));
+          const existingDocs = await getDocs(q);
+          
+          if (!existingDocs.empty) {
+            const existingDoc = existingDocs.docs[0];
+            const existingData = existingDoc.data();
+            existingFriends = existingData.friends || [];
+            existingBlocked = existingData.blocked || [];
+            oldUsername = existingDoc.id; // Old username_lowercase (document ID)
+          }
+        }
+      } catch (readError) {
+        if (readError.message === 'username_taken') {
+          throw readError;
+        }
+        // Document doesn't exist yet - that's okay
+      }
     }
+    
+    // Use username_lowercase as document ID (not UID)
+    const userRef = doc(db, 'users', username_lowercase);
     
     // Build write payload (clean removes undefined values)
     // Only include friends/blocked if explicitly provided, otherwise preserve existing
     const write = clean({
-      uid,
+      authUid: uid, // Store Firebase Auth UID as a field
       email,
       name,
       username,
@@ -287,6 +335,14 @@ export const upsertUserProfile = async (uid, payload = {}) => {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    
+    // If username changed, handle migration (for now, just update the new document)
+    // In production, you'd want to delete old document and migrate all references
+    if (oldUsername && oldUsername !== username_lowercase) {
+      console.log('[upsertUserProfile] Username changed from', oldUsername, 'to', username_lowercase);
+      // TODO: Migrate old document to new username
+      // For now, we'll just update the new document
+    }
     
     // Write to Firestore with merge:true (idempotent)
     try {
@@ -435,29 +491,50 @@ export const ensureUserDoc = async (uid) => {
     const authUser = auth.currentUser;
     const email = authUser?.email ?? '';
     
-    // Derive basic display handle
-    const base = authUser?.displayName ?? (email ? email.split('@')[0] : `user_${uid.slice(0, 6)}`);
-    const username = base;
-    const displayName = base;
+    // First, try to get existing username from document (preserve it)
+    const usersRef = collection(db, 'users');
+    const q = query(usersRef, where('authUid', '==', uid), limit(1));
+    const existingDocs = await getDocs(q);
+    
+    let username = null;
+    let displayName = null;
+    
+    if (!existingDocs.empty) {
+      // User document exists - preserve existing username
+      const existingDoc = existingDocs.docs[0];
+      const existingData = existingDoc.data();
+      username = existingData.username; // Use existing username
+      displayName = existingData.name || authUser?.displayName || (email ? email.split('@')[0] : 'User');
+    } else {
+      // No existing document - derive from displayName or email (for new users only)
+      const base = authUser?.displayName ?? (email ? email.split('@')[0] : `user_${uid.slice(0, 6)}`);
+      username = base;
+      displayName = base;
+    }
 
     // Use upsertUserProfile for consistency (it will handle fallbacks)
-    // Always provide username to ensure it's set
-    const result = await upsertUserProfile(uid, {
+    // Only provide username if we have one (preserve existing or set new)
+    const result = await upsertUserProfile(uid, username ? {
       name: displayName,
-      username: username, // Always set username to ensure it's stored
+      username: username, // Preserve existing username or set new one
       // Don't pass bio/age/gender - let them remain null/undefined
       // photoURL will be handled by upsertUserProfile's fallback logic
+    } : {
+      name: displayName,
+      // Don't pass username - let upsertUserProfile derive it (only for new users)
     });
 
     if (!result.success) {
       return { userData: null, error: result.error };
     }
 
-    // Get stored data for return
-    const userRef = doc(db, 'users', uid);
-    const snap = await getDoc(userRef);
+    // Get stored data for return - find by authUid since document ID is now username
+    const usersRefForReturn = collection(db, 'users');
+    const qForReturn = query(usersRefForReturn, where('authUid', '==', uid), limit(1));
+    const snapshots = await getDocs(qForReturn);
     
-    if (snap.exists()) {
+    if (!snapshots.empty) {
+      const snap = snapshots.docs[0];
       const data = snap.data();
       return {
         userData: {
@@ -485,8 +562,13 @@ export const ensureUserDoc = async (uid) => {
 // Returns consolidated fields: username, name, photo (photoURL), photoURL, avatar, bio, age, gender
 export const getCurrentUserData = async (uid) => {
   try {
-    const userDoc = await getDoc(doc(db, 'users', uid));
-    if (userDoc.exists()) {
+    // Find user by authUid since document ID is now username
+    const usersRef = collection(db, 'users');
+    const q = query(usersRef, where('authUid', '==', uid), limit(1));
+    const snapshots = await getDocs(q);
+    
+    if (!snapshots.empty) {
+      const userDoc = snapshots.docs[0];
       const data = userDoc.data();
       // Get photoURL from data (prioritize photoURL, then avatar, then fallback to auth)
       const photoURL = data.photoURL || data.avatar || auth.currentUser?.photoURL || null;

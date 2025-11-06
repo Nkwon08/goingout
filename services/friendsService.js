@@ -58,12 +58,69 @@ import {
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../config/firebase';
 
+// ============================================================================
+// Helper Functions - Convert between authUid and username
+// ============================================================================
+
+/**
+ * Get username from authUid by querying user document
+ * @param {string} authUid - Firebase Auth UID
+ * @returns {Promise<string|null>} Username (document ID) or null if not found
+ */
+const getUsernameFromAuthUid = async (authUid) => {
+  try {
+    if (!authUid || !db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return null;
+    }
+    
+    const usersRef = collection(db, 'users');
+    const q = query(usersRef, where('authUid', '==', authUid), limit(1));
+    const snapshots = await getDocs(q);
+    
+    if (!snapshots.empty) {
+      return snapshots.docs[0].id; // Document ID is the username_lowercase
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error getting username from authUid:', error);
+    return null;
+  }
+};
+
+/**
+ * Get authUid from username by looking up document
+ * @param {string} username - Username (document ID)
+ * @returns {Promise<string|null>} authUid or null if not found
+ */
+const getAuthUidFromUsername = async (username) => {
+  try {
+    if (!username || !db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return null;
+    }
+    
+    const username_lowercase = username.toLowerCase().replace(/\s+/g, '');
+    const userRef = doc(db, 'users', username_lowercase);
+    const userDoc = await getDoc(userRef);
+    
+    if (userDoc.exists()) {
+      const data = userDoc.data();
+      return data.authUid || null;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error getting authUid from username:', error);
+    return null;
+  }
+};
+
 /**
  * Add friend (mutual)
- * Adds friendId to currentUser's friends array and currentUserId to friend's friends array
+ * Adds friendUsername to currentUser's friends array and currentUsername to friend's friends array
  * Uses transaction for atomic updates (both users updated together or neither)
- * @param {string} currentUserId
- * @param {string} friendUserId
+ * @param {string} currentUserId - Firebase Auth UID of current user
+ * @param {string} friendUserId - Firebase Auth UID of friend to add
  * @returns {Promise<{ success: boolean, error: string|null }>}
  */
 export const addFriend = async (currentUserId, friendUserId) => {
@@ -76,8 +133,20 @@ export const addFriend = async (currentUserId, friendUserId) => {
       return { success: false, error: 'Invalid friend IDs' };
     }
 
-    const currentUserRef = doc(db, 'users', currentUserId);
-    const friendRef = doc(db, 'users', friendUserId);
+    // Get usernames from authUids (document IDs are now usernames)
+    const currentUsername = await getUsernameFromAuthUid(currentUserId);
+    const friendUsername = await getUsernameFromAuthUid(friendUserId);
+
+    if (!currentUsername || !friendUsername) {
+      return { success: false, error: 'User not found' };
+    }
+
+    if (currentUsername === friendUsername) {
+      return { success: false, error: 'Cannot add yourself as friend' };
+    }
+
+    const currentUserRef = doc(db, 'users', currentUsername);
+    const friendRef = doc(db, 'users', friendUsername);
 
     // Use transaction to ensure atomic updates (both users updated together or neither)
     await runTransaction(db, async (transaction) => {
@@ -94,16 +163,16 @@ export const addFriend = async (currentUserId, friendUserId) => {
       const currentUserData = currentUserDoc.data();
       const friendData = friendDoc.data();
 
-      // Check if already friends
-      if ((currentUserData.friends || []).includes(friendUserId)) {
+      // Check if already friends (friends array now stores usernames, not UIDs)
+      if ((currentUserData.friends || []).includes(friendUsername)) {
         throw new Error('Already friends');
       }
 
-      // Check if either user has blocked the other
+      // Check if either user has blocked the other (blocked array stores usernames)
       const currentUserBlocked = currentUserData.blocked || [];
       const friendBlocked = friendData.blocked || [];
       
-      if (currentUserBlocked.includes(friendUserId) || friendBlocked.includes(currentUserId)) {
+      if (currentUserBlocked.includes(friendUsername) || friendBlocked.includes(currentUsername)) {
         throw new Error('Cannot add friend: User is blocked');
       }
 
@@ -112,16 +181,17 @@ export const addFriend = async (currentUserId, friendUserId) => {
       const friendFriends = friendData.friends || [];
 
       // Add each other atomically (only if not already friends)
-      if (!currentUserFriends.includes(friendUserId)) {
+      // Friends array now stores usernames (document IDs), not authUids
+      if (!currentUserFriends.includes(friendUsername)) {
         transaction.update(currentUserRef, {
-          friends: arrayUnion(friendUserId),
+          friends: arrayUnion(friendUsername),
           updatedAt: serverTimestamp(),
         });
       }
 
-      if (!friendFriends.includes(currentUserId)) {
+      if (!friendFriends.includes(currentUsername)) {
         transaction.update(friendRef, {
-          friends: arrayUnion(currentUserId),
+          friends: arrayUnion(currentUsername),
           updatedAt: serverTimestamp(),
         });
       }
@@ -247,7 +317,7 @@ const waitForAuthReady = () => {
 
 // Get friends list for a user
 // Checks auth.currentUser first before querying Firestore
-// Returns: { friends: array of userIds, error: string }
+// Returns: { friends: array of usernames (document IDs), error: string }
 export const getFriends = async (userId) => {
   try {
     // First check auth.currentUser directly (no async wait needed)
@@ -271,8 +341,13 @@ export const getFriends = async (userId) => {
       return { friends: [], error: 'Firestore not configured' };
     }
 
+    // Get username from authUid (document ID is now username)
+    const username = await getUsernameFromAuthUid(userId);
+    if (!username) {
+      return { friends: [], error: 'User not found' };
+    }
 
-    const userRef = doc(db, 'users', userId);
+    const userRef = doc(db, 'users', username);
     const userDoc = await getDoc(userRef);
 
     if (!userDoc.exists()) {
@@ -280,11 +355,11 @@ export const getFriends = async (userId) => {
     }
 
     const userData = userDoc.data();
-    const friends = userData.friends || [];
-    const blocked = userData.blocked || [];
+    const friends = userData.friends || []; // Array of usernames (document IDs)
+    const blocked = userData.blocked || []; // Array of usernames (document IDs)
 
     // Filter out blocked users from friends list
-    const filteredFriends = friends.filter((friendId) => !blocked.includes(friendId));
+    const filteredFriends = friends.filter((friendUsername) => !blocked.includes(friendUsername));
 
     console.log('✅ Found', filteredFriends.length, 'friends (filtered from', friends.length, 'total)');
     return { friends: filteredFriends, error: null };
@@ -316,6 +391,7 @@ export const getFriends = async (userId) => {
 // Returns: unsubscribe function
 // Note: Listens to the user document's friends array field
 // If a friend removes you, your friends array will update automatically
+// Friends array now stores usernames (document IDs), not authUids
 export const subscribeToFriends = (userId, callback) => {
   try {
     // Check auth.currentUser first (no async wait needed)
@@ -343,60 +419,75 @@ export const subscribeToFriends = (userId, callback) => {
 
     let unsubscribeSnapshot = null;
     let isMounted = true;
+    let username = null;
 
-
-    const userRef = doc(db, 'users', userId);
-
-    unsubscribeSnapshot = onSnapshot(
-      userRef,
-      (snapshot) => {
+    // Get username from authUid (document ID is now username)
+    // We'll set up the subscription asynchronously
+    getUsernameFromAuthUid(userId).then((userUsername) => {
+      if (!userUsername || !isMounted) {
         if (!isMounted) return;
-
-        // Verify user still signed in
-        if (!auth.currentUser || auth.currentUser.uid !== userId) {
-          console.log('User changed during subscription, ignoring update');
-          return;
-        }
-
-        if (!snapshot.exists()) {
-          callback({ friends: [], error: 'User not found' });
-          return;
-        }
-
-        const userData = snapshot.data();
-        const friends = userData.friends || [];
-        const blocked = userData.blocked || [];
-        
-        // Filter out blocked users from friends list
-        const filteredFriends = friends.filter((friendId) => !blocked.includes(friendId));
-        
-        callback({ friends: filteredFriends, error: null });
-      },
-      (error) => {
-        if (!isMounted) return;
-
-        // Verify user still signed in
-        if (!auth.currentUser || auth.currentUser.uid !== userId) {
-          console.log('User changed during subscription error, ignoring');
-          return;
-        }
-
-        console.error('❌ Friends subscription error:', error);
-        console.error('❌ Error code:', error.code);
-        console.error('❌ Error message:', error.message);
-        
-        // Handle different error types
-        if (error.code === 'unavailable') {
-          callback({ friends: [], error: 'Unable to connect to database. Please check your internet connection and try again.' });
-        } else if (error.code === 'permission-denied') {
-          callback({ friends: [], error: 'Permission denied. Please check Firestore security rules.' });
-        } else if (error.message?.includes('offline') || error.message?.includes('network')) {
-          callback({ friends: [], error: 'Network error. Please check your internet connection and try again.' });
-        } else {
-          callback({ friends: [], error: error.message || 'Failed to subscribe to friends' });
-        }
+        callback({ friends: [], error: 'User not found' });
+        return;
       }
-    );
+      
+      username = userUsername;
+      const userRef = doc(db, 'users', username);
+
+      unsubscribeSnapshot = onSnapshot(
+        userRef,
+        (snapshot) => {
+          if (!isMounted) return;
+
+          // Verify user still signed in
+          if (!auth.currentUser || auth.currentUser.uid !== userId) {
+            console.log('User changed during subscription, ignoring update');
+            return;
+          }
+
+          if (!snapshot.exists()) {
+            callback({ friends: [], error: 'User not found' });
+            return;
+          }
+
+          const userData = snapshot.data();
+          const friends = userData.friends || []; // Array of usernames (document IDs)
+          const blocked = userData.blocked || []; // Array of usernames (document IDs)
+          
+          // Filter out blocked users from friends list
+          const filteredFriends = friends.filter((friendUsername) => !blocked.includes(friendUsername));
+          
+          callback({ friends: filteredFriends, error: null });
+        },
+        (error) => {
+          if (!isMounted) return;
+
+          // Verify user still signed in
+          if (!auth.currentUser || auth.currentUser.uid !== userId) {
+            console.log('User changed during subscription error, ignoring');
+            return;
+          }
+
+          console.error('❌ Friends subscription error:', error);
+          console.error('❌ Error code:', error.code);
+          console.error('❌ Error message:', error.message);
+          
+          // Handle different error types
+          if (error.code === 'unavailable') {
+            callback({ friends: [], error: 'Unable to connect to database. Please check your internet connection and try again.' });
+          } else if (error.code === 'permission-denied') {
+            callback({ friends: [], error: 'Permission denied. Please check Firestore security rules.' });
+          } else if (error.message?.includes('offline') || error.message?.includes('network')) {
+            callback({ friends: [], error: 'Network error. Please check your internet connection and try again.' });
+          } else {
+            callback({ friends: [], error: error.message || 'Failed to subscribe to friends' });
+          }
+        }
+      );
+    }).catch((error) => {
+      if (!isMounted) return;
+      console.error('❌ Error getting username from authUid:', error);
+      callback({ friends: [], error: 'Failed to get user information' });
+    });
 
     // Return unsubscribe function
     return () => {

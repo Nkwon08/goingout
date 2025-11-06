@@ -80,10 +80,11 @@ export function AuthProvider({ children }) {
       if (ensuredForUid !== firebaseUser.uid) {
         try {
           // Ensure document exists (minimal write-first)
+          // This will preserve existing username if document exists
           await ensureUserDoc(firebaseUser.uid).catch(() => {});
           
-          // Upsert profile with fallbacks (non-blocking, fills missing fields)
-          await upsertUserProfile(firebaseUser.uid, {}).catch(() => {});
+          // Don't call upsertUserProfile with empty payload - it would overwrite username
+          // ensureUserDoc already handles profile setup and preserves existing username
           
           ensuredForUid = firebaseUser.uid;
           console.log('✅ User document ensured:', firebaseUser.uid);

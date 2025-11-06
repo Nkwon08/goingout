@@ -3,29 +3,44 @@ service cloud.firestore {
   match /databases/{database}/documents {
     
     // Users collection - users can read any profile, update only their own
+    // Document ID is now username (not authUid), so we check authUid field instead
     // Exception: Allow updating another user's friends array when accepting a friend request
-    match /users/{userId} {
+    match /users/{username} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
       
-      // Allow updating another user's document ONLY for friends array updates
-      // This enables accepting friend requests (mutual friendship - both users get added)
-      // Security: Only allows modifying friends and updatedAt fields
-      // Note: arrayUnion can only add to arrays, not remove, providing additional security
-      allow update: if request.auth != null && 
-        request.auth.uid != userId &&
-        // Ensure uid field doesn't change (user ID should remain the same)
-        request.resource.data.uid == resource.data.uid &&
-        // Ensure document ID matches uid (prevent tampering)
-        userId == resource.data.uid;
-        // Friends and updatedAt fields can change (that's what we're allowing)
+      // Allow create: user can create their own document if authUid matches
+      allow create: if request.auth != null && 
+        request.resource.data.authUid == request.auth.uid;
+      
+      // Allow update: user can update their own document if authUid matches
+      // OR if updating another user's friends array (for friend requests)
+      allow update: if request.auth != null && (
+        // User updating their own document (authUid must match)
+        (request.resource.data.authUid == request.auth.uid && 
+         (!resource.exists || resource.data.authUid == request.auth.uid)) ||
+        // OR allowing another user to update friends array (for accepting friend requests)
+        (resource.exists &&
+         request.resource.data.authUid != request.auth.uid &&
+         // Ensure authUid field doesn't change (user ID should remain the same)
+         request.resource.data.authUid == resource.data.authUid &&
+         // Only allow modifying friends and updatedAt fields for friend requests
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['friends', 'updatedAt']))
+      );
+      
+      // Allow delete: user can delete their own document
+      allow delete: if request.auth != null && 
+        resource.data.authUid == request.auth.uid;
       
       // Notifications subcollection - users can only read/update their own notifications
+      // username is the parent document ID, check parent user's authUid field to verify ownership
       match /notifications/{notificationId} {
-        allow read: if request.auth != null && request.auth.uid == userId;
+        allow read: if request.auth != null && 
+          get(/databases/$(database)/documents/users/$(username)).data.authUid == request.auth.uid;
         allow create: if request.auth != null; // Anyone can create notifications for this user
-        allow update: if request.auth != null && request.auth.uid == userId;
-        allow delete: if request.auth != null && request.auth.uid == userId;
+        allow update: if request.auth != null && 
+          get(/databases/$(database)/documents/users/$(username)).data.authUid == request.auth.uid;
+        allow delete: if request.auth != null && 
+          get(/databases/$(database)/documents/users/$(username)).data.authUid == request.auth.uid;
       }
     }
     
