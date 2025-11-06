@@ -81,6 +81,14 @@ export const createNotification = async (userId, notificationData) => {
       return { success: false, error: 'Firestore not configured' };
     }
 
+    // Get username from authUid (document IDs are usernames, not authUids)
+    const { getUsernameFromAuthUid } = await import('./friendsService');
+    const username = await getUsernameFromAuthUid(userId);
+    
+    if (!username) {
+      return { success: false, error: 'User not found' };
+    }
+
     // Get user data for notification
     const { getUserById } = await import('./usersService');
     const { userData: fromUserData } = await getUserById(notificationData.fromUserId);
@@ -90,11 +98,12 @@ export const createNotification = async (userId, notificationData) => {
     }
 
     // Create notification document
-    const notificationsRef = collection(db, 'users', userId, 'notifications');
+    const notificationsRef = collection(db, 'users', username, 'notifications');
     const notificationDoc = {
       type: notificationData.type,
       postId: notificationData.postId || null,
       commentId: notificationData.commentId || null,
+      groupId: notificationData.groupId || null,
       fromUserId: notificationData.fromUserId,
       fromUserName: fromUserData.name || 'Someone',
       fromUserUsername: fromUserData.username || 'user',
@@ -113,6 +122,7 @@ export const createNotification = async (userId, notificationData) => {
       data: {
         type: notificationData.type,
         postId: notificationData.postId,
+        groupId: notificationData.groupId,
         fromUserId: notificationData.fromUserId,
       },
     });
@@ -132,8 +142,17 @@ export const createNotification = async (userId, notificationData) => {
  */
 const sendPushNotification = async (userId, notification) => {
   try {
+    // Get username from authUid (document IDs are usernames, not authUids)
+    const { getUsernameFromAuthUid } = await import('./friendsService');
+    const username = await getUsernameFromAuthUid(userId);
+    
+    if (!username) {
+      console.warn('User not found for push notification');
+      return;
+    }
+
     // Get user's push token from Firestore
-    const userRef = doc(db, 'users', userId);
+    const userRef = doc(db, 'users', username);
     const userDoc = await getDoc(userRef);
     
     if (!userDoc.exists()) {
@@ -185,7 +204,15 @@ export const getNotifications = async (userId, pageSize = 50) => {
       return { notifications: [], error: 'Firestore not configured' };
     }
 
-    const notificationsRef = collection(db, 'users', userId, 'notifications');
+    // Get username from authUid (document IDs are usernames, not authUids)
+    const { getUsernameFromAuthUid } = await import('./friendsService');
+    const username = await getUsernameFromAuthUid(userId);
+    
+    if (!username) {
+      return { notifications: [], error: 'User not found' };
+    }
+
+    const notificationsRef = collection(db, 'users', username, 'notifications');
     const q = query(
       notificationsRef,
       orderBy('createdAt', 'desc'),
@@ -228,33 +255,58 @@ export const subscribeToNotifications = (userId, callback, pageSize = 50) => {
       return () => {};
     }
 
-    const notificationsRef = collection(db, 'users', userId, 'notifications');
-    const q = query(
-      notificationsRef,
-      orderBy('createdAt', 'desc'),
-      limit(pageSize)
-    );
+    // Get username from authUid (document IDs are usernames, not authUids)
+    // We'll do this asynchronously and set up the subscription
+    let unsubscribeFn = () => {};
+    
+    const setupSubscription = async () => {
+      try {
+        const { getUsernameFromAuthUid } = await import('./friendsService');
+        const username = await getUsernameFromAuthUid(userId);
+        
+        if (!username) {
+          callback({ notifications: [], error: 'User not found' });
+          return;
+        }
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const notifications = snapshot.docs.map((doc) => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            ...data,
-            createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
-          };
-        });
-        callback({ notifications, error: null });
-      },
-      (error) => {
-        console.error('Error subscribing to notifications:', error);
+        const notificationsRef = collection(db, 'users', username, 'notifications');
+        const q = query(
+          notificationsRef,
+          orderBy('createdAt', 'desc'),
+          limit(pageSize)
+        );
+
+        unsubscribeFn = onSnapshot(
+          q,
+          (snapshot) => {
+            const notifications = snapshot.docs.map((doc) => {
+              const data = doc.data();
+              return {
+                id: doc.id,
+                ...data,
+                createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
+              };
+            });
+            callback({ notifications, error: null });
+          },
+          (error) => {
+            console.error('Error subscribing to notifications:', error);
+            callback({ notifications: [], error: error.message });
+          }
+        );
+      } catch (error) {
+        console.error('Error setting up notifications subscription:', error);
         callback({ notifications: [], error: error.message });
       }
-    );
+    };
 
-    return unsubscribe;
+    setupSubscription();
+
+    return () => {
+      if (unsubscribeFn && typeof unsubscribeFn === 'function') {
+        unsubscribeFn();
+      }
+    };
   } catch (error) {
     console.error('Error setting up notifications subscription:', error);
     callback({ notifications: [], error: error.message });
@@ -274,7 +326,15 @@ export const markNotificationAsRead = async (userId, notificationId) => {
       return { success: false, error: 'Firestore not configured' };
     }
 
-    const notificationRef = doc(db, 'users', userId, 'notifications', notificationId);
+    // Get username from authUid (document IDs are usernames, not authUids)
+    const { getUsernameFromAuthUid } = await import('./friendsService');
+    const username = await getUsernameFromAuthUid(userId);
+    
+    if (!username) {
+      return { success: false, error: 'User not found' };
+    }
+
+    const notificationRef = doc(db, 'users', username, 'notifications', notificationId);
     await updateDoc(notificationRef, {
       read: true,
       readAt: serverTimestamp(),
@@ -298,7 +358,15 @@ export const markAllNotificationsAsRead = async (userId) => {
       return { success: false, error: 'Firestore not configured' };
     }
 
-    const notificationsRef = collection(db, 'users', userId, 'notifications');
+    // Get username from authUid (document IDs are usernames, not authUids)
+    const { getUsernameFromAuthUid } = await import('./friendsService');
+    const username = await getUsernameFromAuthUid(userId);
+    
+    if (!username) {
+      return { success: false, error: 'User not found' };
+    }
+
+    const notificationsRef = collection(db, 'users', username, 'notifications');
     const q = query(
       notificationsRef,
       where('read', '==', false)

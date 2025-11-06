@@ -4,6 +4,8 @@ import { List, Divider, Text, Avatar, Button } from 'react-native-paper';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToFriendRequests, acceptFriendRequest, declineFriendRequest } from '../services/friendsService';
+import { subscribeToNotifications } from '../services/notificationsService';
+import { acceptGroupInvitation, declineGroupInvitation } from '../services/groupsService';
 import { getUserById } from '../services/usersService';
 
 export default function NotificationsTab() {
@@ -12,8 +14,11 @@ export default function NotificationsTab() {
   
   const [friendRequests, setFriendRequests] = React.useState([]);
   const [requestsWithData, setRequestsWithData] = React.useState([]);
+  const [groupInvitations, setGroupInvitations] = React.useState([]);
+  const [invitationsWithData, setInvitationsWithData] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [processingRequest, setProcessingRequest] = React.useState(null);
+  const [processingInvitation, setProcessingInvitation] = React.useState(null);
   
   const bgColor = isDarkMode ? '#1A1A1A' : '#EEEDEB';
   const surfaceColor = isDarkMode ? '#2A2A2A' : '#F5F4F2';
@@ -124,6 +129,97 @@ export default function NotificationsTab() {
     };
   }, [friendRequests]);
 
+  // Subscribe to notifications for group invitations
+  React.useEffect(() => {
+    if (!user?.uid) {
+      setGroupInvitations([]);
+      setInvitationsWithData([]);
+      return;
+    }
+
+    const unsubscribe = subscribeToNotifications(user.uid, (result) => {
+      if (result.error) {
+        console.error('Error loading notifications:', result.error);
+        setGroupInvitations([]);
+        return;
+      }
+
+      // Filter for group invitations
+      const invitations = (result.notifications || []).filter(
+        (notif) => notif.type === 'group_invitation' && !notif.read
+      );
+      setGroupInvitations(invitations);
+    });
+
+    return () => {
+      if (unsubscribe && typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, [user?.uid]);
+
+  // Fetch group and sender data for each invitation
+  React.useEffect(() => {
+    if (!groupInvitations.length) {
+      setInvitationsWithData([]);
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadInvitationData = async () => {
+      try {
+        const invitationsData = await Promise.all(
+          groupInvitations.map(async (invitation) => {
+            try {
+              const { userData: senderData } = await getUserById(invitation.fromUserId);
+              const { getGroupById } = await import('../services/groupsService');
+              const { group } = invitation.groupId ? await getGroupById(invitation.groupId) : { group: null };
+              
+              return {
+                ...invitation,
+                sender: {
+                  name: senderData?.name || 'Unknown User',
+                  username: senderData?.username || 'unknown',
+                  avatar: senderData?.avatar || null,
+                  photoURL: senderData?.photoURL || senderData?.avatar || null,
+                },
+                group: group ? {
+                  name: group.name || 'Unknown Group',
+                  id: group.id,
+                } : null,
+              };
+            } catch (error) {
+              console.error('Error fetching invitation data:', error);
+              return {
+                ...invitation,
+                sender: {
+                  name: 'Unknown User',
+                  username: 'unknown',
+                  avatar: null,
+                  photoURL: null,
+                },
+                group: null,
+              };
+            }
+          })
+        );
+
+        if (isMounted) {
+          setInvitationsWithData(invitationsData);
+        }
+      } catch (error) {
+        console.error('Error loading invitation data:', error);
+      }
+    };
+
+    loadInvitationData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [groupInvitations]);
+
   // Handle accept friend request
   const handleAccept = React.useCallback(async (requestId, fromUserId) => {
     if (!user?.uid || processingRequest) return;
@@ -164,6 +260,46 @@ export default function NotificationsTab() {
     }
   }, [user?.uid, processingRequest]);
 
+  // Handle accept group invitation
+  const handleAcceptGroupInvitation = React.useCallback(async (groupId, notificationId) => {
+    if (!user?.uid || processingInvitation) return;
+
+    setProcessingInvitation(notificationId);
+    try {
+      const result = await acceptGroupInvitation(groupId, user.uid, notificationId);
+      if (result.success) {
+        Alert.alert('Success', 'Group invitation accepted!', [{ text: 'OK' }]);
+      } else {
+        Alert.alert('Error', result.error || 'Failed to accept group invitation', [{ text: 'OK' }]);
+      }
+    } catch (error) {
+      console.error('Error accepting group invitation:', error);
+      Alert.alert('Error', 'Failed to accept group invitation. Please try again.', [{ text: 'OK' }]);
+    } finally {
+      setProcessingInvitation(null);
+    }
+  }, [user?.uid, processingInvitation]);
+
+  // Handle decline group invitation
+  const handleDeclineGroupInvitation = React.useCallback(async (notificationId) => {
+    if (!user?.uid || processingInvitation) return;
+
+    setProcessingInvitation(notificationId);
+    try {
+      const result = await declineGroupInvitation(notificationId, user.uid);
+      if (result.success) {
+        // Invitation removed, will update automatically via subscription
+      } else {
+        Alert.alert('Error', result.error || 'Failed to decline group invitation', [{ text: 'OK' }]);
+      }
+    } catch (error) {
+      console.error('Error declining group invitation:', error);
+      Alert.alert('Error', 'Failed to decline group invitation. Please try again.', [{ text: 'OK' }]);
+    } finally {
+      setProcessingInvitation(null);
+    }
+  }, [user?.uid, processingInvitation]);
+
   if (!user) {
     return (
       <View style={{ flex: 1, backgroundColor: bgColor, justifyContent: 'center', alignItems: 'center' }}>
@@ -180,11 +316,13 @@ export default function NotificationsTab() {
     );
   }
 
+  const hasNotifications = requestsWithData.length > 0 || invitationsWithData.length > 0;
+
   return (
     <View style={{ flex: 1, backgroundColor: bgColor }}>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
-        {requestsWithData.length > 0 ? (
-          <View style={{ backgroundColor: surfaceColor, borderRadius: 16, overflow: 'hidden' }}>
+        {requestsWithData.length > 0 && (
+          <View style={{ backgroundColor: surfaceColor, borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}>
             <Text style={{ color: textColor, fontSize: 16, fontWeight: '600', padding: 16, paddingBottom: 8 }}>
               Friend Requests ({requestsWithData.length})
             </Text>
@@ -234,9 +372,64 @@ export default function NotificationsTab() {
               </View>
             ))}
           </View>
-        ) : (
+        )}
+
+        {invitationsWithData.length > 0 && (
+          <View style={{ backgroundColor: surfaceColor, borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}>
+            <Text style={{ color: textColor, fontSize: 16, fontWeight: '600', padding: 16, paddingBottom: 8 }}>
+              Group Invitations ({invitationsWithData.length})
+            </Text>
+            {invitationsWithData.map((invitation, idx) => (
+              <View key={invitation.id}>
+                <View style={{ padding: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                    <Avatar.Image 
+                      size={48} 
+                      source={{ uri: invitation.sender?.photoURL || invitation.sender?.avatar || 'https://i.pravatar.cc/100?img=12' }} 
+                    />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={{ color: textColor, fontSize: 16, fontWeight: '600' }}>
+                        {invitation.sender?.name || 'Unknown User'}
+                      </Text>
+                      <Text style={{ color: subTextColor, fontSize: 14 }}>
+                        {invitation.group?.name ? `invited you to join "${invitation.group.name}"` : invitation.message || 'invited you to join a group'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Button
+                      mode="contained"
+                      buttonColor={primaryColor}
+                      textColor="#fff"
+                      compact
+                      onPress={() => handleAcceptGroupInvitation(invitation.groupId, invitation.id)}
+                      disabled={processingInvitation === invitation.id || !invitation.groupId}
+                      loading={processingInvitation === invitation.id}
+                      style={{ flex: 1 }}
+                    >
+                      Accept
+                    </Button>
+                    <Button
+                      mode="outlined"
+                      textColor={textColor}
+                      compact
+                      onPress={() => handleDeclineGroupInvitation(invitation.id)}
+                      disabled={processingInvitation === invitation.id}
+                      style={{ flex: 1, borderColor: dividerColor }}
+                    >
+                      Decline
+                    </Button>
+                  </View>
+                </View>
+                {idx < invitationsWithData.length - 1 && <Divider style={{ backgroundColor: dividerColor }} />}
+              </View>
+            ))}
+          </View>
+        )}
+
+        {!hasNotifications && (
           <View style={{ padding: 20, alignItems: 'center' }}>
-            <Text style={{ color: subTextColor, textAlign: 'center' }}>No friend requests</Text>
+            <Text style={{ color: subTextColor, textAlign: 'center' }}>No notifications</Text>
           </View>
         )}
       </ScrollView>
