@@ -1,18 +1,17 @@
 import * as React from 'react';
-import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform, PanResponder, Animated, StyleSheet, Dimensions, Pressable } from 'react-native';
+import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform, PanResponder, Animated, StyleSheet } from 'react-native';
 import { Appbar, FAB, Text, Button, Avatar, Checkbox } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useRoute } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import MapView, { Marker } from 'react-native-maps';
 import { GiftedChat } from 'react-native-gifted-chat';
 import * as ImagePicker from 'expo-image-picker';
 import { Video } from 'expo-av';
 import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as ImageManipulator from 'expo-image-manipulator';
 import GroupCard from '../components/GroupCard';
 import PollCard from '../components/PollCard';
 import { useThemeColors } from '../hooks/useThemeColors';
@@ -443,37 +442,16 @@ function ChatTab({ groupId }) {
   const { isDarkMode } = useTheme();
   const { user, userData } = useAuth();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
   const [messages, setMessages] = React.useState([]);
   const [sending, setSending] = React.useState(false);
   const [showMediaPicker, setShowMediaPicker] = React.useState(false);
-  const [showCamera, setShowCamera] = React.useState(false);
-  const [cameraFacing, setCameraFacing] = React.useState('back');
-  const [flash, setFlash] = React.useState('off');
-  const [cameraReady, setCameraReady] = React.useState(false);
-  const cameraRef = React.useRef(null);
-  const lastTap = React.useRef(null);
-  const lastTapTimeout = React.useRef(null);
   const [polls, setPolls] = React.useState([]);
   const [votingPoll, setVotingPoll] = React.useState(null);
   const [selectedImage, setSelectedImage] = React.useState(null);
   const inputRef = React.useRef(null);
   const panY = React.useRef(new Animated.Value(0)).current;
-  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [keyboardHeight, setKeyboardHeight] = React.useState(0);
-  
-  // Reset keyboard height when camera modal closes
-  React.useEffect(() => {
-    if (!showCamera) {
-      // Reset keyboard height when camera closes to fix input bar positioning
-      // Use a delay to ensure state updates properly after modal animation completes
-      Keyboard.dismiss();
-      const timer = setTimeout(() => {
-        setKeyboardHeight(0);
-        Keyboard.dismiss(); // Dismiss again to be sure
-      }, 150);
-      return () => clearTimeout(timer);
-    }
-  }, [showCamera]);
 
   // Reset keyboard height when media picker closes
   React.useEffect(() => {
@@ -521,21 +499,6 @@ function ChatTab({ groupId }) {
     }, [])
   );
   
-  // Reset keyboard height when camera modal opens or closes
-  React.useEffect(() => {
-    if (showCamera) {
-      // When camera opens, immediately reset keyboard height to prevent bar from moving
-      Keyboard.dismiss();
-      setKeyboardHeight(0);
-    } else {
-      // When camera closes, dismiss keyboard and reset after delay
-      Keyboard.dismiss();
-      const timer = setTimeout(() => {
-        setKeyboardHeight(0);
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [showCamera]);
   
   // PanResponder for swipe-to-dismiss on image viewer
   const panResponder = React.useRef(
@@ -1042,187 +1005,16 @@ function ChatTab({ groupId }) {
     }
   }, [groupId, user?.uid, userData, sending]);
 
-  // Reset camera ready when facing changes
-  React.useEffect(() => {
-    if (showCamera) {
-      setCameraReady(false);
-    }
-  }, [cameraFacing, showCamera]);
-
-  // Fallback: Auto-set camera ready after 3 seconds
-  React.useEffect(() => {
-    if (!showCamera) return;
-    const timer = setTimeout(() => {
-      if (!cameraReady) {
-        setCameraReady(true);
-      }
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [showCamera, cameraReady]);
-
-  const toggleCameraFacing = () => {
-    setCameraReady(false);
-    setCameraFacing((current) => (current === 'back' ? 'front' : 'back'));
-  };
-
-  const toggleFlash = () => {
-    setFlash((current) => {
-      if (current === 'off') return 'on';
-      if (current === 'on') return 'auto';
-      return 'off';
-    });
-  };
-
-  const handleCameraReady = () => {
-    setCameraReady(true);
-  };
-
-  const takePicture = React.useCallback(async () => {
-    if (!cameraRef.current || !groupId || !user?.uid || !userData || sending) {
-      if (!cameraRef.current) {
-        Alert.alert('Error', 'Camera is not ready. Please wait a moment.');
-      }
-      return;
-    }
-
-    try {
-      setSending(true);
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
-        skipProcessing: false,
-      });
-      
-      if (photo && photo.uri) {
-        // Auto crop to 3:4 aspect ratio and flip if front camera
-        let finalUri = photo.uri;
-        if (photo.width && photo.height) {
-          try {
-            const aspectRatio = 3 / 4;
-            const photoAspectRatio = photo.width / photo.height;
-            let cropWidth, cropHeight, originX, originY;
-            
-            if (photoAspectRatio > aspectRatio) {
-              cropHeight = photo.height;
-              cropWidth = cropHeight * aspectRatio;
-              originX = (photo.width - cropWidth) / 2;
-              originY = 0;
-            } else {
-              cropWidth = photo.width;
-              cropHeight = cropWidth / aspectRatio;
-              originX = 0;
-              originY = (photo.height - cropHeight) / 2;
-            }
-            
-            const manipulatedImage = await ImageManipulator.manipulateAsync(
-              photo.uri,
-              [
-                {
-                  crop: {
-                    originX,
-                    originY,
-                    width: cropWidth,
-                    height: cropHeight,
-                  },
-                },
-                ...(cameraFacing === 'front' ? [{ flip: ImageManipulator.FlipType.Horizontal }] : []),
-              ],
-              {
-                compress: 0.8,
-                format: ImageManipulator.SaveFormat.JPEG,
-              }
-            );
-            
-            finalUri = manipulatedImage.uri;
-          } catch (cropError) {
-            console.error('Error cropping image:', cropError);
-            if (cameraFacing === 'front') {
-              try {
-                const flippedImage = await ImageManipulator.manipulateAsync(
-                  photo.uri,
-                  [{ flip: ImageManipulator.FlipType.Horizontal }],
-                  {
-                    compress: 0.8,
-                    format: ImageManipulator.SaveFormat.JPEG,
-                  }
-                );
-                finalUri = flippedImage.uri;
-              } catch (flipError) {
-                console.error('Error flipping image:', flipError);
-                finalUri = photo.uri;
-              }
-            } else {
-              finalUri = photo.uri;
-            }
-          }
-        } else if (cameraFacing === 'front') {
-          try {
-            const flippedImage = await ImageManipulator.manipulateAsync(
-              photo.uri,
-              [{ flip: ImageManipulator.FlipType.Horizontal }],
-              {
-                compress: 0.8,
-                format: ImageManipulator.SaveFormat.JPEG,
-              }
-            );
-            finalUri = flippedImage.uri;
-          } catch (flipError) {
-            console.error('Error flipping image:', flipError);
-            finalUri = photo.uri;
-          }
-        }
-        
-        // Send photo to chat
-        const { error } = await sendImageMessage(
-          groupId,
-          user.uid,
-          finalUri,
-          '',
-          userData
-        );
-        if (error) {
-          Alert.alert('Error', error);
-        }
-        
-        // Close camera modal
-        setShowCamera(false);
-        // Reset keyboard state when closing camera
-        setKeyboardHeight(0);
-        Keyboard.dismiss();
-        setSending(false);
-      } else {
-        Alert.alert('Error', 'No photo data received. Please try again.');
-        setSending(false);
-      }
-    } catch (error) {
-      console.error('Error taking picture:', error);
-      Alert.alert('Error', `Failed to take picture: ${error.message || 'Unknown error'}`);
-      setSending(false);
-    }
-  }, [groupId, user?.uid, userData, sending, cameraFacing]);
 
   // Handle take photo from camera modal
-  const handleSelectTakePhoto = React.useCallback(async () => {
-    // Force keyboard dismissal before opening camera to prevent ghost keyboard offset
-    Keyboard.dismiss();
-    setKeyboardHeight(0);
+  const handleSelectTakePhoto = React.useCallback(() => {
     setShowMediaPicker(false);
-    // Reset keyboard height BEFORE opening camera to prevent bar from moving
-    Keyboard.dismiss();
-    setKeyboardHeight(0);
-    
-    if (!cameraPermission) {
-      // Still loading permission status
-      return;
+    // Navigate to Camera tab with groupId parameter
+    const parent = navigation.getParent();
+    if (parent) {
+      parent.navigate('Camera', { groupId: groupId });
     }
-    if (!cameraPermission.granted) {
-      const result = await requestCameraPermission();
-      if (!result.granted) {
-        Alert.alert('Permission Required', 'Please grant permission to access your camera.');
-        return;
-      }
-    }
-    setShowCamera(true);
-  }, [cameraPermission, requestCameraPermission]);
+  }, [navigation, groupId]);
 
   // Handle image picker
   const handleImagePicker = React.useCallback(async () => {
@@ -1444,8 +1236,8 @@ function ChatTab({ groupId }) {
           );
         }}
         renderInputToolbar={(props) => {
-          // Only apply keyboard adjustments when camera is not open
-          const shouldApplyKeyboardOffset = !showCamera && keyboardHeight > 0;
+          // Apply keyboard adjustments when keyboard is open
+          const shouldApplyKeyboardOffset = keyboardHeight > 0;
           
           return (
             <View
@@ -1734,210 +1526,6 @@ function ChatTab({ groupId }) {
             </TouchableWithoutFeedback>
           </View>
         </TouchableWithoutFeedback>
-      </Modal>
-      
-      {/* Camera Modal */}
-      <Modal
-        visible={showCamera}
-        animationType="slide"
-        onRequestClose={() => {
-          // Dismiss keyboard immediately and reset state
-          Keyboard.dismiss();
-          setKeyboardHeight(0);
-          setShowCamera(false);
-          // Ensure keyboard is reset after modal closes
-          setTimeout(() => {
-            Keyboard.dismiss();
-            setKeyboardHeight(0);
-          }, 150);
-        }}
-      >
-        <View style={{ flex: 1, backgroundColor: '#000' }}>
-          {!cameraPermission ? (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-              <Text style={{ color: '#E6E8F0', fontSize: 16, textAlign: 'center', marginBottom: 20 }}>
-                Checking camera permissions...
-              </Text>
-            </View>
-          ) : !cameraPermission.granted ? (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-              <Text style={{ color: '#E6E8F0', fontSize: 16, textAlign: 'center', marginBottom: 20 }}>
-                We need your permission to show the camera
-              </Text>
-              <TouchableOpacity onPress={requestCameraPermission} style={{ backgroundColor: IU_CRIMSON, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 8 }}>
-                <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Grant Permission</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <CameraView
-              ref={cameraRef}
-              style={{ flex: 1, width: '100%' }}
-              facing={cameraFacing}
-              mode="picture"
-              flash={flash}
-              onCameraReady={handleCameraReady}
-            >
-              {/* Mode Toggle - Photo only for chat */}
-              <SafeAreaView style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }} edges={['top']}>
-                <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingTop: 40, paddingBottom: 10, paddingHorizontal: 16, position: 'relative' }}>
-                  
-                  {/* Photo button centered */}
-                  <TouchableOpacity
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      paddingHorizontal: 16,
-                      paddingVertical: 10,
-                      borderRadius: 20,
-                      backgroundColor: IU_CRIMSON,
-                      minHeight: 44,
-                      minWidth: 100,
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <MaterialCommunityIcons name="camera" size={24} color="#FFFFFF" />
-                    <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600', marginLeft: 8 }}>Photo</Text>
-                  </TouchableOpacity>
-                  
-                  {/* Flash toggle button */}
-                  <View style={{ position: 'absolute', right: 16, top: 40, bottom: 10, justifyContent: 'center', alignItems: 'center' }}>
-                    <TouchableOpacity style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'center', alignItems: 'center' }} onPress={toggleFlash}>
-                      <MaterialCommunityIcons 
-                        name={flash === 'on' ? 'flash' : flash === 'auto' ? 'flash-auto' : 'flash-off'} 
-                        size={24} 
-                        color={flash === 'off' ? '#8A90A6' : '#FFFFFF'} 
-                      />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </SafeAreaView>
-
-              {/* 3:4 aspect ratio viewfinder overlay */}
-              <Pressable 
-                style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'column', zIndex: 5 }}
-                onPress={() => {
-                  // Double tap detection
-                  const now = Date.now();
-                  const DOUBLE_PRESS_DELAY = 300;
-                  
-                  if (lastTap.current && now - lastTap.current < DOUBLE_PRESS_DELAY) {
-                    if (lastTapTimeout.current) {
-                      clearTimeout(lastTapTimeout.current);
-                      lastTapTimeout.current = null;
-                    }
-                    toggleCameraFacing();
-                    lastTap.current = null;
-                  } else {
-                    lastTap.current = now;
-                    lastTapTimeout.current = setTimeout(() => {
-                      lastTap.current = null;
-                    }, DOUBLE_PRESS_DELAY);
-                  }
-                }}
-              >
-                {/* Top dark area */}
-                <View style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)', flex: 1, width: '100%' }} pointerEvents="none" />
-                {/* 3:4 viewfinder */}
-                <View 
-                  style={{
-                    width: Dimensions.get('window').width,
-                    aspectRatio: 3 / 4,
-                    borderWidth: 2,
-                    borderColor: 'rgba(255, 255, 255, 0.9)',
-                    borderRadius: 12,
-                    backgroundColor: 'transparent',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: 0.8,
-                    shadowRadius: 8,
-                    elevation: 5,
-                  }} 
-                  pointerEvents="none" 
-                />
-                {/* Bottom dark area */}
-                <View style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)', flex: 1, width: '100%' }} pointerEvents="none" />
-              </Pressable>
-
-              <View
-                style={{
-                  position: 'absolute',
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  zIndex: 10,
-                  paddingBottom: Platform.OS === 'ios' ? 34 : 30,
-                }}
-              >
-                <View style={{ 
-                  flexDirection: 'row', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center', 
-                  paddingBottom: 30, 
-                  paddingHorizontal: 20,
-                  paddingTop: 20
-                }}>
-                  {/* Flip button */}
-                  <TouchableOpacity 
-                    style={{ 
-                      width: 50, 
-                      height: 50, 
-                      borderRadius: 25, 
-                      backgroundColor: 'rgba(0, 0, 0, 0.5)', 
-                      justifyContent: 'center', 
-                      alignItems: 'center'
-                    }} 
-                    onPress={toggleCameraFacing}
-                  >
-                    <MaterialCommunityIcons name="camera-flip" size={32} color="#FFFFFF" />
-                  </TouchableOpacity>
-                  
-                  {/* Shutter button centered */}
-                  <TouchableOpacity 
-                    style={{ 
-                      width: 70, 
-                      height: 70, 
-                      borderRadius: 35, 
-                      backgroundColor: '#FFFFFF', 
-                      borderWidth: 5, 
-                      borderColor: IU_CRIMSON, 
-                      justifyContent: 'center', 
-                      alignItems: 'center',
-                      opacity: (!cameraReady || sending) ? 0.5 : 1,
-                    }} 
-                    onPress={takePicture}
-                    disabled={!cameraReady || sending}
-                  >
-                    <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: IU_CRIMSON }} />
-                  </TouchableOpacity>
-                  
-                  {/* Spacer to balance the flip button */}
-                  <View style={{ width: 50, height: 50 }} />
-                </View>
-              </View>
-
-              {/* Close button */}
-              <SafeAreaView style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30 }} edges={['top']} pointerEvents="box-none">
-                <TouchableOpacity
-                  style={{ position: 'absolute', top: 100, left: 16, zIndex: 30, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'center', alignItems: 'center' }}
-                  onPress={() => {
-                    // Dismiss keyboard immediately and reset state
-                    Keyboard.dismiss();
-                    setKeyboardHeight(0);
-                    setShowCamera(false);
-                    // Ensure keyboard is reset after modal closes
-                    setTimeout(() => {
-                      Keyboard.dismiss();
-                      setKeyboardHeight(0);
-                    }, 150);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <MaterialCommunityIcons name="close" size={24} color="#FFFFFF" />
-                </TouchableOpacity>
-              </SafeAreaView>
-            </CameraView>
-          )}
-        </View>
       </Modal>
       
       {/* Full-screen Image Viewer Modal */}
@@ -2978,6 +2566,7 @@ function GroupDetail({ group, onBack }) {
 }
 
 export default function GroupsScreen({ navigation }) {
+  const route = useRoute();
   const [selected, setSelected] = React.useState(null);
   const [showGroupMenu, setShowGroupMenu] = React.useState(false);
   const [groups, setGroups] = React.useState([]);
@@ -3014,6 +2603,45 @@ export default function GroupsScreen({ navigation }) {
       if (unsubscribe) unsubscribe();
     };
   }, [user?.uid]);
+
+  // Auto-select group from route params or AsyncStorage when screen is focused
+  useFocusEffect(
+    React.useCallback(() => {
+      const checkForPendingGroup = async () => {
+        // First check route params
+        const routeGroupId = route.params?.groupId;
+        let groupId = routeGroupId;
+        
+        // If no route param, check AsyncStorage
+        if (!groupId) {
+          try {
+            const pendingGroupId = await AsyncStorage.getItem('pendingGroupId');
+            if (pendingGroupId) {
+              groupId = pendingGroupId;
+              // Clear AsyncStorage after reading
+              await AsyncStorage.removeItem('pendingGroupId');
+            }
+          } catch (error) {
+            console.error('Error reading AsyncStorage:', error);
+          }
+        }
+        
+        if (groupId && groups.length > 0) {
+          // Find the group in the groups array
+          const groupToSelect = groups.find(g => g.id === groupId);
+          if (groupToSelect && (!selected || selected.id !== groupId)) {
+            setSelected(groupToSelect);
+            // Clear the route params to prevent re-selecting on re-render
+            if (routeGroupId) {
+              navigation.setParams({ groupId: undefined });
+            }
+          }
+        }
+      };
+      
+      checkForPendingGroup();
+    }, [route.params, groups, navigation, selected])
+  );
 
   // Separate groups into active and expired
   const { activeGroups, expiredGroups } = React.useMemo(() => {

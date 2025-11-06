@@ -6,9 +6,19 @@ import { Video } from 'expo-av';
 
 const IU_CRIMSON = '#990000';
 
-export default function MediaPreview({ visible, media, onDelete, onAddToGroup, onPostToFeed, onPostPublicly, onCancel, groups }) {
-  const [selectedGroup, setSelectedGroup] = React.useState(null);
+export default function MediaPreview({ visible, media, onDelete, onAddToGroup, onPostToFeed, onPostPublicly, onCancel, groups, initialSelectedGroup }) {
+  const [selectedGroup, setSelectedGroup] = React.useState(initialSelectedGroup || null);
   const isVideo = media?.type === 'video';
+
+  // Update selectedGroup when initialSelectedGroup changes or when preview opens
+  React.useEffect(() => {
+    if (visible && initialSelectedGroup) {
+      setSelectedGroup(initialSelectedGroup);
+    } else if (!visible) {
+      // Reset selection when preview closes
+      setSelectedGroup(null);
+    }
+  }, [visible, initialSelectedGroup]);
 
   if (!visible || !media || !media.uri) {
     return null;

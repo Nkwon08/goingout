@@ -8,7 +8,8 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import MediaPreview from '../components/MediaPreview';
 import ComposePost from '../components/ComposePost';
 import { useAuth } from '../context/AuthContext';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { uploadImages } from '../services/storageService';
 import { createPost } from '../services/postsService';
 import { subscribeToUserGroups } from '../services/groupsService';
@@ -36,6 +37,8 @@ export default function CameraScreen() {
   const lastTapTimeout = React.useRef(null);
   const { user, userData } = useAuth();
   const navigation = useNavigation();
+  const route = useRoute();
+  const [selectedGroupId, setSelectedGroupId] = React.useState(null);
 
   // Request microphone permission for video recording
   React.useEffect(() => {
@@ -87,6 +90,17 @@ export default function CameraScreen() {
       if (unsubscribe) unsubscribe();
     };
   }, [user?.uid]);
+
+  // Read route parameter for groupId and set selectedGroupId
+  React.useEffect(() => {
+    const groupId = route.params?.groupId;
+    if (groupId) {
+      setSelectedGroupId(groupId);
+    } else {
+      // Reset selectedGroupId when navigating away or when no groupId in params
+      setSelectedGroupId(null);
+    }
+  }, [route.params]);
 
   // Fallback: Auto-set camera ready after 8 seconds if callback doesn't fire
   // This is a safety net - ideally onCameraReady should fire
@@ -442,9 +456,18 @@ export default function CameraScreen() {
         if (error) {
           Alert.alert('Error', error);
         } else {
-          Alert.alert('Success!', `Video has been sent to ${group.name}.`);
           setCapturedMedia(null);
           setPreviewVisible(false);
+          
+          // If camera was accessed through a group, navigate back to that group
+          if (selectedGroupId && selectedGroupId === group.id) {
+            // Store groupId in AsyncStorage for GroupsScreen to pick up
+            AsyncStorage.setItem('pendingGroupId', group.id);
+            // Navigate to Groups tab
+            navigation.navigate('Groups');
+          } else {
+            Alert.alert('Success!', `Video has been sent to ${group.name}.`);
+          }
         }
       } else {
         const { messageId, error } = await sendImageMessage(
@@ -458,9 +481,18 @@ export default function CameraScreen() {
         if (error) {
           Alert.alert('Error', error);
         } else {
-          Alert.alert('Success!', `Photo has been sent to ${group.name}.`);
           setCapturedMedia(null);
           setPreviewVisible(false);
+          
+          // If camera was accessed through a group, navigate back to that group
+          if (selectedGroupId && selectedGroupId === group.id) {
+            // Store groupId in AsyncStorage for GroupsScreen to pick up
+            AsyncStorage.setItem('pendingGroupId', group.id);
+            // Navigate to Groups tab
+            navigation.navigate('Groups');
+          } else {
+            Alert.alert('Success!', `Photo has been sent to ${group.name}.`);
+          }
         }
       }
     } catch (error) {
@@ -678,6 +710,7 @@ export default function CameraScreen() {
         visible={previewVisible}
         media={capturedMedia}
         groups={groups}
+        initialSelectedGroup={selectedGroupId ? groups.find(g => g.id === selectedGroupId) : null}
         onDelete={handleDeleteMedia}
         onAddToGroup={handleAddToGroup}
         onPostPublicly={handlePostPublicly}
