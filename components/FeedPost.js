@@ -13,6 +13,7 @@ import { addComment, subscribeToComments, deleteComment } from '../services/comm
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const IMAGE_WIDTH = SCREEN_WIDTH * 0.92;
+const IMAGE_HEIGHT = IMAGE_WIDTH * (4 / 3); // 3:4 aspect ratio (width:height = 3:4)
 const IU_CRIMSON = '#990000';
 
 export default function FeedPost({ post, onDelete }) {
@@ -698,17 +699,17 @@ const styles = StyleSheet.create({
   },
   imageWrapper: {
     width: IMAGE_WIDTH,
-    height: IMAGE_WIDTH,
+    height: IMAGE_HEIGHT,
     justifyContent: 'center',
     alignItems: 'center',
   },
   image: {
     width: IMAGE_WIDTH,
-    height: IMAGE_WIDTH,
+    height: IMAGE_HEIGHT,
     backgroundColor: '#D0CFCD',
     borderRadius: 12,
-    maxHeight: 600,
-    minHeight: 200,
+    maxHeight: 800,
+    minHeight: 250,
   },
   dotsContainer: {
     flexDirection: 'row',
