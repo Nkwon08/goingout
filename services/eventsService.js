@@ -384,7 +384,9 @@ export const updateEvent = async (eventId, userId, eventData) => {
       return { error: 'Event not found' };
     }
 
-    if (eventDoc.data().userId !== userId) {
+    const existingEventData = eventDoc.data();
+    
+    if (existingEventData.userId !== userId) {
       return { error: 'You can only update your own events' };
     }
 
@@ -401,17 +403,33 @@ export const updateEvent = async (eventId, userId, eventData) => {
       ? Timestamp.fromDate(eventData.endTime) 
       : Timestamp.fromMillis(eventData.endTime.getTime ? eventData.endTime.getTime() : eventData.endTime);
 
+    // Update the event
     await updateDoc(eventRef, {
       title: eventData.name.trim(),
       description: eventData.description.trim(),
       location: eventData.location.trim(),
       host: eventData.host.trim(),
-      image: eventData.photo || eventDoc.data().image, // Keep existing image if no new photo
+      image: eventData.photo || existingEventData.image, // Keep existing image if no new photo
       date: dateTimestamp,
       startTime: startTimeTimestamp,
       endTime: endTimeTimestamp,
       updatedAt: serverTimestamp(),
     });
+
+    // Update the associated group's startTime and endTime to match the event
+    if (existingEventData.groupId) {
+      const groupRef = doc(db, 'groups', existingEventData.groupId);
+      const groupDoc = await getDoc(groupRef);
+      
+      if (groupDoc.exists()) {
+        await updateDoc(groupRef, {
+          startTime: startTimeTimestamp,
+          endTime: endTimeTimestamp,
+          updatedAt: serverTimestamp(),
+        });
+        console.log('✅ Updated associated group endTime to match event');
+      }
+    }
 
     return { error: null };
   } catch (error) {
@@ -434,10 +452,27 @@ export const deleteEvent = async (eventId, userId) => {
       return { error: 'Event not found' };
     }
 
-    if (eventDoc.data().userId !== userId) {
+    const eventData = eventDoc.data();
+    
+    if (eventData.userId !== userId) {
       return { error: 'You can only delete your own events' };
     }
 
+    // Delete the associated group if it exists
+    if (eventData.groupId) {
+      const { deleteGroup } = await import('./groupsService');
+      const deleteGroupResult = await deleteGroup(eventData.groupId, userId);
+      
+      if (deleteGroupResult.error) {
+        console.error('❌ Error deleting associated group:', deleteGroupResult.error);
+        // Continue with event deletion even if group deletion fails
+        // (group might have been deleted separately or there might be a permission issue)
+      } else {
+        console.log('✅ Associated group deleted successfully');
+      }
+    }
+
+    // Delete the event
     await deleteDoc(eventRef);
     return { error: null };
   } catch (error) {
