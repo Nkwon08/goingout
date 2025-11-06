@@ -19,6 +19,14 @@ service cloud.firestore {
         // Ensure document ID matches uid (prevent tampering)
         userId == resource.data.uid;
         // Friends and updatedAt fields can change (that's what we're allowing)
+      
+      // Notifications subcollection - users can only read/update their own notifications
+      match /notifications/{notificationId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create: if request.auth != null; // Anyone can create notifications for this user
+        allow update: if request.auth != null && request.auth.uid == userId;
+        allow delete: if request.auth != null && request.auth.uid == userId;
+      }
     }
     
     // Friend Requests collection
@@ -68,6 +76,13 @@ service cloud.firestore {
     match /posts/{postId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      
+      // Comments subcollection - users can read all comments, write their own
+      match /comments/{commentId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+        allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      }
     }
     
     // Groups collection

@@ -1,27 +1,28 @@
 // FeedPost component - displays a single post in the feed
 import * as React from 'react';
-import { View, Image, TouchableOpacity, StyleSheet, ScrollView, Dimensions, Modal, Alert } from 'react-native';
-import { Text, Avatar } from 'react-native-paper';
+import { View, Image, TouchableOpacity, StyleSheet, ScrollView, Dimensions, Modal, Alert, TextInput, KeyboardAvoidingView, Platform, FlatList } from 'react-native';
+import { Text, Avatar, Button, ActivityIndicator } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeColors } from '../hooks/useThemeColors';
 import ProfilePopup from './ProfilePopup';
 import { getCurrentUserData } from '../services/authService';
 import { useAuth } from '../context/AuthContext';
-import { deletePost } from '../services/postsService';
+import { deletePost, likePost, checkIfLiked } from '../services/postsService';
 import { checkFriendship, addFriend } from '../services/friendsService';
+import { addComment, subscribeToComments, deleteComment } from '../services/commentsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const IMAGE_WIDTH = SCREEN_WIDTH * 0.92;
 const IU_CRIMSON = '#990000';
 
 export default function FeedPost({ post, onDelete }) {
-      // Get current user to check if they own this post
-  const { user } = useAuth();
+      // Get current user and userData to check if they own this post and get current profile picture
+  const { user, userData } = useAuth();
 
   // State for post interactions
-  const [liked, setLiked] = React.useState(post.liked || false);
+  const [liked, setLiked] = React.useState(false);
   const [likeCount, setLikeCount] = React.useState(post.likes || 0);
-  const [commentCount] = React.useState(post.replies || 0);
+  const [commentCount, setCommentCount] = React.useState(post.replies || 0);
   const [currentImageIndex, setCurrentImageIndex] = React.useState(0);
   const [profilePopupVisible, setProfilePopupVisible] = React.useState(false);
   const [userProfile, setUserProfile] = React.useState(null);
@@ -31,6 +32,11 @@ export default function FeedPost({ post, onDelete }) {
   const [sendingRequest, setSendingRequest] = React.useState(false);
   const [menuVisible, setMenuVisible] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
+  const [commentsVisible, setCommentsVisible] = React.useState(false);
+  const [comments, setComments] = React.useState([]);
+  const [commentText, setCommentText] = React.useState('');
+  const [submittingComment, setSubmittingComment] = React.useState(false);
+  const [liking, setLiking] = React.useState(false);
   
   // Get stable createdAt timestamp for this specific post - each post has its own timer
   // This timestamp is calculated once per post.id and doesn't change when new posts are added
@@ -73,6 +79,37 @@ export default function FeedPost({ post, onDelete }) {
   
   // Check if current user owns this post
   const isOwnPost = user && post.userId === user.uid;
+  
+  // For own posts, use current userData avatar (always up-to-date)
+  // For other posts, use post.avatar (snapshot from when post was created)
+  const displayAvatar = isOwnPost && userData 
+    ? (userData.photoURL || userData.avatar || post.avatar)
+    : post.avatar;
+
+  // Check if user liked this post on mount
+  React.useEffect(() => {
+    if (user?.uid && post.id) {
+      checkIfLiked(post.id, user.uid).then((isLiked) => {
+        setLiked(isLiked);
+      });
+    }
+  }, [user?.uid, post.id]);
+
+  // Subscribe to comments when comments modal is visible
+  React.useEffect(() => {
+    if (!commentsVisible || !post.id) return;
+    
+    const unsubscribe = subscribeToComments(post.id, (result) => {
+      if (result.error) {
+        console.error('Error loading comments:', result.error);
+      } else {
+        setComments(result.comments);
+        setCommentCount(result.comments.length);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [commentsVisible, post.id]);
 
   // Each post has its own independent timer
   // Timer continues from where it was (doesn't restart when new posts are added)
@@ -141,9 +178,105 @@ export default function FeedPost({ post, onDelete }) {
   }, [post.image, post.images]);
 
   // Handle like button tap
-  const handleLike = () => {
+  const handleLike = async () => {
+    if (!user?.uid || liking) return;
+    
+    setLiking(true);
+    const previousLiked = liked;
+    const previousCount = likeCount;
+    
+    // Optimistic update
     setLiked(!liked);
-    setLikeCount((prev) => (liked ? prev - 1 : prev + 1));
+    setLikeCount(previousLiked ? previousCount - 1 : previousCount + 1);
+    
+    try {
+      const result = await likePost(post.id, user.uid, post.userId);
+      if (result.success) {
+        setLiked(result.isLiked);
+        setLikeCount(result.likes);
+      } else {
+        // Revert on error
+        setLiked(previousLiked);
+        setLikeCount(previousCount);
+        Alert.alert('Error', result.error || 'Failed to like post');
+      }
+    } catch (error) {
+      console.error('Error liking post:', error);
+      // Revert on error
+      setLiked(previousLiked);
+      setLikeCount(previousCount);
+      Alert.alert('Error', 'Failed to like post. Please try again.');
+    } finally {
+      setLiking(false);
+    }
+  };
+
+  // Handle comment button tap
+  const handleCommentPress = () => {
+    setCommentsVisible(true);
+  };
+
+  // Handle submit comment
+  const handleSubmitComment = async () => {
+    if (!user?.uid || !commentText.trim() || submittingComment) return;
+    
+    setSubmittingComment(true);
+    try {
+      const result = await addComment(
+        post.id,
+        user.uid,
+        post.userId,
+        {
+          name: userData?.name || user?.displayName || 'User',
+          username: userData?.username || 'user',
+          photoURL: userData?.photoURL || userData?.avatar || null,
+          avatar: userData?.avatar || userData?.photoURL || null,
+        },
+        commentText.trim()
+      );
+      
+      if (result.success) {
+        setCommentText('');
+        setCommentCount((prev) => prev + 1);
+      } else {
+        Alert.alert('Error', result.error || 'Failed to add comment');
+      }
+    } catch (error) {
+      console.error('Error submitting comment:', error);
+      Alert.alert('Error', 'Failed to add comment. Please try again.');
+    } finally {
+      setSubmittingComment(false);
+    }
+  };
+
+  // Handle delete comment
+  const handleDeleteComment = async (commentId) => {
+    if (!user?.uid) return;
+    
+    Alert.alert(
+      'Delete Comment',
+      'Are you sure you want to delete this comment?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const result = await deleteComment(post.id, commentId, user.uid);
+              if (result.success) {
+                setCommentCount((prev) => Math.max(0, prev - 1));
+              } else {
+                Alert.alert('Error', result.error || 'Failed to delete comment');
+              }
+            } catch (error) {
+              console.error('Error deleting comment:', error);
+              Alert.alert('Error', 'Failed to delete comment. Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   // Handle profile picture tap - fetch user data and show popup
@@ -275,7 +408,7 @@ export default function FeedPost({ post, onDelete }) {
       <View style={styles.header}>
         <View style={styles.userInfo}>
           <TouchableOpacity onPress={handleProfileTap}>
-          <Avatar.Image size={32} source={{ uri: post.avatar }} style={styles.avatar} />
+          <Avatar.Image size={32} source={{ uri: displayAvatar }} style={styles.avatar} />
           </TouchableOpacity>
           <Text style={[styles.username, { color: text }]}>{post.name || post.user}</Text>
         </View>
@@ -361,7 +494,7 @@ export default function FeedPost({ post, onDelete }) {
               <Text style={[styles.actionCount, { color: text }]}> {likeCount.toLocaleString()}</Text>
             )}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton}>
+          <TouchableOpacity style={styles.actionButton} onPress={handleCommentPress}>
             <MaterialCommunityIcons name="comment-outline" size={24} color={text} />
             {commentCount > 0 && (
               <Text style={[styles.actionCount, { color: text }]}> {commentCount.toLocaleString()}</Text>
@@ -378,6 +511,102 @@ export default function FeedPost({ post, onDelete }) {
 
       {/* Time Ago - updates every second */}
       <Text style={[styles.timeAgo, { color: subText }]}>{timeAgo}</Text>
+
+      {/* Comments Modal */}
+      <Modal
+        visible={commentsVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setCommentsVisible(false)}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1, backgroundColor: surface }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={{ flex: 1, backgroundColor: surface }}>
+            {/* Header */}
+            <View style={[styles.commentsHeader, { backgroundColor: surface, borderBottomColor: border }]}>
+              <TouchableOpacity onPress={() => setCommentsVisible(false)}>
+                <MaterialCommunityIcons name="close" size={24} color={text} />
+              </TouchableOpacity>
+              <Text style={[styles.commentsTitle, { color: text }]}>Comments</Text>
+              <View style={{ width: 24 }} />
+            </View>
+
+            {/* Comments List */}
+            <FlatList
+              data={comments}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => {
+                const isOwnComment = item.userId === user?.uid;
+                return (
+                  <View style={[styles.commentItem, { borderBottomColor: border }]}>
+                    <Avatar.Image
+                      size={32}
+                      source={{ uri: item.avatar || 'https://i.pravatar.cc/100?img=12' }}
+                      style={styles.commentAvatar}
+                    />
+                    <View style={styles.commentContent}>
+                      <View style={styles.commentHeader}>
+                        <Text style={[styles.commentUsername, { color: text }]}>
+                          @{item.username || 'user'}
+                        </Text>
+                        {isOwnComment && (
+                          <TouchableOpacity
+                            onPress={() => handleDeleteComment(item.id)}
+                            style={styles.deleteCommentButton}
+                          >
+                            <MaterialCommunityIcons name="delete-outline" size={16} color={subText} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                      <Text style={[styles.commentText, { color: text }]}>{item.text}</Text>
+                    </View>
+                  </View>
+                );
+              }}
+              contentContainerStyle={styles.commentsList}
+              ListEmptyComponent={
+                <View style={styles.emptyComments}>
+                  <Text style={{ color: subText, textAlign: 'center' }}>No comments yet</Text>
+                </View>
+              }
+            />
+
+            {/* Comment Input */}
+            <View style={[styles.commentInputContainer, { backgroundColor: surface, borderTopColor: border }]}>
+              <Avatar.Image
+                size={32}
+                source={{ uri: displayAvatar || 'https://i.pravatar.cc/100?img=12' }}
+                style={styles.commentInputAvatar}
+              />
+              <TextInput
+                style={[styles.commentInput, { color: text, backgroundColor: border }]}
+                placeholder="Add a comment..."
+                placeholderTextColor={subText}
+                value={commentText}
+                onChangeText={setCommentText}
+                multiline
+                maxLength={500}
+              />
+              <TouchableOpacity
+                onPress={handleSubmitComment}
+                disabled={!commentText.trim() || submittingComment}
+                style={[
+                  styles.submitCommentButton,
+                  { opacity: commentText.trim() && !submittingComment ? 1 : 0.5 },
+                ]}
+              >
+                {submittingComment ? (
+                  <ActivityIndicator size="small" color={IU_CRIMSON} />
+                ) : (
+                  <MaterialCommunityIcons name="send" size={24} color={IU_CRIMSON} />
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* Profile Popup */}
       <ProfilePopup
@@ -575,5 +804,73 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginLeft: 12,
     fontWeight: '500',
+  },
+  commentsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  commentsTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  commentsList: {
+    padding: 16,
+  },
+  commentItem: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  commentAvatar: {
+    marginRight: 12,
+  },
+  commentContent: {
+    flex: 1,
+  },
+  commentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  commentUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  deleteCommentButton: {
+    padding: 4,
+  },
+  commentText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  emptyComments: {
+    paddingVertical: 40,
+  },
+  commentInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+  },
+  commentInputAvatar: {
+    marginRight: 12,
+  },
+  commentInput: {
+    flex: 1,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 14,
+    maxHeight: 100,
+  },
+  submitCommentButton: {
+    marginLeft: 8,
+    padding: 8,
   },
 });

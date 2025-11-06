@@ -279,6 +279,7 @@ export const upsertUserProfile = async (uid, payload = {}) => {
       gender: payload.gender,
       location: payload.location,
       photoURL,
+      avatar: photoURL, // Also set avatar field for backward compatibility (some components use avatar instead of photoURL)
       // Only set friends/blocked if provided in payload, otherwise preserve existing
       friends: payload.friends !== undefined ? payload.friends : existingFriends,
       blocked: payload.blocked !== undefined ? payload.blocked : existingBlocked,
@@ -481,17 +482,21 @@ export const ensureUserDoc = async (uid) => {
 };
 
 // Get current user data from Firestore
-// Returns consolidated fields: username, name, photo (photoURL), bio, age, gender
+// Returns consolidated fields: username, name, photo (photoURL), photoURL, avatar, bio, age, gender
 export const getCurrentUserData = async (uid) => {
   try {
     const userDoc = await getDoc(doc(db, 'users', uid));
     if (userDoc.exists()) {
       const data = userDoc.data();
+      // Get photoURL from data (prioritize photoURL, then avatar, then fallback to auth)
+      const photoURL = data.photoURL || data.avatar || auth.currentUser?.photoURL || null;
       return {
         userData: {
           username: data.username || auth.currentUser?.email?.split('@')[0] || 'user',
           name: data.name || auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'User',
-          photo: data.photoURL || data.avatar || auth.currentUser?.photoURL || null,
+          photo: photoURL, // Backward compatibility
+          photoURL: photoURL, // New field name
+          avatar: photoURL, // Backward compatibility
           bio: data.bio || null,
           age: data.age || null,
           gender: data.gender || null,

@@ -16,6 +16,8 @@ import {
   Timestamp,
   disableNetwork,
   waitForPendingWrites,
+  arrayUnion,
+  arrayRemove,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
@@ -48,11 +50,14 @@ export const createPost = async (userId, userData, postData) => {
     const postLat = postData.lat || postData.latitude || null;
     const postLng = postData.lng || postData.longitude || null;
     
+    // Get avatar from userData - check photoURL first (new field), then avatar (backward compatibility)
+    const userAvatar = userData.photoURL || userData.avatar || null;
+    
     const postToCreate = {
       userId,
       name: userData.name || 'User',
       username: userData.username || userData.user || 'user',
-      avatar: userData.avatar || null,
+      avatar: userAvatar,
       text: postData.text || '',
       location: postLocation || 'Unknown Location', // City name for display
       lat: postLat, // GPS latitude (required for distance filtering)
@@ -61,6 +66,7 @@ export const createPost = async (userId, userData, postData) => {
       images: imagesArray, // Carousel post images array
       bar: postData.bar || null, // Bar name (optional)
       likes: 0,
+      likedBy: [], // Array of user IDs who liked this post
       retweets: 0,
       replies: 0,
       liked: false,
@@ -438,28 +444,84 @@ export const getPostsByLocation = async (location) => {
 };
 
 // Like a post
-export const likePost = async (postId, userId, isLiked) => {
+// Toggles like status and returns the new like state
+export const likePost = async (postId, userId, postOwnerId) => {
   try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { success: false, error: 'Firestore not configured' };
+    }
+
     const postRef = doc(db, 'posts', postId);
     const postDoc = await getDoc(postRef);
     
     if (!postDoc.exists()) {
-      return { error: 'Post not found' };
+      return { success: false, error: 'Post not found' };
     }
 
-    const currentLikes = postDoc.data().likes || 0;
-    const newLikes = isLiked ? currentLikes - 1 : currentLikes + 1;
+    const postData = postDoc.data();
+    const likedBy = postData.likedBy || [];
+    const isLiked = likedBy.includes(userId);
 
-    await updateDoc(postRef, {
-      likes: newLikes,
-      updatedAt: serverTimestamp(),
-    });
-
-    // Update user's liked posts
-    // This would require a subcollection or array update
-    return { error: null };
+    // Toggle like status
+    if (isLiked) {
+      // Unlike: remove user from likedBy array and decrement count
+      await updateDoc(postRef, {
+        likedBy: arrayRemove(userId),
+        likes: (postData.likes || 0) - 1,
+        updatedAt: serverTimestamp(),
+      });
+      return { success: true, isLiked: false, likes: (postData.likes || 0) - 1 };
+    } else {
+      // Like: add user to likedBy array and increment count
+      await updateDoc(postRef, {
+        likedBy: arrayUnion(userId),
+        likes: (postData.likes || 0) + 1,
+        updatedAt: serverTimestamp(),
+      });
+      
+      // Send notification to post owner if not the same user
+      if (postOwnerId && postOwnerId !== userId) {
+        try {
+          const { createNotification } = await import('./notificationsService');
+          await createNotification(postOwnerId, {
+            type: 'like',
+            postId,
+            fromUserId: userId,
+            message: 'liked your post',
+          });
+        } catch (notifError) {
+          console.warn('Failed to send like notification:', notifError);
+          // Don't fail the like action if notification fails
+        }
+      }
+      
+      return { success: true, isLiked: true, likes: (postData.likes || 0) + 1 };
+    }
   } catch (error) {
-    return { error: error.message };
+    console.error('Error liking post:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Check if user liked a post
+export const checkIfLiked = async (postId, userId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return false;
+    }
+
+    const postRef = doc(db, 'posts', postId);
+    const postDoc = await getDoc(postRef);
+    
+    if (!postDoc.exists()) {
+      return false;
+    }
+
+    const likedBy = postDoc.data().likedBy || [];
+    return likedBy.includes(userId);
+  } catch (error) {
+    console.error('Error checking like status:', error);
+    return false;
   }
 };
 

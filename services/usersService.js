@@ -263,11 +263,13 @@ export const getAllUsers = async (currentUserId, pageSize = 20, lastUserId = nul
       .filter((doc) => doc.id !== currentUserId) // Exclude current user
       .map((doc) => {
         const data = doc.data();
+        // Check photoURL first (new field), then avatar (backward compatibility), then photo (legacy)
+        const avatarUrl = data.photoURL || data.avatar || data.photo || 'https://i.pravatar.cc/100';
         return {
           uid: doc.id,
           username: data.username || 'username',
           name: data.name || 'User',
-          avatar: data.avatar || data.photo || 'https://i.pravatar.cc/100',
+          avatar: avatarUrl,
           bio: data.bio || null,
           age: data.age || null,
           gender: data.gender || null,

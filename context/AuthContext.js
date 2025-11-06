@@ -5,7 +5,9 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { getCurrentUserData, ensureUserDoc, upsertUserProfile } from '../services/authService';
 import { subscribeToFriends } from '../services/friendsService';
 import { debugListUsernames } from '../services/usersService';
-import { auth } from '../config/firebase';
+import { registerForPushNotifications } from '../services/notificationsService';
+import { auth, db } from '../config/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 
 const AuthContext = createContext();
 
@@ -92,11 +94,30 @@ export function AuthProvider({ children }) {
             setUserData({
               username: data.username,
               name: data.name,
-              avatar: data.photo,
+              avatar: data.avatar || data.photoURL || data.photo || null,
+              photoURL: data.photoURL || data.avatar || data.photo || null,
               bio: data.bio,
               age: data.age,
               gender: data.gender,
             });
+          }
+
+          // Register for push notifications and save token
+          try {
+            const { success, token, error } = await registerForPushNotifications();
+            if (success && token && db && typeof db === 'object' && Object.keys(db).length > 0) {
+              // Save push token to user document
+              const userRef = doc(db, 'users', firebaseUser.uid);
+              await updateDoc(userRef, {
+                pushToken: token,
+                updatedAt: new Date().toISOString(),
+              });
+              console.log('✅ Push notification token saved');
+            } else if (error) {
+              console.warn('⚠️ Failed to register for push notifications:', error);
+            }
+          } catch (notifError) {
+            console.warn('⚠️ Error registering for push notifications:', notifError);
           }
 
           // Debug: List all usernames after ensuring document (one-time per session)
