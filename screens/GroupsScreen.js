@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform, PanResponder, Animated } from 'react-native';
 import { Appbar, FAB, Text, Button, Avatar, Checkbox } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
@@ -446,6 +446,41 @@ function ChatTab({ groupId }) {
   const [votingPoll, setVotingPoll] = React.useState(null);
   const [selectedImage, setSelectedImage] = React.useState(null);
   const inputRef = React.useRef(null);
+  const panY = React.useRef(new Animated.Value(0)).current;
+  
+  // PanResponder for swipe-to-dismiss on image viewer
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dy) > 10;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          panY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 100) {
+          // Swipe down threshold reached, dismiss modal
+          Animated.timing(panY, {
+            toValue: 1000,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            setSelectedImage(null);
+            panY.setValue(0);
+          });
+        } else {
+          // Snap back to original position
+          Animated.spring(panY, {
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
   
   const groupChatService = require('../services/groupChatService');
   const { sendMessage, sendImageMessage, sendVideoMessage, subscribeToMessages } = groupChatService;
@@ -1029,8 +1064,8 @@ function ChatTab({ groupId }) {
         }}
         isTyping={sending}
         placeholder="Message"
-        showUserAvatar={true}
-        key={`chat-${groupId}-${messages.length}-${messages.filter(m => m.type === 'poll').map(m => m.pollVoteKey || m.pollId).join('-')}`}
+        showUserAvatar={false}
+        key={`chat-${groupId}`}
         textInputProps={{
           style: {
             fontSize: 16,
@@ -1040,25 +1075,6 @@ function ChatTab({ groupId }) {
             maxHeight: 100,
           },
           placeholderTextColor: textSecondary,
-        }}
-        renderAvatar={(props) => {
-          // Explicitly check user ID to determine if message is from current user
-          const messageUserId = String(props.currentMessage?.user?._id || '');
-          const currentUserId = String(user?.uid || '');
-          const isOwnMessage = messageUserId === currentUserId;
-          
-          // Only show avatar for messages from other users (not own messages)
-          if (isOwnMessage) {
-            return null; // Don't show avatar for own messages
-          }
-          return (
-            <View style={{ marginRight: 8, marginBottom: 4 }}>
-              <Image
-                source={{ uri: props.currentMessage.user.avatar || 'https://i.pravatar.cc/100?img=12' }}
-                style={{ width: 32, height: 32, borderRadius: 16 }}
-              />
-            </View>
-          );
         }}
         renderBubble={renderBubble}
         renderTime={(props) => {
@@ -1086,7 +1102,7 @@ function ChatTab({ groupId }) {
           );
         }}
         renderMessage={(props) => {
-          // Override default message rendering to prevent consecutive message indentation
+          // Override default message rendering
           const messageUserId = String(props.currentMessage?.user?._id || '');
           const currentUserId = String(user?.uid || '');
           const isOwnMessage = messageUserId === currentUserId;
@@ -1102,23 +1118,39 @@ function ChatTab({ groupId }) {
                 width: '100%',
                 flexDirection: 'row',
                 justifyContent: isOwnMessage ? 'flex-end' : 'flex-start',
-                marginVertical: 4,
+                marginVertical: 8,
                 paddingHorizontal: 12,
-                alignItems: 'flex-end',
+                alignItems: 'flex-start',
                 marginLeft: 0,
                 marginRight: 0,
               }}
             >
-              {/* Only show avatar for other users' messages, and only if not consecutive */}
-              {!isOwnMessage && !isConsecutive && (
-                <View style={{ marginRight: 8, marginBottom: 4 }}>
+              {/* Show avatar for other users' messages on the left (always show, not just for non-consecutive) */}
+              {!isOwnMessage && (
+                <View style={{ marginRight: 8, marginTop: 2 }}>
                   <Image
                     source={{ uri: props.currentMessage.user.avatar || 'https://i.pravatar.cc/100?img=12' }}
                     style={{ width: 32, height: 32, borderRadius: 16 }}
                   />
                 </View>
               )}
-              {renderBubble(props)}
+              <View style={{ flex: 1, maxWidth: '75%' }}>
+                {/* Show username above message for other users (only if not consecutive) */}
+                {!isOwnMessage && !isConsecutive && (
+                  <Text
+                    style={{
+                      color: textSecondary,
+                      fontSize: 12,
+                      fontWeight: '600',
+                      marginBottom: 4,
+                      marginLeft: 0,
+                    }}
+                  >
+                    {props.currentMessage.user.name || props.currentMessage.user.userName || 'User'}
+                  </Text>
+                )}
+                {renderBubble(props)}
+              </View>
             </View>
           );
         }}
@@ -1127,8 +1159,8 @@ function ChatTab({ groupId }) {
             <View
               style={{
                 backgroundColor: isDarkMode ? '#000000' : '#FFFFFF',
-                borderTopWidth: 0.5,
-                borderTopColor: inputBorder,
+                borderTopWidth: 0,
+                borderTopColor: 'transparent',
                 paddingHorizontal: 8,
                 paddingVertical: 8,
               }}
@@ -1365,17 +1397,34 @@ function ChatTab({ groupId }) {
         visible={selectedImage !== null}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setSelectedImage(null)}
+        onRequestClose={() => {
+          setSelectedImage(null);
+          panY.setValue(0);
+        }}
       >
-        <TouchableWithoutFeedback onPress={() => setSelectedImage(null)}>
+        <TouchableWithoutFeedback onPress={() => {
+          setSelectedImage(null);
+          panY.setValue(0);
+        }}>
           <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.95)', justifyContent: 'center', alignItems: 'center' }}>
-            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+            <Animated.View
+              style={{
+                width: '100%',
+                height: '100%',
+                transform: [{ translateY: panY }],
+                opacity: panY.interpolate({
+                  inputRange: [0, 1000],
+                  outputRange: [1, 0],
+                }),
+              }}
+              {...panResponder.panHandlers}
+            >
               <Image
                 source={{ uri: selectedImage }}
                 style={{ width: '100%', height: '100%' }}
                 resizeMode="contain"
               />
-            </TouchableWithoutFeedback>
+            </Animated.View>
             <TouchableOpacity
               style={{
                 position: 'absolute',
@@ -1385,7 +1434,10 @@ function ChatTab({ groupId }) {
                 backgroundColor: 'rgba(0, 0, 0, 0.5)',
                 borderRadius: 20,
               }}
-              onPress={() => setSelectedImage(null)}
+              onPress={() => {
+                setSelectedImage(null);
+                panY.setValue(0);
+              }}
             >
               <MaterialCommunityIcons name="close" size={24} color="#FFFFFF" />
             </TouchableOpacity>
@@ -1401,6 +1453,41 @@ function AlbumTab({ groupId }) {
   const { background, divider, subText } = useThemeColors();
   const [items, setItems] = React.useState([]);
   const [selectedImage, setSelectedImage] = React.useState(null);
+  const panY = React.useRef(new Animated.Value(0)).current;
+  
+  // PanResponder for swipe-to-dismiss on image viewer
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dy) > 10;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          panY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 100) {
+          // Swipe down threshold reached, dismiss modal
+          Animated.timing(panY, {
+            toValue: 1000,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            setSelectedImage(null);
+            panY.setValue(0);
+          });
+        } else {
+          // Snap back to original position
+          Animated.spring(panY, {
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
   
   // Subscribe to group photos from Firestore
   React.useEffect(() => {
@@ -1533,17 +1620,34 @@ function AlbumTab({ groupId }) {
         visible={selectedImage !== null}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setSelectedImage(null)}
+        onRequestClose={() => {
+          setSelectedImage(null);
+          panY.setValue(0);
+        }}
       >
-        <TouchableWithoutFeedback onPress={() => setSelectedImage(null)}>
+        <TouchableWithoutFeedback onPress={() => {
+          setSelectedImage(null);
+          panY.setValue(0);
+        }}>
           <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.95)', justifyContent: 'center', alignItems: 'center' }}>
-            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+            <Animated.View
+              style={{
+                width: '100%',
+                height: '100%',
+                transform: [{ translateY: panY }],
+                opacity: panY.interpolate({
+                  inputRange: [0, 1000],
+                  outputRange: [1, 0],
+                }),
+              }}
+              {...panResponder.panHandlers}
+            >
               <Image
                 source={{ uri: selectedImage }}
                 style={{ width: '100%', height: '100%' }}
                 resizeMode="contain"
               />
-            </TouchableWithoutFeedback>
+            </Animated.View>
             <TouchableOpacity
               style={{
                 position: 'absolute',
@@ -1553,7 +1657,10 @@ function AlbumTab({ groupId }) {
                 backgroundColor: 'rgba(0, 0, 0, 0.5)',
                 borderRadius: 20,
               }}
-              onPress={() => setSelectedImage(null)}
+              onPress={() => {
+                setSelectedImage(null);
+                panY.setValue(0);
+              }}
             >
               <MaterialCommunityIcons name="close" size={24} color="#FFFFFF" />
             </TouchableOpacity>
