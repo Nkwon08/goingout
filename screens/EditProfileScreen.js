@@ -161,6 +161,13 @@ export default function EditProfileScreen({ navigation }) {
           return;
         }
         
+        // Handle username_change_limit error
+        if (result.error === 'username_change_limit') {
+          Alert.alert('Username Change Limit', 'You can only change your username once. Please keep your current username.');
+          setSaving(false);
+          return;
+        }
+        
         throw new Error(result.error || 'Failed to update profile');
       }
 
@@ -287,7 +294,9 @@ export default function EditProfileScreen({ navigation }) {
             autoCapitalize="none"
             style={styles.input}
             textColor={text}
-            disabled={saving}
+            disabled={saving || userData?.hasChangedUsername === true}
+            helperText={userData?.hasChangedUsername === true ? "You can only change your username once" : undefined}
+            helperTextEnabled={true}
           />
 
           <TextInput

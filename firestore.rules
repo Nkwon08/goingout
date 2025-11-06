@@ -13,18 +13,25 @@ service cloud.firestore {
         request.resource.data.authUid == request.auth.uid;
       
       // Allow update: user can update their own document if authUid matches
-      // OR if updating another user's friends array (for friend requests)
+      // OR if updating another user's friends array (for accepting friend requests)
       allow update: if request.auth != null && (
         // User updating their own document (authUid must match)
         (request.resource.data.authUid == request.auth.uid && 
          (!resource.exists || resource.data.authUid == request.auth.uid)) ||
         // OR allowing another user to update friends array (for accepting friend requests)
+        // This allows updating another user's document if:
+        // 1. The document exists
+        // 2. The document belongs to a different user (authUid doesn't match current user)
+        // 3. The authUid field doesn't change (security check - prevents changing ownership)
+        // 4. Critical immutable fields haven't changed
         (resource.exists &&
-         request.resource.data.authUid != request.auth.uid &&
-         // Ensure authUid field doesn't change (user ID should remain the same)
+         resource.data.authUid != request.auth.uid &&
          request.resource.data.authUid == resource.data.authUid &&
-         // Only allow modifying friends and updatedAt fields for friend requests
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['friends', 'updatedAt']))
+         // Ensure critical fields haven't changed - check if they exist in both, then compare
+         (request.resource.data.get('email', '') == resource.data.get('email', '')) &&
+         (request.resource.data.get('username', '') == resource.data.get('username', '')) &&
+         (request.resource.data.get('username_lowercase', '') == resource.data.get('username_lowercase', '')) &&
+         (request.resource.data.get('name', '') == resource.data.get('name', '')))
       );
       
       // Allow delete: user can delete their own document

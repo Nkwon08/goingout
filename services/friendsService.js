@@ -776,11 +776,16 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
       return { success: false, error: 'Firestore not configured' };
     }
 
+    console.log('🔄 [acceptFriendRequest] Starting:', { requestId, fromUserId, toUserId });
+
     // Get usernames from authUids (document IDs are now usernames)
     const fromUsername = await getUsernameFromAuthUid(fromUserId);
     const toUsername = await getUsernameFromAuthUid(toUserId);
 
+    console.log('🔄 [acceptFriendRequest] Usernames:', { fromUsername, toUsername });
+
     if (!fromUsername || !toUsername) {
+      console.error('❌ [acceptFriendRequest] User not found:', { fromUserId, toUserId, fromUsername, toUsername });
       return { success: false, error: 'User not found' };
     }
 
@@ -852,7 +857,10 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
     console.log('✅ Friend request accepted:', fromUsername, '↔', toUsername);
     return { success: true, error: null };
   } catch (error) {
-    console.error('❌ Error accepting friend request:', error);
+    console.error('❌ [acceptFriendRequest] Error accepting friend request:', error);
+    console.error('❌ [acceptFriendRequest] Error code:', error.code);
+    console.error('❌ [acceptFriendRequest] Error message:', error.message);
+    console.error('❌ [acceptFriendRequest] Stack:', error.stack);
     return { success: false, error: error.message || 'Failed to accept friend request' };
   }
 };

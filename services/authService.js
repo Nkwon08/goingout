@@ -391,68 +391,170 @@ export const upsertUserProfile = async (uid, payload = {}) => {
     let existingBlocked = [];
     let oldUsername = null;
     
-    if (!username) {
-      // First, try to find existing user document by authUid
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('authUid', '==', uid), limit(1));
-      const existingDocs = await getDocs(q);
+    // FIRST: Always find existing user document(s) by authUid to get old username and preserve data
+    // IMPORTANT: Check for ALL documents with this authUid to detect duplicates
+    const usersRef = collection(db, 'users');
+    const q = query(usersRef, where('authUid', '==', uid));
+    const existingDocs = await getDocs(q);
+    
+    console.log('[upsertUserProfile] Query for existing document(s) by authUid:', {
+      uid,
+      foundDocuments: existingDocs.size,
+      documentIds: existingDocs.docs.map(d => d.id),
+    });
+    
+    // If multiple documents exist with the same authUid, we have duplicates - need to consolidate
+    if (existingDocs.size > 1) {
+      console.warn('[upsertUserProfile] WARNING: Multiple documents found with same authUid!', {
+        documentIds: existingDocs.docs.map(d => d.id),
+        count: existingDocs.size,
+      });
       
-      if (!existingDocs.empty) {
-        // User document exists - preserve existing username
-        const existingDoc = existingDocs.docs[0];
-        const existingData = existingDoc.data();
-        username = existingData.username; // Use existing username
-        username_lowercase = existingDoc.id; // Document ID is the username_lowercase
-        existingFriends = existingData.friends || [];
-        existingBlocked = existingData.blocked || [];
-        oldUsername = existingDoc.id;
-      } else {
-        // No existing document - derive from displayName or email (for new users only)
-        username = authUser?.displayName ?? (email ? email.split('@')[0] : `user_${uid.slice(0, 6)}`);
+      // Find the document with the most recent updatedAt (or created at)
+      const sortedDocs = existingDocs.docs.sort((a, b) => {
+        const aData = a.data();
+        const bData = b.data();
+        const aTime = aData.updatedAt?.toMillis?.() || aData.createdAt?.toMillis?.() || 0;
+        const bTime = bData.updatedAt?.toMillis?.() || bData.createdAt?.toMillis?.() || 0;
+        return bTime - aTime; // Most recent first
+      });
+      
+      // Use the most recent document as the "canonical" one
+      const canonicalDoc = sortedDocs[0];
+      oldUsername = canonicalDoc.id;
+      const canonicalData = canonicalDoc.data();
+      existingFriends = canonicalData.friends || [];
+      existingBlocked = canonicalData.blocked || [];
+      
+      console.log('[upsertUserProfile] Using canonical document:', {
+        documentId: canonicalDoc.id,
+        username: canonicalData.username,
+        oldUsername,
+      });
+      
+      // If a username is provided and it matches one of the duplicate documents, use that as the target
+      if (username) {
         username_lowercase = username.toLowerCase().replace(/\s+/g, '');
+        const matchingDoc = existingDocs.docs.find(d => d.id === username_lowercase);
+        if (matchingDoc && matchingDoc.id !== canonicalDoc.id) {
+          // The provided username matches one of the duplicate documents
+          // We'll migrate from the canonical document to the matching one
+          oldUsername = canonicalDoc.id;
+          console.log('[upsertUserProfile] Username matches duplicate document, will migrate from', oldUsername, 'to', username_lowercase);
+        } else if (matchingDoc && matchingDoc.id === canonicalDoc.id) {
+          // The provided username matches the canonical document - no migration needed
+          oldUsername = canonicalDoc.id;
+        }
+      } else {
+        // No username provided, use canonical document's username
+        username = canonicalData.username;
+        username_lowercase = canonicalDoc.id;
+      }
+      
+      // Delete all duplicate documents except the canonical one (or the target if username provided)
+      // We'll handle this after we determine the target username
+    } else if (!existingDocs.empty) {
+      // Single document exists - normal case
+      const existingDoc = existingDocs.docs[0];
+      const existingData = existingDoc.data();
+      oldUsername = existingDoc.id; // Old username_lowercase (document ID)
+      existingFriends = existingData.friends || [];
+      existingBlocked = existingData.blocked || [];
+      
+      console.log('[upsertUserProfile] Found existing document:', {
+        documentId: existingDoc.id,
+        username: existingData.username,
+        authUid: existingData.authUid,
+        oldUsername,
+      });
+      
+      // If no username provided, use existing username
+      if (!username) {
+        username = existingData.username;
+        username_lowercase = existingDoc.id; // Document ID is the username_lowercase
       }
     } else {
-      // Username provided in payload - use it
+      console.log('[upsertUserProfile] No existing document found by authUid');
+    }
+    
+    // Check if user has already changed username once (workaround to prevent duplicates)
+    let hasChangedUsername = false;
+    if (!existingDocs.empty) {
+      // Check any existing document for hasChangedUsername flag
+      const existingDoc = existingDocs.docs[0];
+      const existingData = existingDoc.data();
+      hasChangedUsername = existingData.hasChangedUsername === true;
+    }
+    
+    // If username is provided (from payload), normalize it and check for conflicts
+    if (username) {
       username_lowercase = username.toLowerCase().replace(/\s+/g, '');
       
-      // Check if document exists at this username
+      // Check if username is changing and user has already changed it once
+      if (oldUsername && oldUsername !== username_lowercase && hasChangedUsername) {
+        console.log('[upsertUserProfile] Username change blocked: user has already changed username once');
+        console.log('[upsertUserProfile] Current username:', oldUsername, 'New username:', username_lowercase);
+        return { success: false, error: 'username_change_limit' };
+      }
+      
+      // Check if document exists at this new username (could be taken by another user)
       const userRef = doc(db, 'users', username_lowercase);
       try {
         const existingDoc = await getDoc(userRef);
         if (existingDoc.exists()) {
           const existingData = existingDoc.data();
+          console.log('[upsertUserProfile] Document exists at new username location:', {
+            documentId: existingDoc.id,
+            username_lowercase,
+            authUid: existingData.authUid,
+            currentUid: uid,
+            isSameUser: existingData.authUid === uid,
+            oldUsername,
+          });
+          
           // Check if this document belongs to a different user (username conflict)
           if (existingData.authUid && existingData.authUid !== uid) {
             throw new Error('username_taken');
           }
-          // Same user or unclaimed username - preserve existing data
-          existingFriends = existingData.friends || [];
-          existingBlocked = existingData.blocked || [];
-          oldUsername = existingData.username_lowercase;
-        } else {
-          // Document doesn't exist at this username - check if user exists with different username
-          const usersRef = collection(db, 'users');
-          const q = query(usersRef, where('authUid', '==', uid), limit(1));
-          const existingDocs = await getDocs(q);
-          
-          if (!existingDocs.empty) {
-            const existingDoc = existingDocs.docs[0];
-            const existingData = existingDoc.data();
+          // Same user - this means the document already exists at this username
+          // If oldUsername is different, we still need to migrate (username changed)
+          // But if oldUsername is the same, no migration needed
+          if (!oldUsername) {
+            // We didn't find a document by authUid, but found one at this username that belongs to us
+            // This shouldn't happen, but preserve data anyway
             existingFriends = existingData.friends || [];
             existingBlocked = existingData.blocked || [];
-            oldUsername = existingDoc.id; // Old username_lowercase (document ID)
+            oldUsername = existingDoc.id; // Set oldUsername to current document ID
+            console.log('[upsertUserProfile] Set oldUsername from document at new location:', oldUsername);
+          } else {
+            console.log('[upsertUserProfile] Document exists at new username but oldUsername already set:', oldUsername);
           }
+        } else {
+          console.log('[upsertUserProfile] No document exists at new username location:', username_lowercase);
         }
       } catch (readError) {
         if (readError.message === 'username_taken') {
           throw readError;
         }
-        // Document doesn't exist yet - that's okay
+        // Document doesn't exist yet at new username - that's okay, we'll migrate/create
+        console.log('[upsertUserProfile] Error checking document at new username (non-critical):', readError.message);
+      }
+    } else {
+      // No username provided and no existing document - derive from displayName or email (for new users only)
+      if (!oldUsername) {
+        username = authUser?.displayName ?? (email ? email.split('@')[0] : `user_${uid.slice(0, 6)}`);
+        username_lowercase = username.toLowerCase().replace(/\s+/g, '');
+      } else {
+        // This shouldn't happen - we already set username from existing doc above
+        username_lowercase = oldUsername;
       }
     }
     
     // Use username_lowercase as document ID (not UID)
     const userRef = doc(db, 'users', username_lowercase);
+    
+    // Determine if username is changing (to set hasChangedUsername flag)
+    const usernameIsChanging = oldUsername && oldUsername !== username_lowercase;
     
     // Build write payload (clean removes undefined values)
     // Only include friends/blocked if explicitly provided, otherwise preserve existing
@@ -472,12 +574,75 @@ export const upsertUserProfile = async (uid, payload = {}) => {
       friends: payload.friends !== undefined ? payload.friends : existingFriends,
       blocked: payload.blocked !== undefined ? payload.blocked : existingBlocked,
       isDiscoverable: payload.isDiscoverable !== undefined ? payload.isDiscoverable : true,
+      // Set hasChangedUsername to true if username is changing (workaround to prevent duplicates)
+      hasChangedUsername: usernameIsChanging ? true : (hasChangedUsername !== undefined ? hasChangedUsername : false),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
     
+    // Handle duplicate documents if they exist
+    if (existingDocs.size > 1) {
+      console.log('[upsertUserProfile] Handling duplicate documents...');
+      
+      // Determine target username (either provided username or canonical document's username)
+      const targetUsername = username_lowercase || oldUsername;
+      
+      // Find all duplicate documents that need to be deleted (all except the target)
+      const duplicatesToDelete = existingDocs.docs.filter(d => d.id !== targetUsername);
+      
+      if (duplicatesToDelete.length > 0) {
+        console.log('[upsertUserProfile] Deleting duplicate documents:', {
+          duplicates: duplicatesToDelete.map(d => d.id),
+          target: targetUsername,
+        });
+        
+        // Delete all duplicates
+        for (const dupDoc of duplicatesToDelete) {
+          try {
+            await deleteDoc(dupDoc.ref);
+            console.log('[upsertUserProfile] Deleted duplicate document:', dupDoc.id);
+          } catch (deleteError) {
+            console.error('[upsertUserProfile] Error deleting duplicate document:', dupDoc.id, deleteError);
+          }
+        }
+      }
+      
+      // If target username is different from canonical, migrate to target
+      if (targetUsername && oldUsername && oldUsername !== targetUsername) {
+        console.log('[upsertUserProfile] Migrating from canonical to target:', {
+          from: oldUsername,
+          to: targetUsername,
+        });
+        
+        try {
+          await migrateUserDocument(uid, oldUsername, targetUsername, write);
+          console.log('[upsertUserProfile] Document migrated successfully');
+          return { success: true, error: null };
+        } catch (migrationError) {
+          console.error('[upsertUserProfile] Migration error:', migrationError);
+          return { success: false, error: 'Failed to migrate username: ' + migrationError.message };
+        }
+      }
+      
+      // If target is the same as canonical, just update the canonical document
+      oldUsername = targetUsername;
+    }
+    
     // If username changed, migrate the old document to the new username
-    if (oldUsername && oldUsername !== username_lowercase) {
+    // Ensure oldUsername and username_lowercase are both normalized for comparison
+    const normalizedOldUsername = oldUsername ? oldUsername.toLowerCase().replace(/\s+/g, '') : null;
+    const normalizedNewUsername = username_lowercase ? username_lowercase.toLowerCase().replace(/\s+/g, '') : null;
+    
+    console.log('[upsertUserProfile] Checking username change:', {
+      oldUsername,
+      normalizedOldUsername,
+      newUsername: username,
+      username_lowercase,
+      normalizedNewUsername,
+      willMigrate: normalizedOldUsername && normalizedOldUsername !== normalizedNewUsername,
+    });
+    
+    if (normalizedOldUsername && normalizedOldUsername !== normalizedNewUsername) {
       console.log('[upsertUserProfile] Username changed from', oldUsername, 'to', username_lowercase);
       
       try {
@@ -491,6 +656,20 @@ export const upsertUserProfile = async (uid, payload = {}) => {
         // But this will create a duplicate - user should fix this manually
         return { success: false, error: 'Failed to migrate username: ' + migrationError.message };
       }
+    }
+    
+    // SAFETY CHECK: If oldUsername is set and different from new username, we should have migrated
+    // If we get here without migrating, something went wrong
+    // Use normalized versions for comparison
+    if (normalizedOldUsername && normalizedOldUsername !== normalizedNewUsername) {
+      console.error('[upsertUserProfile] ERROR: Should have migrated but didn\'t!', {
+        oldUsername,
+        username_lowercase,
+        normalizedOldUsername,
+        normalizedNewUsername,
+        comparison: normalizedOldUsername !== normalizedNewUsername,
+      });
+      return { success: false, error: 'Migration should have occurred but didn\'t. Please try again.' };
     }
     
     // Write to Firestore with merge:true (idempotent)
