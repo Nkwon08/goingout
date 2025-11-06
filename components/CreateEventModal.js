@@ -4,6 +4,7 @@ import { View, Modal, TextInput, StyleSheet, TouchableOpacity, Image, ScrollView
 import { Text, Avatar, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { uploadImage } from '../services/storageService';
 
@@ -19,6 +20,14 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
   const [host, setHost] = React.useState('');
   const [photo, setPhoto] = React.useState(null);
   const [submitting, setSubmitting] = React.useState(false);
+  
+  // Date and time state
+  const [date, setDate] = React.useState(new Date());
+  const [startTime, setStartTime] = React.useState(new Date());
+  const [endTime, setEndTime] = React.useState(new Date());
+  const [showDatePicker, setShowDatePicker] = React.useState(false);
+  const [showStartTimePicker, setShowStartTimePicker] = React.useState(false);
+  const [showEndTimePicker, setShowEndTimePicker] = React.useState(false);
 
   // Set default host from current user when modal opens
   React.useEffect(() => {
@@ -30,6 +39,16 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
       setHost(currentUser?.name || currentUser?.username || '');
       setPhoto(null);
       setSubmitting(false);
+      // Set default date to today, start time to current hour, end time to 2 hours later
+      const now = new Date();
+      setDate(now);
+      setStartTime(now);
+      const endTimeDefault = new Date(now);
+      endTimeDefault.setHours(now.getHours() + 2);
+      setEndTime(endTimeDefault);
+      setShowDatePicker(false);
+      setShowStartTimePicker(false);
+      setShowEndTimePicker(false);
     } else {
       // Reset form when modal closes
       setName('');
@@ -38,6 +57,9 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
       setHost('');
       setPhoto(null);
       setSubmitting(false);
+      setShowDatePicker(false);
+      setShowStartTimePicker(false);
+      setShowEndTimePicker(false);
     }
   }, [visible, currentUser]);
 
@@ -103,6 +125,20 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
       return;
     }
 
+    // Validate that end time is after start time
+    const startDateTime = new Date(date);
+    startDateTime.setHours(startTime.getHours());
+    startDateTime.setMinutes(startTime.getMinutes());
+    
+    const endDateTime = new Date(date);
+    endDateTime.setHours(endTime.getHours());
+    endDateTime.setMinutes(endTime.getMinutes());
+    
+    if (endDateTime <= startDateTime) {
+      Alert.alert('Error', 'End time must be after start time.');
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -114,18 +150,22 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
         if (uploadResult.url) {
           photoUrl = uploadResult.url;
         } else if (uploadResult.error) {
-          Alert.alert('Upload Error', uploadResult.error);
-          setSubmitting(false);
-          return;
+          // Show error but still allow event creation with local photo URI
+          Alert.alert('Upload Error', uploadResult.error + ' Event will be created with local photo.');
+          // Continue with local photo URI
         }
       }
 
+      // Always call onSubmit even if photo upload failed
       onSubmit({
         name: name.trim(),
         description: description.trim(),
         location: location.trim(),
         host: host.trim(),
         photo: photoUrl || photo, // Use uploaded URL if available, otherwise local URI
+        date: date,
+        startTime: startTime,
+        endTime: endTime,
       });
       
       // Reset submitting state after successful submission
@@ -260,6 +300,88 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
                         maxLength={50}
                       />
                     </View>
+
+                    {/* Date */}
+                    <View style={styles.fieldContainer}>
+                      <Text style={[styles.label, { color: text }]}>Date *</Text>
+                      <TouchableOpacity
+                        style={[styles.input, styles.dateTimeInput, { borderColor: border, backgroundColor: background }]}
+                        onPress={() => setShowDatePicker(true)}
+                      >
+                        <Text style={[styles.dateTimeText, { color: text }]}>
+                          {date.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                        </Text>
+                        <MaterialCommunityIcons name="calendar" size={20} color={text} />
+                      </TouchableOpacity>
+                      {showDatePicker && (
+                        <DateTimePicker
+                          value={date}
+                          mode="date"
+                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                          onChange={(event, selectedDate) => {
+                            setShowDatePicker(Platform.OS === 'ios');
+                            if (selectedDate) {
+                              setDate(selectedDate);
+                            }
+                          }}
+                          minimumDate={new Date()}
+                        />
+                      )}
+                    </View>
+
+                    {/* Start Time */}
+                    <View style={styles.fieldContainer}>
+                      <Text style={[styles.label, { color: text }]}>Start Time *</Text>
+                      <TouchableOpacity
+                        style={[styles.input, styles.dateTimeInput, { borderColor: border, backgroundColor: background }]}
+                        onPress={() => setShowStartTimePicker(true)}
+                      >
+                        <Text style={[styles.dateTimeText, { color: text }]}>
+                          {startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                        </Text>
+                        <MaterialCommunityIcons name="clock-outline" size={20} color={text} />
+                      </TouchableOpacity>
+                      {showStartTimePicker && (
+                        <DateTimePicker
+                          value={startTime}
+                          mode="time"
+                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                          onChange={(event, selectedTime) => {
+                            setShowStartTimePicker(Platform.OS === 'ios');
+                            if (selectedTime) {
+                              setStartTime(selectedTime);
+                            }
+                          }}
+                        />
+                      )}
+                    </View>
+
+                    {/* End Time */}
+                    <View style={styles.fieldContainer}>
+                      <Text style={[styles.label, { color: text }]}>End Time *</Text>
+                      <TouchableOpacity
+                        style={[styles.input, styles.dateTimeInput, { borderColor: border, backgroundColor: background }]}
+                        onPress={() => setShowEndTimePicker(true)}
+                      >
+                        <Text style={[styles.dateTimeText, { color: text }]}>
+                          {endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                        </Text>
+                        <MaterialCommunityIcons name="clock-outline" size={20} color={text} />
+                      </TouchableOpacity>
+                      {showEndTimePicker && (
+                        <DateTimePicker
+                          value={endTime}
+                          mode="time"
+                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                          onChange={(event, selectedTime) => {
+                            setShowEndTimePicker(Platform.OS === 'ios');
+                            if (selectedTime) {
+                              setEndTime(selectedTime);
+                            }
+                          }}
+                        />
+                      )}
+                    </View>
                   </View>
                 </ScrollView>
               </View>
@@ -391,6 +513,14 @@ const styles = StyleSheet.create({
   photoButtonText: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  dateTimeInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dateTimeText: {
+    fontSize: 16,
   },
 });
 

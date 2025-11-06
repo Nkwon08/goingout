@@ -1,6 +1,6 @@
 // Activity Main screen - shows polls, trending locations, and events
 import * as React from 'react';
-import { ScrollView, View, TouchableOpacity } from 'react-native';
+import { ScrollView, View, TouchableOpacity, Alert } from 'react-native';
 import { Text } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import TonightSelector from '../components/TonightSelector';
@@ -10,6 +10,7 @@ import CreateEventModal from '../components/CreateEventModal';
 import { events, feedPosts } from '../data/mock';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
+import { createEvent, subscribeToUpcomingEvents } from '../services/eventsService';
 
 const SectionHeader = ({ title, textColor }) => (
   <Text variant="titleLarge" style={{ color: textColor, marginBottom: 12 }}>{title}</Text>
@@ -18,9 +19,68 @@ const SectionHeader = ({ title, textColor }) => (
 export default function ActivityMain() {
   const [selectedLocation, setSelectedLocation] = React.useState(null);
   const [createEventVisible, setCreateEventVisible] = React.useState(false);
-  const [localEvents, setLocalEvents] = React.useState(events);
+  const [localEvents, setLocalEvents] = React.useState([]);
+  const [loadingEvents, setLoadingEvents] = React.useState(true);
   const { background, text, subText } = useThemeColors();
   const { user, userData } = useAuth();
+
+  // Load events from Firebase on mount and subscribe to real-time updates
+  React.useEffect(() => {
+    if (!user?.uid) {
+      // If not logged in, use mock events
+      setLocalEvents(events);
+      setLoadingEvents(false);
+      return;
+    }
+
+    // Subscribe to real-time events from Firebase
+    const unsubscribe = subscribeToUpcomingEvents(({ events: firebaseEvents, error }) => {
+      if (error) {
+        console.error('Error loading events:', error);
+        // Fallback to mock events if Firebase fails
+        setLocalEvents(events);
+      } else {
+        // Combine Firebase events with mock events (for backward compatibility)
+        // Filter out duplicates based on ID
+        const allEvents = [...firebaseEvents, ...events];
+        const uniqueEvents = allEvents.filter((event, index, self) =>
+          index === self.findIndex((e) => e.id === event.id)
+        );
+        setLocalEvents(uniqueEvents);
+      }
+      setLoadingEvents(false);
+    });
+
+    // Cleanup subscription on unmount
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user?.uid]);
+
+  // Filter events to only show upcoming events (not past their end time)
+  const upcomingEvents = React.useMemo(() => {
+    const now = new Date();
+    
+    return localEvents.filter((event) => {
+      // If event has endTime and date fields (new format)
+      if (event.endTime && event.date) {
+        // Combine date and endTime to create full end datetime
+        const endDateTime = new Date(event.date);
+        // Extract time components from endTime (which is a Date object)
+        endDateTime.setHours(event.endTime.getHours());
+        endDateTime.setMinutes(event.endTime.getMinutes());
+        endDateTime.setSeconds(event.endTime.getSeconds());
+        endDateTime.setMilliseconds(0);
+        
+        // Only show if current time is before end time
+        return now < endDateTime;
+      }
+      
+      // For events without endTime/date (legacy/mock data), show them
+      // You can remove this fallback if all events will have endTime/date
+      return true;
+    });
+  }, [localEvents]);
 
   // Calculate trending locations from feed posts
   const trendingLocations = React.useMemo(() => {
@@ -70,9 +130,9 @@ export default function ActivityMain() {
           <MaterialCommunityIcons name="plus" size={24} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
-      {localEvents.length > 0 ? (
+      {upcomingEvents.length > 0 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
-          {localEvents.map((e, index) => (
+          {upcomingEvents.map((e, index) => (
             <EventCard key={e.id || index} event={e} onJoin={() => {}} onSave={() => {}} />
           ))}
         </ScrollView>
@@ -83,25 +143,41 @@ export default function ActivityMain() {
         visible={createEventVisible}
         onClose={() => setCreateEventVisible(false)}
         onSubmit={async (eventData) => {
-          // Create new event object
-          const newEvent = {
-            id: Date.now().toString(), // Simple ID generation
-            title: eventData.name,
+          console.log('Creating event with data:', eventData);
+          
+          if (!user?.uid) {
+            Alert.alert('Error', 'You must be logged in to create events.');
+            return;
+          }
+
+          // Save to Firebase
+          const result = await createEvent(user.uid, userData || {
+            name: user?.displayName || user?.email || 'User',
+            username: userData?.username || user?.email?.split('@')[0] || 'user',
+            photoURL: userData?.photoURL || userData?.avatar || null,
+            avatar: userData?.avatar || null,
+          }, {
+            name: eventData.name,
             description: eventData.description,
             location: eventData.location,
             host: eventData.host,
-            image: eventData.photo || 'https://via.placeholder.com/280x140?text=Event',
-            time: new Date().toLocaleDateString(), // Default time
-            createdAt: new Date(),
-          };
-          
-          // Add to local events
-          setLocalEvents([newEvent, ...localEvents]);
+            photo: eventData.photo,
+            date: eventData.date,
+            startTime: eventData.startTime,
+            endTime: eventData.endTime,
+          });
+
+          if (result.error) {
+            Alert.alert('Error', `Failed to create event: ${result.error}`);
+            return;
+          }
+
+          console.log('Event created successfully with ID:', result.eventId);
           
           // Close modal
           setCreateEventVisible(false);
           
-          // TODO: Save to Firebase in the future
+          // The event will automatically appear via the real-time subscription
         }}
         currentUser={{
           ...(userData || { 

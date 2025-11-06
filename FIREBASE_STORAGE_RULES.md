@@ -32,6 +32,12 @@ service firebase.storage {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
     
+    // Allow authenticated users to upload event images
+    match /events/{userId}/{allPaths=**} {
+      allow read: if true; // Anyone can read event images
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
     // Default: deny all other access
     match /{allPaths=**} {
       allow read, write: if false;
@@ -45,8 +51,8 @@ service firebase.storage {
 
 ## What these rules do:
 
-- **Authenticated users can upload** to their own folders (`posts/{userId}/`, `profile/{userId}/`, and `group-chat/{userId}/`)
-- **Anyone can read** post and profile images (public viewing)
+- **Authenticated users can upload** to their own folders (`posts/{userId}/`, `profile/{userId}/`, `group-chat/{userId}/`, and `events/{userId}/`)
+- **Anyone can read** post, profile, and event images (public viewing)
 - **Only authenticated users can read** group chat media (privacy)
 - **Users can only write to their own folders** (security)
 

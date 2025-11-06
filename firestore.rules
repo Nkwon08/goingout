@@ -178,5 +178,17 @@ service cloud.firestore {
       allow delete: if request.auth != null && 
         resource.data.userId == request.auth.uid; // Users can delete their own votes
     }
+    
+    // Events collection - users can read all events, create their own, update/delete only their own
+    match /events/{eventId} {
+      allow read: if request.auth != null; // All authenticated users can read events
+      allow create: if request.auth != null && 
+        request.resource.data.userId == request.auth.uid; // Users can only create events as themselves
+      allow update: if request.auth != null && 
+        request.resource.data.userId == request.auth.uid &&
+        resource.data.userId == request.auth.uid; // Users can only update their own events
+      allow delete: if request.auth != null && 
+        resource.data.userId == request.auth.uid; // Users can only delete their own events
+    }
   }
 }
