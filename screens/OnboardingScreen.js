@@ -20,7 +20,6 @@ import Animated, {
   Extrapolate,
   Easing,
 } from 'react-native-reanimated';
-import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { SvgXml } from 'react-native-svg';
 import { Asset } from 'expo-asset';
@@ -31,6 +30,7 @@ const IU_CREAM = '#EEEDEB';
 const BLACK = '#000000';
 const DARK_GRAY = '#1A1A1A';
 const CRIMSON_DARK = '#770000';
+const DARK_RED = '#660000'; // Dark red for background
 
 // Use regular PagerView - animations handled by content
 
@@ -106,36 +106,6 @@ export default function OnboardingScreen({ navigation }) {
   const handleGetStarted = () => {
     navigation.navigate('Login');
   };
-
-  // Parallax gradient background animation
-  const gradientStyle = useAnimatedStyle(() => {
-    // Calculate horizontal shift based on scroll offset
-    // As user swipes, gradient shifts horizontally
-    const totalPages = onboardingData.length - 1;
-    const progress = pageIndex.value + scrollOffset.value;
-    
-    // Shift gradient horizontally based on page progress
-    // Each page shift moves the gradient by a portion of screen width
-    // Less dramatic shift for better appearance
-    const translateX = interpolate(
-      progress,
-      [0, totalPages],
-      [0, SCREEN_WIDTH * 0.2],
-      Extrapolate.CLAMP
-    );
-
-    return {
-      transform: [{ translateX }],
-    };
-  });
-
-  // Gradient opacity animation - consistent across all pages
-  const gradientOpacityStyle = useAnimatedStyle(() => {
-    // Keep consistent opacity across all pages
-    return {
-      opacity: 0.7,
-    };
-  });
 
   const renderPage = (item, index) => {
     const animatedStyle = useAnimatedStyle(() => {
@@ -257,20 +227,6 @@ export default function OnboardingScreen({ navigation }) {
     return (
       <View key={index} style={styles.pageContainer}>
         <View style={styles.pageBackground}>
-          {/* Parallax gradient background */}
-          <Animated.View style={[styles.gradientContainer, gradientStyle]}>
-            <Animated.View style={[styles.gradientOverlay, gradientOpacityStyle]}>
-              <LinearGradient
-                colors={[IU_CRIMSON, BLACK, IU_CREAM]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.gradient}
-              />
-            </Animated.View>
-            {/* Dark overlay for all pages to reduce cream visibility */}
-            <View style={styles.darkOverlay} />
-          </Animated.View>
-
           {/* Main content */}
           <Animated.View style={[styles.contentContainer, animatedStyle]}>
             {/* Icon with glow effect */}
@@ -499,40 +455,13 @@ const styles = StyleSheet.create({
   },
   pageBackground: {
     flex: 1,
-    backgroundColor: BLACK,
+    backgroundColor: DARK_RED,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
     paddingTop: 100,
     paddingBottom: 120,
     overflow: 'hidden',
-  },
-  gradientContainer: {
-    position: 'absolute',
-    top: 0,
-    left: -SCREEN_WIDTH * 0.2,
-    width: SCREEN_WIDTH * 1.4,
-    height: SCREEN_HEIGHT,
-    zIndex: 0,
-  },
-  gradientOverlay: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
-  },
-  gradient: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
-  },
-  darkOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: BLACK,
-    opacity: 0.3,
   },
   contentContainer: {
     alignItems: 'center',
@@ -582,7 +511,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: IU_CRIMSON,
+    backgroundColor: BLACK,
   },
   buttonTouchable: {
     marginTop: 40,
