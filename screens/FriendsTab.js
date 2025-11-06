@@ -255,7 +255,7 @@ export default function FriendsTab() {
   const handleSendFriendRequest = React.useCallback(async (targetUid) => {
     if (!user || targetUid === user.uid) return;
     try {
-      const result = await sendFriendRequest(user.uid, targetUid);
+      const result = await sendFriendRequest(targetUid);
       if (result.success) {
         Alert.alert('Success', 'Friend request sent!', [{ text: 'OK' }]);
         setSearchResultsWithStatus((prev) =>

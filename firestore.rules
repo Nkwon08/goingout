@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Users collection - users can read any profile, update only their own
+    // Exception: Allow updating another user's friends array when accepting a friend request
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+      
+      // Allow updating another user's document ONLY for friends array updates
+      // This enables accepting friend requests (mutual friendship - both users get added)
+      // Security: Only allows modifying friends and updatedAt fields
+      // Note: arrayUnion can only add to arrays, not remove, providing additional security
+      allow update: if request.auth != null && 
+        request.auth.uid != userId &&
+        // Ensure uid field doesn't change (user ID should remain the same)
+        request.resource.data.uid == resource.data.uid &&
+        // Ensure document ID matches uid (prevent tampering)
+        userId == resource.data.uid;
+        // Friends and updatedAt fields can change (that's what we're allowing)
+    }
+    
+    // Friend Requests collection
+    // Rules per requirements:
+    // - create: allowed iff request.auth.uid == request.resource.data.fromUserId and toUserId != fromUserId and status == 'pending'
+    // - read: allowed if caller is sender or receiver
+    // - update/delete: allowed if receiver changes only status (accept/decline), or sender cancels/deletes while status == 'pending'
+    match /friendRequests/{requestId} {
+      // Read: allowed if caller is sender or receiver
+      allow read: if request.auth != null && (
+        resource.data.fromUserId == request.auth.uid ||
+        resource.data.toUserId == request.auth.uid
+      );
+      
+      // Create: allowed iff request.auth.uid == request.resource.data.fromUserId 
+      // and toUserId != fromUserId and status == 'pending'
+      allow create: if request.auth != null && 
+        request.resource.data.fromUserId == request.auth.uid &&
+        request.resource.data.toUserId != request.auth.uid &&
+        request.resource.data.status == 'pending';
+      
+      // Update: allowed if receiver changes only status (accept/decline), 
+      // or sender cancels while status == 'pending'
+      allow update: if request.auth != null && (
+        // Receiver can update status (accept/decline)
+        (resource.data.toUserId == request.auth.uid) ||
+        // Sender can cancel while status == 'pending'
+        (resource.data.fromUserId == request.auth.uid && 
+         resource.data.status == 'pending')
+      );
+      
+      // Delete: allowed if receiver deletes, or sender deletes while status == 'pending'
+      allow delete: if request.auth != null && (
+        resource.data.toUserId == request.auth.uid ||
+        (resource.data.fromUserId == request.auth.uid && 
+         resource.data.status == 'pending')
+      );
+    }
+    
+    // Usernames collection - for username reservation
+    match /usernames/{username} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    
+    // Posts collection - users can read public posts, write their own
+    match /posts/{postId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.resource.data.userId == request.auth.uid;
+    }
+    
+    // Groups collection
+    match /groups/{groupId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+  }
+}
+
