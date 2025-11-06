@@ -107,13 +107,24 @@ export function AuthProvider({ children }) {
           try {
             const { success, token, error } = await registerForPushNotifications();
             if (success && token && db && typeof db === 'object' && Object.keys(db).length > 0) {
-              // Save push token to user document
-              const userRef = doc(db, 'users', firebaseUser.uid);
-              await updateDoc(userRef, {
-                pushToken: token,
-                updatedAt: new Date().toISOString(),
-              });
-              console.log('✅ Push notification token saved');
+              // Get username from user document (document ID is now username, not UID)
+              // We need to find the user document by authUid to get the username
+              const usersRef = collection(db, 'users');
+              const q = query(usersRef, where('authUid', '==', firebaseUser.uid), limit(1));
+              const snapshots = await getDocs(q);
+              
+              if (!snapshots.empty) {
+                const userDoc = snapshots.docs[0];
+                const username = userDoc.id; // Document ID is the username_lowercase
+                const userRef = doc(db, 'users', username);
+                await updateDoc(userRef, {
+                  pushToken: token,
+                  updatedAt: new Date().toISOString(),
+                });
+                console.log('✅ Push notification token saved to user document:', username);
+              } else {
+                console.warn('⚠️ User document not found, cannot save push token');
+              }
             } else if (error) {
               console.warn('⚠️ Failed to register for push notifications:', error);
             }

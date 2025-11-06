@@ -755,8 +755,8 @@ export const sendFriendRequest = async (targetUid) => {
  * Accept a friend request
  * Adds both users to each other's friends array and deletes the request
  * @param {string} requestId - Friend request document ID
- * @param {string} fromUserId - User who sent the request
- * @param {string} toUserId - User accepting the request
+ * @param {string} fromUserId - User who sent the request (Firebase Auth UID)
+ * @param {string} toUserId - User accepting the request (Firebase Auth UID)
  * @returns {Promise<{ success: boolean, error: string|null }>}
  */
 export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
@@ -765,11 +765,23 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
       return { success: false, error: 'Firestore not configured' };
     }
 
+    // Get usernames from authUids (document IDs are now usernames)
+    const fromUsername = await getUsernameFromAuthUid(fromUserId);
+    const toUsername = await getUsernameFromAuthUid(toUserId);
+
+    if (!fromUsername || !toUsername) {
+      return { success: false, error: 'User not found' };
+    }
+
+    if (fromUsername === toUsername) {
+      return { success: false, error: 'Cannot accept friend request from yourself' };
+    }
+
     // Use transaction to ensure atomic updates
     await runTransaction(db, async (transaction) => {
       const requestRef = doc(db, 'friendRequests', requestId);
-      const fromUserRef = doc(db, 'users', fromUserId);
-      const toUserRef = doc(db, 'users', toUserId);
+      const fromUserRef = doc(db, 'users', fromUsername);
+      const toUserRef = doc(db, 'users', toUsername);
 
       // Read all documents
       const [requestDoc, fromUserDoc, toUserDoc] = await Promise.all([
@@ -786,20 +798,20 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
         throw new Error('User not found');
       }
 
-      // Check if already friends
+      // Check if already friends (friends arrays now contain usernames)
       const fromUserData = fromUserDoc.data();
       const toUserData = toUserDoc.data();
-      if ((fromUserData.friends || []).includes(toUserId) || (toUserData.friends || []).includes(fromUserId)) {
+      if ((fromUserData.friends || []).includes(toUsername) || (toUserData.friends || []).includes(fromUsername)) {
         // Already friends, just delete the request
         transaction.delete(requestRef);
         return;
       }
 
-      // Check if either user has blocked the other
+      // Check if either user has blocked the other (blocked arrays now contain usernames)
       const fromUserBlocked = fromUserData.blocked || [];
       const toUserBlocked = toUserData.blocked || [];
       
-      if (fromUserBlocked.includes(toUserId) || toUserBlocked.includes(fromUserId)) {
+      if (fromUserBlocked.includes(toUsername) || toUserBlocked.includes(fromUsername)) {
         throw new Error('Cannot accept friend request: User is blocked');
       }
 
@@ -807,17 +819,17 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
       const fromUserFriends = fromUserData.friends || [];
       const toUserFriends = toUserData.friends || [];
 
-      // Add each other to friends arrays (only if not already friends)
-      if (!fromUserFriends.includes(toUserId)) {
+      // Add each other to friends arrays using usernames (only if not already friends)
+      if (!fromUserFriends.includes(toUsername)) {
         transaction.update(fromUserRef, {
-          friends: arrayUnion(toUserId),
+          friends: arrayUnion(toUsername),
           updatedAt: serverTimestamp(),
         });
       }
 
-      if (!toUserFriends.includes(fromUserId)) {
+      if (!toUserFriends.includes(fromUsername)) {
         transaction.update(toUserRef, {
-          friends: arrayUnion(fromUserId),
+          friends: arrayUnion(fromUsername),
           updatedAt: serverTimestamp(),
         });
       }
@@ -826,7 +838,7 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
       transaction.delete(requestRef);
     });
 
-    console.log('✅ Friend request accepted:', fromUserId, '↔', toUserId);
+    console.log('✅ Friend request accepted:', fromUsername, '↔', toUsername);
     return { success: true, error: null };
   } catch (error) {
     console.error('❌ Error accepting friend request:', error);
@@ -907,14 +919,18 @@ export const getIncomingFriendRequests = async (userId) => {
 export const subscribeToFriendRequests = (userId, callback) => {
   try {
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      console.error('❌ [subscribeToFriendRequests] Firestore not configured');
       callback({ requests: [], error: 'Firestore not configured' });
       return () => {};
     }
 
     if (!userId) {
+      console.error('❌ [subscribeToFriendRequests] No user ID provided');
       callback({ requests: [], error: 'No user ID provided' });
       return () => {};
     }
+
+    console.log('📡 [subscribeToFriendRequests] Setting up subscription for userId:', userId);
 
     const requestsRef = collection(db, 'friendRequests');
     // Query without orderBy to avoid index requirement (will sort client-side)
@@ -932,6 +948,12 @@ export const subscribeToFriendRequests = (userId, callback) => {
       (snapshot) => {
         if (!isMounted) return;
 
+        console.log('📡 [subscribeToFriendRequests] Snapshot received:', {
+          size: snapshot.size,
+          empty: snapshot.empty,
+          hasPendingWrites: snapshot.metadata.hasPendingWrites,
+        });
+
         // Sort by createdAt descending (newest first) client-side
         const requests = snapshot.docs
           .map((doc) => ({
@@ -944,11 +966,18 @@ export const subscribeToFriendRequests = (userId, callback) => {
             return bTime - aTime; // Newest first
           });
 
+        console.log('📡 [subscribeToFriendRequests] Returning', requests.length, 'requests');
         callback({ requests, error: null });
       },
       (error) => {
         if (!isMounted) return;
-        console.error('❌ Friend requests subscription error:', error);
+        console.error('❌ [subscribeToFriendRequests] Subscription error:', error);
+        console.error('❌ [subscribeToFriendRequests] Error code:', error.code);
+        console.error('❌ [subscribeToFriendRequests] Error message:', error.message);
+        console.error('❌ [subscribeToFriendRequests] Query was:', {
+          collection: 'friendRequests',
+          where: [{ field: 'toUserId', op: '==', value: userId }, { field: 'status', op: '==', value: 'pending' }],
+        });
         callback({ requests: [], error: error.message || 'Failed to subscribe to friend requests' });
       }
     );

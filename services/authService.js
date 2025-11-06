@@ -8,7 +8,7 @@ import {
   GoogleAuthProvider,
   signInWithCredential,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction, collection, query, where, getDocs, limit } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction, collection, query, where, getDocs, limit, writeBatch, deleteDoc } from 'firebase/firestore';
 import { ref, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
 import { auth, db, storage, GOOGLE_CLIENT_ID } from '../config/firebase';
 import * as AuthSession from 'expo-auth-session';
@@ -169,6 +169,146 @@ export const reserveUsername = async (uid, username) => {
     }
     console.error('[reserveUsername] Error:', error);
     // Don't throw - username reservation is optional
+  }
+};
+
+/**
+ * Migrate user document when username changes
+ * Updates all references from old username to new username
+ * @param {string} uid - Firebase Auth UID
+ * @param {string} oldUsername - Old username (document ID)
+ * @param {string} newUsername - New username (document ID)
+ * @param {Object} newData - New document data
+ * @returns {Promise<void>}
+ */
+const migrateUserDocument = async (uid, oldUsername, newUsername, newData) => {
+  try {
+    const oldUserRef = doc(db, 'users', oldUsername);
+    const newUserRef = doc(db, 'users', newUsername);
+    
+    // Read old document
+    const oldDoc = await getDoc(oldUserRef);
+    if (!oldDoc.exists()) {
+      throw new Error('Old user document not found');
+    }
+    
+    const oldData = oldDoc.data();
+    
+    // Verify this is the same user
+    if (oldData.authUid !== uid) {
+      throw new Error('Old document does not belong to this user');
+    }
+    
+    // Get all users who have this user in their friends array
+    // We need to update their friends arrays to use the new username
+    const usersRef = collection(db, 'users');
+    const allUsersQuery = query(usersRef, where('friends', 'array-contains', oldUsername));
+    const allUsersSnapshot = await getDocs(allUsersQuery);
+    
+    // Also check blocked arrays
+    const blockedUsersQuery = query(usersRef, where('blocked', 'array-contains', oldUsername));
+    const blockedUsersSnapshot = await getDocs(blockedUsersQuery);
+    
+    // Collect all updates needed
+    const updates = [];
+    
+    // Update all friends arrays that reference the old username
+    allUsersSnapshot.docs.forEach((userDoc) => {
+      const userData = userDoc.data();
+      const friendsArray = userData.friends || [];
+      
+      // Replace old username with new username in friends array
+      const updatedFriends = friendsArray.map((friendUsername) => 
+        friendUsername === oldUsername ? newUsername : friendUsername
+      );
+      
+      // Only update if the array actually changed
+      if (updatedFriends.some((f, i) => f !== friendsArray[i])) {
+        updates.push({
+          ref: userDoc.ref,
+          type: 'update',
+          data: {
+            friends: updatedFriends,
+            updatedAt: serverTimestamp(),
+          },
+        });
+      }
+    });
+    
+    // Update all blocked arrays that reference the old username
+    blockedUsersSnapshot.docs.forEach((userDoc) => {
+      const userData = userDoc.data();
+      const blockedArray = userData.blocked || [];
+      
+      // Replace old username with new username in blocked array
+      const updatedBlocked = blockedArray.map((blockedUsername) => 
+        blockedUsername === oldUsername ? newUsername : blockedUsername
+      );
+      
+      // Only update if the array actually changed
+      if (updatedBlocked.some((b, i) => b !== blockedArray[i])) {
+        updates.push({
+          ref: userDoc.ref,
+          type: 'update',
+          data: {
+            blocked: updatedBlocked,
+            updatedAt: serverTimestamp(),
+          },
+        });
+      }
+    });
+    
+    // Firestore batch limit is 500 operations
+    // We need: 1 set (new doc) + 1 delete (old doc) + N updates = 2 + N
+    // So we can have up to 498 updates in one batch
+    const BATCH_LIMIT = 500;
+    const MAX_UPDATES_PER_BATCH = BATCH_LIMIT - 2; // Reserve space for set and delete
+    
+    // Process updates in batches if needed
+    const batches = [];
+    let currentBatch = writeBatch(db);
+    let batchOpCount = 0;
+    
+    // Add the new document creation (always first)
+    currentBatch.set(newUserRef, {
+      ...oldData,
+      ...newData, // Merge new data (includes updated username)
+      // Preserve existing data that might not be in newData
+      createdAt: oldData.createdAt || newData.createdAt || serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    batchOpCount++;
+    
+    // Add all updates
+    for (const update of updates) {
+      if (batchOpCount >= MAX_UPDATES_PER_BATCH) {
+        // Current batch is full, save it and start a new one
+        batches.push(currentBatch);
+        currentBatch = writeBatch(db);
+        batchOpCount = 0;
+      }
+      
+      currentBatch.update(update.ref, update.data);
+      batchOpCount++;
+    }
+    
+    // Add the delete operation (always last, after all updates)
+    currentBatch.delete(oldUserRef);
+    batchOpCount++;
+    
+    // Add the final batch
+    batches.push(currentBatch);
+    
+    // Commit all batches sequentially
+    // Note: We can't commit in parallel because later batches depend on earlier ones
+    for (const batch of batches) {
+      await batch.commit();
+    }
+    
+    console.log('[migrateUserDocument] Successfully migrated user from', oldUsername, 'to', newUsername);
+  } catch (error) {
+    console.error('[migrateUserDocument] Error:', error);
+    throw error;
   }
 };
 
@@ -336,12 +476,21 @@ export const upsertUserProfile = async (uid, payload = {}) => {
       updatedAt: serverTimestamp(),
     });
     
-    // If username changed, handle migration (for now, just update the new document)
-    // In production, you'd want to delete old document and migrate all references
+    // If username changed, migrate the old document to the new username
     if (oldUsername && oldUsername !== username_lowercase) {
       console.log('[upsertUserProfile] Username changed from', oldUsername, 'to', username_lowercase);
-      // TODO: Migrate old document to new username
-      // For now, we'll just update the new document
+      
+      try {
+        // Migrate document: update old document reference to new username
+        await migrateUserDocument(uid, oldUsername, username_lowercase, write);
+        console.log('[upsertUserProfile] Document migrated successfully');
+        return { success: true, error: null };
+      } catch (migrationError) {
+        console.error('[upsertUserProfile] Migration error:', migrationError);
+        // If migration fails, try to create new document anyway
+        // But this will create a duplicate - user should fix this manually
+        return { success: false, error: 'Failed to migrate username: ' + migrationError.message };
+      }
     }
     
     // Write to Firestore with merge:true (idempotent)
