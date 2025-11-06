@@ -131,11 +131,12 @@ export const subscribeToUserPosts = (userId, callback, pageSize = 50) => {
       return () => {};
     }
 
+    // Query without orderBy to avoid needing composite index
+    // We'll sort client-side instead
     const q = query(
       collection(db, 'posts'),
       where('userId', '==', userId),
-      orderBy('createdAt', 'desc'),
-      limit(pageSize)
+      limit(pageSize * 2) // Get more docs to account for client-side filtering/sorting
     );
 
     const unsubscribe = onSnapshot(
@@ -151,7 +152,16 @@ export const subscribeToUserPosts = (userId, callback, pageSize = 50) => {
               expiresAt: data.expiresAt?.toDate ? data.expiresAt.toDate() : (data.expiresAt ? new Date(data.expiresAt) : null),
               timeAgo: formatTimeAgo(data.createdAt),
             };
-          });
+          })
+          // Sort by createdAt descending (newest first)
+          .sort((a, b) => {
+            const aTime = a.createdAt?.getTime ? a.createdAt.getTime() : new Date(a.createdAt || 0).getTime();
+            const bTime = b.createdAt?.getTime ? b.createdAt.getTime() : new Date(b.createdAt || 0).getTime();
+            return bTime - aTime; // Descending order (newest first)
+          })
+          // Limit after sorting
+          .slice(0, pageSize);
+        
         callback({ posts, error: null });
       },
       (error) => {
