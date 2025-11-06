@@ -20,17 +20,21 @@ export default function BottomTabs() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        // Style the bottom tab bar with rounded top corners
+        // Style the bottom tab bar as a floating oval
         tabBarStyle: {
-          backgroundColor: background,
-          borderTopColor: border,
-          borderTopWidth: 1,
+          backgroundColor: '#000000',
+          borderTopColor: 'transparent',
+          borderTopWidth: 0,
           paddingBottom: 20,
           paddingTop: 8,
-          elevation: 0,
-          shadowOpacity: 0,
-          borderTopLeftRadius: 20,
-          borderTopRightRadius: 20,
+          elevation: 8,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 8,
+          borderRadius: 30,
+          marginHorizontal: 16,
+          marginBottom: 16,
           height: 70,
         },
         // Active/inactive tab colors
@@ -74,7 +78,13 @@ export default function BottomTabs() {
       <Tab.Screen name="Activity" component={ActivityScreen} />
       <Tab.Screen name="Groups" component={GroupsStack} />
       <Tab.Screen name="Camera" component={CameraScreen} />
-      <Tab.Screen name="NotificationsMain" component={NotificationsScreen} />
+      <Tab.Screen 
+        name="NotificationsMain" 
+        component={NotificationsScreen}
+        options={{
+          tabBarLabel: 'Notifications',
+        }}
+      />
       <Tab.Screen 
         name="Profile" 
         component={ProfileStack}
