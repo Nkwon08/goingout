@@ -16,6 +16,28 @@ export default function AccountScreen({ navigation }) {
   const { isDarkMode, toggleTheme } = useTheme();
   const { user, userData, refreshUserData } = useAuth();
 
+  // Logout handler
+  const handleLogout = React.useCallback(async () => {
+    try {
+      setLoggingOut(true);
+      console.log('🔄 Logging out user...');
+      const result = await signOutUser();
+      if (result.error) {
+        console.error('❌ Logout error:', result.error);
+        alert('Logout failed: ' + result.error);
+        setLoggingOut(false);
+      } else {
+        console.log('✅ Logout successful');
+        // Don't set loggingOut to false - let auth state change handle navigation
+        // The App.js will handle showing AuthStack when user becomes null
+      }
+    } catch (error) {
+      console.error('❌ Logout exception:', error);
+      alert('Logout failed: ' + (error.message || 'Unknown error'));
+      setLoggingOut(false);
+    }
+  }, []);
+
   // Get GPS location on mount and when screen comes into focus
   React.useEffect(() => {
     if (!user) {
@@ -185,11 +207,7 @@ export default function AccountScreen({ navigation }) {
             title="Logout"
             titleStyle={{ color: '#FF6B6B' }}
             left={(p) => <List.Icon {...p} color="#FF6B6B" icon="logout" />}
-            onPress={async () => {
-              setLoggingOut(true);
-              await signOutUser();
-              setLoggingOut(false);
-            }}
+            onPress={handleLogout}
             disabled={loggingOut}
           />
         </View>

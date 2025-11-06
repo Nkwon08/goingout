@@ -18,6 +18,26 @@ const IU_CREAM = '#EEEDEB';
 function AppContent() {
   const { isDarkMode } = useTheme();
   const { user, loading } = useAuth();
+  const [authStackKey, setAuthStackKey] = React.useState(0);
+  const prevUserRef = React.useRef(user);
+
+  // Increment key when user logs out to force AuthStack remount
+  React.useEffect(() => {
+    // If user was logged in and now is null (logged out), increment key
+    const wasLoggedIn = prevUserRef.current !== null && prevUserRef.current !== undefined;
+    const isNowLoggedOut = user === null || user === undefined;
+    
+    if (wasLoggedIn && isNowLoggedOut) {
+      console.log('🔄 User logged out, resetting navigation to Onboarding');
+      setAuthStackKey(prev => prev + 1);
+    }
+    prevUserRef.current = user;
+  }, [user]);
+
+  // Debug: Log when user state changes
+  React.useEffect(() => {
+    console.log('👤 User state changed:', user ? `Logged in (${user.uid})` : 'Logged out');
+  }, [user]);
 
   // Create theme for React Native Paper components based on dark/light mode
   const paperTheme = React.useMemo(() => {
@@ -94,11 +114,15 @@ function AppContent() {
 
   // Render app with Paper provider (for Material Design components) and Navigation
   // Show AuthStack if not logged in, BottomTabs if logged in
+  // Use key props to force remount and reset navigation state when user logs out
   return (
     <PaperProvider theme={paperTheme}>
-      <NavigationContainer theme={navTheme}>
+      <NavigationContainer 
+        key={user ? 'authenticated' : 'unauthenticated'}
+        theme={navTheme}
+      >
         <StatusBar style={isDarkMode ? 'light' : 'dark'} />
-        {user ? <RootNavigator /> : <AuthStack />}
+        {user ? <RootNavigator /> : <AuthStack key={`auth-stack-${authStackKey}`} />}
       </NavigationContainer>
     </PaperProvider>
   );
