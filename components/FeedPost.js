@@ -4,11 +4,9 @@ import { View, Image, TouchableOpacity, StyleSheet, ScrollView, Dimensions, Moda
 import { Text, Avatar, Button, ActivityIndicator } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeColors } from '../hooks/useThemeColors';
-import ProfilePopup from './ProfilePopup';
-import { getCurrentUserData } from '../services/authService';
 import { useAuth } from '../context/AuthContext';
+import { useNavigation } from '@react-navigation/native';
 import { deletePost, likePost, checkIfLiked } from '../services/postsService';
-import { checkFriendship, addFriend } from '../services/friendsService';
 import { addComment, subscribeToComments, deleteComment } from '../services/commentsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -19,18 +17,13 @@ const IU_CRIMSON = '#990000';
 export default function FeedPost({ post, onDelete }) {
       // Get current user and userData to check if they own this post and get current profile picture
   const { user, userData } = useAuth();
+  const navigation = useNavigation();
 
   // State for post interactions
   const [liked, setLiked] = React.useState(false);
   const [likeCount, setLikeCount] = React.useState(post.likes || 0);
   const [commentCount, setCommentCount] = React.useState(post.replies || 0);
   const [currentImageIndex, setCurrentImageIndex] = React.useState(0);
-  const [profilePopupVisible, setProfilePopupVisible] = React.useState(false);
-  const [userProfile, setUserProfile] = React.useState(null);
-  const [isFriend, setIsFriend] = React.useState(false);
-  const [loadingProfile, setLoadingProfile] = React.useState(false);
-  const [checkingFriendship, setCheckingFriendship] = React.useState(false);
-  const [sendingRequest, setSendingRequest] = React.useState(false);
   const [menuVisible, setMenuVisible] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
   const [commentsVisible, setCommentsVisible] = React.useState(false);
@@ -280,85 +273,27 @@ export default function FeedPost({ post, onDelete }) {
     );
   };
 
-  // Handle profile picture tap - fetch user data and show popup
-  const handleProfileTap = async () => {
-    if (!post.userId || !user) {
+  // Handle profile picture/name tap - navigate to user profile modal
+  const handleProfileTap = () => {
+    if (!post.username) {
       return;
     }
 
-    setLoadingProfile(true);
-    setProfilePopupVisible(true);
-
-    try {
-      // Fetch full user profile data from Firestore
-      const { userData } = await getCurrentUserData(post.userId);
-      if (userData) {
-        setUserProfile({
-          ...userData,
-          username: userData.username || post.username,
-          avatar: userData.avatar || post.avatar,
-          name: userData.name || post.name,
-        });
-      } else {
-        // Fallback to post data if user data not found
-        setUserProfile({
-          username: post.username,
-          avatar: post.avatar,
-          name: post.name,
-          bio: null,
-          age: null,
-          gender: null,
-        });
-      }
-
-          // Check if already friends
-          setCheckingFriendship(true);
-          const areFriends = await checkFriendship(user.uid, post.userId);
-          setIsFriend(areFriends);
-    } catch (error) {
-      console.error('Error fetching user profile:', error);
-      // Fallback to post data
-      setUserProfile({
-        username: post.username,
-        avatar: post.avatar,
-        name: post.name,
-        bio: null,
-        age: null,
-        gender: null,
-      });
-      setIsFriend(false);
-    } finally {
-      setLoadingProfile(false);
-      setCheckingFriendship(false);
+    // Navigate to UserProfileModal in the root navigator
+    // Go up navigation hierarchy to find root navigator
+    let rootNavigator = navigation;
+    let parent = navigation.getParent();
+    
+    // Navigate up to find root navigator
+    while (parent) {
+      rootNavigator = parent;
+      parent = parent.getParent();
     }
-  };
-
-  // Handle add friend button (direct mutual friendship)
-  const handleAddFriend = async () => {
-    if (!user || !post.userId || isFriend || sendingRequest) {
-      return;
-    }
-
-    setSendingRequest(true);
-
-    try {
-      const result = await addFriend(user.uid, post.userId);
-      
-      if (result.success) {
-        setIsFriend(true);
-        Alert.alert('Success', 'Friend added!', [{ text: 'OK' }]);
-      } else if (result.error === 'Already friends') {
-        setIsFriend(true);
-        Alert.alert('Already Friends', 'You are already friends with this user.', [{ text: 'OK' }]);
-      } else {
-        Alert.alert('Error', result.error || 'Failed to add friend', [{ text: 'OK' }]);
-      }
-    } catch (error) {
-      console.error('Error adding friend:', error);
-      Alert.alert('Error', 'Failed to add friend. Please try again.', [{ text: 'OK' }]);
-    } finally {
-      setSendingRequest(false);
-    }
+    
+    // Navigate to the root modal
+    rootNavigator.navigate('UserProfileModal', { 
+      username: post.username 
+    });
   };
 
   // Handle menu button press
@@ -409,9 +344,11 @@ export default function FeedPost({ post, onDelete }) {
       <View style={styles.header}>
         <View style={styles.userInfo}>
           <TouchableOpacity onPress={handleProfileTap}>
-          <Avatar.Image size={32} source={{ uri: displayAvatar }} style={styles.avatar} />
+            <Avatar.Image size={32} source={{ uri: displayAvatar }} style={styles.avatar} />
           </TouchableOpacity>
-          <Text style={[styles.username, { color: text }]}>{post.name || post.user}</Text>
+          <TouchableOpacity onPress={handleProfileTap}>
+            <Text style={[styles.username, { color: text }]}>{post.name || post.user}</Text>
+          </TouchableOpacity>
         </View>
         {isOwnPost && (
           <TouchableOpacity onPress={handleMenuPress}>
@@ -608,18 +545,6 @@ export default function FeedPost({ post, onDelete }) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-
-      {/* Profile Popup */}
-      <ProfilePopup
-        visible={profilePopupVisible}
-        onClose={() => {
-          setProfilePopupVisible(false);
-          setUserProfile(null);
-        }}
-        userProfile={userProfile}
-        onAddFriend={handleAddFriend}
-        isFriend={isFriend}
-      />
 
       {/* Menu Popup - Only show if user owns the post */}
       <Modal
