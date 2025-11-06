@@ -464,7 +464,7 @@ export const getFriends = async (userId) => {
 // Checks auth.currentUser first before setting up subscription
 // Returns: unsubscribe function
 // Note: Listens to the user document's friends array field
-// If a friend removes you, your friends array will update automatically
+// Since we use transactions to update both users atomically, mutual verification is not needed for display
 // Friends array now stores usernames (document IDs), not authUids
 export const subscribeToFriends = (userId, callback) => {
   try {
@@ -507,6 +507,7 @@ export const subscribeToFriends = (userId, callback) => {
       username = userUsername;
       const userRef = doc(db, 'users', username);
 
+      // Set up snapshot listener - this is instant and real-time
       unsubscribeSnapshot = onSnapshot(
         userRef,
         (snapshot) => {
@@ -519,7 +520,8 @@ export const subscribeToFriends = (userId, callback) => {
           }
 
           if (!snapshot.exists()) {
-            callback({ friends: [], error: 'User not found' });
+            console.warn('⚠️ User document does not exist:', username);
+            callback({ friends: [], error: null });
             return;
           }
 
@@ -527,58 +529,23 @@ export const subscribeToFriends = (userId, callback) => {
           const friends = userData.friends || []; // Array of usernames (document IDs)
           const blocked = userData.blocked || []; // Array of usernames (document IDs)
           
-          // Filter out blocked users from friends list
-          let filteredFriends = friends.filter((friendUsername) => !blocked.includes(friendUsername));
+          // Filter out blocked users from friends list - INSTANT, no async operations
+          const filteredFriends = friends.filter((friendUsername) => !blocked.includes(friendUsername));
           
-          // Verify mutual friendships - only include friends where both users have each other
-          // This ensures that if someone removes you, they won't appear in your friends list
-          const verifyMutualFriendships = async () => {
-            if (filteredFriends.length === 0) {
-              callback({ friends: [], error: null });
-              return;
-            }
-            
-            try {
-              // Check each friend to verify mutual friendship
-              const mutualFriends = [];
-              
-              for (const friendUsername of filteredFriends) {
-                try {
-                  const friendRef = doc(db, 'users', friendUsername);
-                  const friendDoc = await getDoc(friendRef);
-                  
-                  if (friendDoc.exists()) {
-                    const friendData = friendDoc.data();
-                    const friendFriends = friendData.friends || [];
-                    
-                    // Only include if the friend also has the current user in their friends list
-                    if (friendFriends.includes(username)) {
-                      mutualFriends.push(friendUsername);
-                    } else {
-                      console.log('🔍 [subscribeToFriends] Removing non-mutual friend:', friendUsername);
-                    }
-                  }
-                } catch (error) {
-                  console.error('❌ Error checking mutual friendship for', friendUsername, error);
-                  // If we can't check, include them to avoid removing valid friends due to errors
-                  mutualFriends.push(friendUsername);
-                }
-              }
-              
-              if (isMounted) {
-                callback({ friends: mutualFriends, error: null });
-              }
-            } catch (error) {
-              console.error('❌ Error verifying mutual friendships:', error);
-              // On error, return all friends (better to show them than hide valid friendships)
-              if (isMounted) {
-                callback({ friends: filteredFriends, error: null });
-              }
-            }
-          };
+          // Return friends immediately - no mutual verification blocking
+          // Since we use transactions to update both users atomically, the friends array is reliable
+          if (isMounted) {
+            callback({ friends: filteredFriends, error: null });
+          }
           
-          // Verify mutual friendships asynchronously
-          verifyMutualFriendships();
+          // Optional: Verify mutual friendships in the background (non-blocking)
+          // This is just for cleanup, doesn't affect the displayed list
+          if (filteredFriends.length > 0) {
+            verifyMutualFriendshipsBackground(username, filteredFriends).catch((error) => {
+              // Silently fail - this is just background cleanup
+              console.log('Background mutual verification failed (non-critical):', error);
+            });
+          }
         },
         (error) => {
           if (!isMounted) return;
@@ -593,14 +560,8 @@ export const subscribeToFriends = (userId, callback) => {
           console.error('❌ Error code:', error.code);
           console.error('❌ Error message:', error.message);
           
-          // Handle different error types
-          if (error.code === 'unavailable') {
-            callback({ friends: [], error: 'Unable to connect to database. Please check your internet connection and try again.' });
-          } else if (error.code === 'permission-denied') {
-            callback({ friends: [], error: 'Permission denied. Please check Firestore security rules.' });
-          } else if (error.message?.includes('offline') || error.message?.includes('network')) {
-            callback({ friends: [], error: 'Network error. Please check your internet connection and try again.' });
-          } else {
+          // Return empty list on error
+          if (isMounted) {
             callback({ friends: [], error: error.message || 'Failed to subscribe to friends' });
           }
         }
@@ -624,6 +585,61 @@ export const subscribeToFriends = (userId, callback) => {
     return () => {};
   }
 };
+
+// Background mutual verification - non-blocking cleanup function
+// This runs after friends are displayed and doesn't affect the UI
+async function verifyMutualFriendshipsBackground(currentUsername, friendsList) {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return;
+    }
+
+    const nonMutualFriends = [];
+    
+    // Check each friend in parallel (non-blocking)
+    const verificationPromises = friendsList.map(async (friendUsername) => {
+      try {
+        const friendRef = doc(db, 'users', friendUsername);
+        const friendDoc = await getDoc(friendRef);
+        
+        if (friendDoc.exists()) {
+          const friendData = friendDoc.data();
+          const friendFriends = friendData.friends || [];
+          
+          // If not mutual, mark for cleanup
+          if (!friendFriends.includes(currentUsername)) {
+            return friendUsername;
+          }
+        }
+        return null;
+      } catch (error) {
+        // Ignore errors in background verification
+        return null;
+      }
+    });
+    
+    const results = await Promise.allSettled(verificationPromises);
+    results.forEach((result) => {
+      if (result.status === 'fulfilled' && result.value) {
+        nonMutualFriends.push(result.value);
+      }
+    });
+    
+    // If we found non-mutual friends, remove them from current user's list
+    // This is a cleanup operation, not critical for display
+    if (nonMutualFriends.length > 0 && auth?.currentUser?.uid) {
+      const currentUserRef = doc(db, 'users', currentUsername);
+      await updateDoc(currentUserRef, {
+        friends: arrayRemove(...nonMutualFriends),
+        updatedAt: serverTimestamp(),
+      });
+      console.log('🧹 Background cleanup: Removed', nonMutualFriends.length, 'non-mutual friends');
+    }
+  } catch (error) {
+    // Silently fail - this is background cleanup only
+    console.log('Background mutual verification error (non-critical):', error);
+  }
+}
 
 // ============================================================================
 // Blocking Functions

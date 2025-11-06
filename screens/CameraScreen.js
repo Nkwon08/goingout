@@ -5,14 +5,14 @@ import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Text } from 'react-native-paper';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { useGroupPhotos } from '../context/GroupPhotosContext';
 import MediaPreview from '../components/MediaPreview';
 import ComposePost from '../components/ComposePost';
-import { groups } from '../data/mock';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
 import { uploadImages } from '../services/storageService';
 import { createPost } from '../services/postsService';
+import { subscribeToUserGroups } from '../services/groupsService';
+import { sendImageMessage, sendVideoMessage } from '../services/groupChatService';
 
 const IU_CRIMSON = '#990000';
 
@@ -27,11 +27,11 @@ export default function CameraScreen() {
   const [capturedMedia, setCapturedMedia] = React.useState(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions?.() || [null, null];
-  const { addPhoto, addVideo } = useGroupPhotos();
   const cameraRef = React.useRef(null);
   const cameraReadyRef = React.useRef(false);
   const [composeVisible, setComposeVisible] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
+  const [groups, setGroups] = React.useState([]);
   const lastTap = React.useRef(null); // For double tap detection
   const lastTapTimeout = React.useRef(null);
   const { user, userData } = useAuth();
@@ -60,6 +60,33 @@ export default function CameraScreen() {
   React.useEffect(() => {
     cameraReadyRef.current = cameraReady;
   }, [cameraReady]);
+
+  // Subscribe to user groups
+  React.useEffect(() => {
+    if (!user?.uid) {
+      setGroups([]);
+      return;
+    }
+
+    const unsubscribe = subscribeToUserGroups(user.uid, ({ groups: userGroups, error }) => {
+      if (error) {
+        console.error('Error loading groups:', error);
+      } else {
+        // Filter out expired groups - only show active groups in camera
+        const now = new Date();
+        const activeGroups = (userGroups || []).filter((group) => {
+          if (!group.endTime) return true; // Groups without endTime are considered active
+          const endTime = group.endTime instanceof Date ? group.endTime : new Date(group.endTime);
+          return endTime.getTime() > now.getTime();
+        });
+        setGroups(activeGroups);
+      }
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user?.uid]);
 
   // Fallback: Auto-set camera ready after 8 seconds if callback doesn't fire
   // This is a safety net - ideally onCameraReady should fire
@@ -389,21 +416,59 @@ export default function CameraScreen() {
     setPreviewVisible(false);
   };
 
-  const handleAddToGroup = (group) => {
+  const handleAddToGroup = async (group) => {
     if (!capturedMedia || !group) {
       Alert.alert('Error', 'Please select a group to add the media to.');
       return;
     }
 
-    if (capturedMedia.type === 'video') {
-      addVideo(capturedMedia.uri);
-    } else {
-      addPhoto(capturedMedia.uri);
+    if (!user?.uid || !userData) {
+      Alert.alert('Error', 'Please sign in to add media to a group.');
+      return;
     }
 
-    Alert.alert('Saved!', `Media has been added to ${group.name}.`);
-    setCapturedMedia(null);
-    setPreviewVisible(false);
+    try {
+      setSubmitting(true);
+      
+      if (capturedMedia.type === 'video') {
+        const { messageId, error } = await sendVideoMessage(
+          group.id,
+          user.uid,
+          capturedMedia.uri,
+          '',
+          userData
+        );
+        
+        if (error) {
+          Alert.alert('Error', error);
+        } else {
+          Alert.alert('Success!', `Video has been sent to ${group.name}.`);
+          setCapturedMedia(null);
+          setPreviewVisible(false);
+        }
+      } else {
+        const { messageId, error } = await sendImageMessage(
+          group.id,
+          user.uid,
+          capturedMedia.uri,
+          '',
+          userData
+        );
+        
+        if (error) {
+          Alert.alert('Error', error);
+        } else {
+          Alert.alert('Success!', `Photo has been sent to ${group.name}.`);
+          setCapturedMedia(null);
+          setPreviewVisible(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error adding media to group:', error);
+      Alert.alert('Error', error.message || 'Failed to add media to group. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleCancelPreview = () => {

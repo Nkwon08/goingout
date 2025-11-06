@@ -152,6 +152,18 @@ service cloud.firestore {
           get(/databases/$(database)/documents/groups/$(groupId)).data.creator == request.auth.uid // Group creator can delete any poll
         );
       }
+      
+      // Photos subcollection - group members can add photos/videos to album
+      match /photos/{photoId} {
+        allow read: if request.auth != null; // All group members can view photos
+        allow create: if request.auth != null && 
+          request.resource.data.userId == request.auth.uid; // Users can only add photos as themselves
+        allow update: if false; // Photos cannot be updated
+        allow delete: if request.auth != null && (
+          resource.data.userId == request.auth.uid || // Users can delete their own photos
+          get(/databases/$(database)/documents/groups/$(groupId)).data.creator == request.auth.uid // Group creator can delete any photo
+        );
+      }
     }
     
     // Votes collection - location-based public voting for "tonight" polls

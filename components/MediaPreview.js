@@ -86,26 +86,6 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
             <Button mode="outlined" textColor="#FFFFFF" onPress={onCancel}>
               Cancel
             </Button>
-            {onPostPublicly && (
-              <Button
-                mode="contained"
-                buttonColor={IU_CRIMSON}
-                textColor="#FFFFFF"
-                onPress={onPostPublicly}
-                style={{ marginRight: 8 }}
-              >
-                Post
-              </Button>
-            )}
-            <Button
-              mode="contained"
-              buttonColor={IU_CRIMSON}
-              textColor="#FFFFFF"
-              onPress={() => onAddToGroup(selectedGroup)}
-              disabled={!selectedGroup}
-            >
-              Save to Group
-            </Button>
           </View>
         </View>
       </View>

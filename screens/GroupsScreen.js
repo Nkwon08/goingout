@@ -11,7 +11,6 @@ import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GroupCard from '../components/GroupCard';
 import PollCard from '../components/PollCard';
-import { useGroupPhotos } from '../context/GroupPhotosContext';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -19,6 +18,8 @@ import { subscribeToUserGroups, deleteGroup } from '../services/groupsService';
 import { shareLocationInGroup, stopSharingLocationInGroup, subscribeToGroupLocations } from '../services/groupLocationService';
 import { getCurrentLocation } from '../services/locationService';
 import { createGroupPoll, voteOnGroupPoll, subscribeToGroupPolls } from '../services/groupPollsService';
+import { subscribeToGroupPhotos, addPhotoToAlbum, addVideoToAlbum } from '../services/groupPhotosService';
+import { uploadImage } from '../services/storageService';
 
 const TopTab = createMaterialTopTabNavigator();
 
@@ -441,6 +442,7 @@ function ChatTab({ groupId }) {
   const [showMediaPicker, setShowMediaPicker] = React.useState(false);
   const [polls, setPolls] = React.useState([]);
   const [votingPoll, setVotingPoll] = React.useState(null);
+  const [selectedImage, setSelectedImage] = React.useState(null);
   const inputRef = React.useRef(null);
   
   const groupChatService = require('../services/groupChatService');
@@ -738,16 +740,21 @@ function ChatTab({ groupId }) {
         }}
       >
         {props.currentMessage.image && (
-          <Image
-            source={{ uri: props.currentMessage.image }}
-            style={{
-              width: 200,
-              height: 200,
-              borderRadius: 12,
-              marginBottom: props.currentMessage.text ? 8 : 0,
-            }}
-            resizeMode="cover"
-          />
+          <TouchableOpacity
+            onPress={() => setSelectedImage(props.currentMessage.image)}
+            activeOpacity={0.9}
+          >
+            <Image
+              source={{ uri: props.currentMessage.image }}
+              style={{
+                width: 200,
+                height: 200,
+                borderRadius: 12,
+                marginBottom: props.currentMessage.text ? 8 : 0,
+              }}
+              resizeMode="cover"
+            />
+          </TouchableOpacity>
         )}
         {props.currentMessage.video && (
           <View
@@ -1310,31 +1317,115 @@ function ChatTab({ groupId }) {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
+      
+      {/* Full-screen Image Viewer Modal */}
+      <Modal
+        visible={selectedImage !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSelectedImage(null)}
+      >
+        <TouchableWithoutFeedback onPress={() => setSelectedImage(null)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.95)', justifyContent: 'center', alignItems: 'center' }}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <Image
+                source={{ uri: selectedImage }}
+                style={{ width: '100%', height: '100%' }}
+                resizeMode="contain"
+              />
+            </TouchableWithoutFeedback>
+            <TouchableOpacity
+              style={{
+                position: 'absolute',
+                top: 50,
+                right: 20,
+                padding: 10,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                borderRadius: 20,
+              }}
+              onPress={() => setSelectedImage(null)}
+            >
+              <MaterialCommunityIcons name="close" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </View>
   );
 }
 
-function AlbumTab() {
-  const { groupPhotos } = useGroupPhotos();
+function AlbumTab({ groupId }) {
+  const { user, userData } = useAuth();
   const { background, divider, subText } = useThemeColors();
-  // Remove albums dependency - only use groupPhotos from context
-  const [items, setItems] = React.useState([...groupPhotos]);
+  const [items, setItems] = React.useState([]);
+  const [selectedImage, setSelectedImage] = React.useState(null);
   
+  // Subscribe to group photos from Firestore
   React.useEffect(() => {
-    setItems([...groupPhotos]);
-  }, [groupPhotos]);
+    if (!groupId) {
+      setItems([]);
+      return;
+    }
+
+    const unsubscribe = subscribeToGroupPhotos(groupId, ({ photos, error }) => {
+      if (error) {
+        console.error('Error loading group photos:', error);
+        setItems([]);
+      } else {
+        // Convert photos to the format expected by the UI
+        const formattedItems = photos.map(photo => ({
+          type: photo.type || 'photo',
+          uri: photo.uri || photo.url,
+        }));
+        setItems(formattedItems);
+      }
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [groupId]);
 
   const pick = async () => {
+    if (!user || !userData) {
+      Alert.alert('Error', 'Please sign in to add photos');
+      return;
+    }
+
     await ImagePicker.requestMediaLibraryPermissionsAsync();
     const res = await ImagePicker.launchImageLibraryAsync({ 
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       quality: 0.8 
     });
     if (!res.canceled) {
-      const newItem = res.assets[0].type === 'video' 
-        ? { type: 'video', uri: res.assets[0].uri }
-        : { type: 'photo', uri: res.assets[0].uri };
-      setItems((prev) => [newItem, ...prev]);
+      const asset = res.assets[0];
+      const isVideo = asset.type === 'video';
+      
+      try {
+        // Upload to Firebase Storage
+        const { url, error: uploadError } = await uploadImage(asset.uri, user.uid, 'group-chat');
+        
+        if (uploadError || !url) {
+          Alert.alert('Error', uploadError || 'Failed to upload media');
+          return;
+        }
+
+        // Add to album
+        if (isVideo) {
+          const { error } = await addVideoToAlbum(groupId, user.uid, url, userData);
+          if (error) {
+            Alert.alert('Error', error);
+          }
+        } else {
+          const { error } = await addPhotoToAlbum(groupId, user.uid, url, userData);
+          if (error) {
+            Alert.alert('Error', error);
+          }
+        }
+      } catch (error) {
+        console.error('Error adding media to album:', error);
+        Alert.alert('Error', 'Failed to add media to album');
+      }
     }
   };
   
@@ -1346,7 +1437,12 @@ function AlbumTab() {
           const uri = typeof item === 'string' ? item : item.uri;
           const isVideo = typeof item === 'object' && item.type === 'video';
           return (
-            <View key={i} style={{ width: '31%', aspectRatio: 1, backgroundColor: divider, borderRadius: 10, overflow: 'hidden', position: 'relative' }}>
+            <TouchableOpacity
+              key={i}
+              onPress={() => !isVideo && setSelectedImage(uri)}
+              activeOpacity={0.9}
+              style={{ width: '31%', aspectRatio: 1, backgroundColor: divider, borderRadius: 10, overflow: 'hidden', position: 'relative' }}
+            >
               {isVideo ? (
                 <>
                   <Image source={{ uri }} style={{ width: '100%', height: '100%', opacity: 0.7 }} />
@@ -1357,7 +1453,7 @@ function AlbumTab() {
               ) : (
                 <Image source={{ uri }} style={{ width: '100%', height: '100%' }} />
               )}
-            </View>
+            </TouchableOpacity>
           );
         })}
         </ScrollView>
@@ -1367,6 +1463,39 @@ function AlbumTab() {
         </View>
       )}
       <FAB icon="plus" onPress={pick} style={{ position: 'absolute', right: 16, bottom: 16, backgroundColor: IU_CRIMSON }} iconColor="#FFFFFF" customSize={56} variant="primary" />
+      
+      {/* Full-screen Image Viewer Modal */}
+      <Modal
+        visible={selectedImage !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSelectedImage(null)}
+      >
+        <TouchableWithoutFeedback onPress={() => setSelectedImage(null)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.95)', justifyContent: 'center', alignItems: 'center' }}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <Image
+                source={{ uri: selectedImage }}
+                style={{ width: '100%', height: '100%' }}
+                resizeMode="contain"
+              />
+            </TouchableWithoutFeedback>
+            <TouchableOpacity
+              style={{
+                position: 'absolute',
+                top: 50,
+                right: 20,
+                padding: 10,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                borderRadius: 20,
+              }}
+              onPress={() => setSelectedImage(null)}
+            >
+              <MaterialCommunityIcons name="close" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </View>
   );
 }
@@ -1631,6 +1760,14 @@ function GroupDetail({ group, onBack }) {
   // Check if current user is the group owner
   const isOwner = group?.creator === user?.uid;
   
+  // Check if group is expired
+  const isExpired = React.useMemo(() => {
+    if (!group?.endTime) return false;
+    const now = new Date();
+    const endTime = group.endTime instanceof Date ? group.endTime : new Date(group.endTime);
+    return endTime.getTime() <= now.getTime();
+  }, [group?.endTime]);
+  
   // Format time remaining for display
   const formatTimeRemaining = () => {
     if (!group?.endTime) return '';
@@ -1701,7 +1838,7 @@ function GroupDetail({ group, onBack }) {
         </Button>
       </Appbar.Header>
       <TopTab.Navigator
-        initialRouteName="Chat"
+        initialRouteName={isExpired ? "Album" : "Chat"}
         screenOptions={{
           tabBarStyle: { backgroundColor: background },
           tabBarIndicatorStyle: { backgroundColor: IU_CRIMSON },
@@ -1709,16 +1846,22 @@ function GroupDetail({ group, onBack }) {
           tabBarInactiveTintColor: subText,
         }}
       >
-        <TopTab.Screen name="Chat">
-          {(props) => <ChatTab {...props} groupId={group?.id} />}
+        {!isExpired && (
+          <>
+            <TopTab.Screen name="Chat">
+              {(props) => <ChatTab {...props} groupId={group?.id} />}
+            </TopTab.Screen>
+            <TopTab.Screen name="Map">
+              {(props) => <MapTab {...props} groupId={group?.id} />}
+            </TopTab.Screen>
+            <TopTab.Screen name="Polls">
+              {(props) => <PollsTab {...props} groupId={group?.id} />}
+            </TopTab.Screen>
+          </>
+        )}
+        <TopTab.Screen name="Album">
+          {(props) => <AlbumTab {...props} groupId={group?.id} />}
         </TopTab.Screen>
-        <TopTab.Screen name="Map">
-          {(props) => <MapTab {...props} groupId={group?.id} />}
-        </TopTab.Screen>
-        <TopTab.Screen name="Polls">
-          {(props) => <PollsTab {...props} groupId={group?.id} />}
-        </TopTab.Screen>
-        <TopTab.Screen name="Album" component={AlbumTab} />
       </TopTab.Navigator>
       
       {/* Delete Confirmation Dialog */}
@@ -1801,6 +1944,29 @@ export default function GroupsScreen({ navigation }) {
       if (unsubscribe) unsubscribe();
     };
   }, [user?.uid]);
+
+  // Separate groups into active and expired
+  const { activeGroups, expiredGroups } = React.useMemo(() => {
+    const now = new Date();
+    const active = [];
+    const expired = [];
+    
+    groups.forEach((group) => {
+      if (!group.endTime) {
+        // Groups without endTime are considered active
+        active.push(group);
+      } else {
+        const endTime = group.endTime instanceof Date ? group.endTime : new Date(group.endTime);
+        if (endTime.getTime() > now.getTime()) {
+          active.push(group);
+        } else {
+          expired.push(group);
+        }
+      }
+    });
+    
+    return { activeGroups: active, expiredGroups: expired };
+  }, [groups]);
   
   const handleCreateGroup = () => {
     setShowGroupMenu(false);
@@ -1860,19 +2026,51 @@ export default function GroupsScreen({ navigation }) {
             <ActivityIndicator size="small" color={IU_CRIMSON} />
             <Text style={{ color: subText, marginTop: 8 }}>Loading groups...</Text>
           </View>
-        ) : groups.length > 0 ? (
-          groups.map((g) => {
-            const isOwner = g?.creator === user?.uid;
-            return (
-              <GroupCard 
-                key={g.id} 
-                group={g} 
-                onPress={() => setSelected(g)} 
-                onMenuPress={handleGroupMenuPress}
-                showMenu={isOwner}
-              />
-            );
-          })
+        ) : activeGroups.length > 0 || expiredGroups.length > 0 ? (
+          <>
+            {/* Active Groups */}
+            {activeGroups.map((g) => {
+              const isOwner = g?.creator === user?.uid;
+              return (
+                <GroupCard 
+                  key={g.id} 
+                  group={g} 
+                  onPress={() => setSelected(g)} 
+                  onMenuPress={handleGroupMenuPress}
+                  showMenu={isOwner}
+                />
+              );
+            })}
+            
+            {/* Expired Groups Header */}
+            {expiredGroups.length > 0 && (
+              <Text style={{ 
+                color: subText, 
+                fontSize: 14, 
+                fontWeight: '600', 
+                marginTop: activeGroups.length > 0 ? 24 : 0,
+                marginBottom: 12,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5
+              }}>
+                Expired Groups
+              </Text>
+            )}
+            
+            {/* Expired Groups */}
+            {expiredGroups.map((g) => {
+              const isOwner = g?.creator === user?.uid;
+              return (
+                <GroupCard 
+                  key={g.id} 
+                  group={g} 
+                  onPress={() => setSelected(g)} 
+                  onMenuPress={handleGroupMenuPress}
+                  showMenu={isOwner}
+                />
+              );
+            })}
+          </>
         ) : (
           <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>No groups yet. Create one to get started!</Text>
         )}

@@ -179,17 +179,10 @@ export const subscribeToUserGroups = (userId, callback) => {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const now = new Date();
         const groups = snapshot.docs
           .map((doc) => {
             const data = doc.data();
             return formatGroupData(doc.id, data);
-          })
-          // Filter out expired groups (endTime has passed)
-          .filter((group) => {
-            if (!group.endTime) return true;
-            const endTime = group.endTime instanceof Date ? group.endTime : new Date(group.endTime);
-            return endTime.getTime() > now.getTime();
           })
           // Sort by createdAt descending (newest first) - client-side sorting
           .sort((a, b) => {

@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { uploadImage } from './storageService';
+import { addPhotoToAlbum, addVideoToAlbum } from './groupPhotosService';
 
 /**
  * Send a text message to a group chat
@@ -93,6 +94,9 @@ export const sendImageMessage = async (groupId, userId, imageUri, text, userData
     const messagesRef = collection(db, 'groups', groupId, 'messages');
     const messageRef = await addDoc(messagesRef, messageData);
 
+    // Also add photo to group album
+    await addPhotoToAlbum(groupId, userId, url, userData);
+
     return { messageId: messageRef.id, error: null };
   } catch (error) {
     console.error('❌ Error sending image message:', error);
@@ -140,6 +144,9 @@ export const sendVideoMessage = async (groupId, userId, videoUri, text, userData
 
     const messagesRef = collection(db, 'groups', groupId, 'messages');
     const messageRef = await addDoc(messagesRef, messageData);
+
+    // Also add video to group album
+    await addVideoToAlbum(groupId, userId, url, userData);
 
     return { messageId: messageRef.id, error: null };
   } catch (error) {
