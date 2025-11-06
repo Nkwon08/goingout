@@ -60,6 +60,13 @@ function PostsTab({ user, userData, themeColors }) {
     setSelectedPost(null);
   };
 
+  const handlePostDelete = (postId) => {
+    // Remove the deleted post from the list
+    setPosts(prevPosts => prevPosts.filter(post => post.id !== postId));
+    // Close the modal
+    setSelectedPost(null);
+  };
+
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: background }}>
@@ -223,7 +230,7 @@ function PostsTab({ user, userData, themeColors }) {
               <Appbar.Content title="Post" color={text} />
             </Appbar.Header>
             <View style={{ flex: 1 }}>
-              <FeedPost post={selectedPost} onDelete={() => {}} />
+              <FeedPost post={selectedPost} onDelete={handlePostDelete} />
             </View>
           </View>
         </Modal>

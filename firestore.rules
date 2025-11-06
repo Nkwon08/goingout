@@ -94,7 +94,11 @@ service cloud.firestore {
     // Posts collection - users can read public posts, write their own
     match /posts/{postId} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null && 
+        request.resource.data.userId == request.auth.uid &&
+        resource.data.userId == request.auth.uid; // Ensure userId doesn't change
+      allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
       
       // Comments subcollection - users can read all comments, write their own
       match /comments/{commentId} {
