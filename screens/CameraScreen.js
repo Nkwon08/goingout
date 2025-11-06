@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Alert, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -31,7 +31,6 @@ export default function CameraScreen() {
   const cameraReadyRef = React.useRef(false);
   const [composeVisible, setComposeVisible] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
-  const [squareMode, setSquareMode] = React.useState(false); // Square crop mode
   const { user, userData } = useAuth();
   const navigation = useNavigation();
 
@@ -138,14 +137,31 @@ export default function CameraScreen() {
       if (photo && photo.uri) {
         console.log('Picture taken successfully:', photo.uri);
         
-        // If square mode is enabled, crop the image to square
+        // Auto crop to 3:4 aspect ratio (portrait orientation - height:width = 4:3)
         let finalUri = photo.uri;
-        if (squareMode && photo.width && photo.height) {
+        if (photo.width && photo.height) {
           try {
-            // Calculate square crop region (center crop)
-            const size = Math.min(photo.width, photo.height);
-            const originX = (photo.width - size) / 2;
-            const originY = (photo.height - size) / 2;
+            // Calculate 3:4 crop region (center crop)
+            // height:width = 4:3, so width:height = 3:4
+            const aspectRatio = 3 / 4;
+            let cropWidth, cropHeight, originX, originY;
+            
+            // Determine if we need to crop width or height
+            const photoAspectRatio = photo.width / photo.height;
+            
+            if (photoAspectRatio > aspectRatio) {
+              // Photo is wider than 3:4, crop width
+              cropHeight = photo.height;
+              cropWidth = cropHeight * aspectRatio;
+              originX = (photo.width - cropWidth) / 2;
+              originY = 0;
+            } else {
+              // Photo is taller than 3:4, crop height
+              cropWidth = photo.width;
+              cropHeight = cropWidth / aspectRatio;
+              originX = 0;
+              originY = (photo.height - cropHeight) / 2;
+            }
             
             const manipulatedImage = await ImageManipulator.manipulateAsync(
               photo.uri,
@@ -154,8 +170,8 @@ export default function CameraScreen() {
                   crop: {
                     originX,
                     originY,
-                    width: size,
-                    height: size,
+                    width: cropWidth,
+                    height: cropHeight,
                   },
                 },
               ],
@@ -166,9 +182,9 @@ export default function CameraScreen() {
             );
             
             finalUri = manipulatedImage.uri;
-            console.log('Image cropped to square:', finalUri);
+            console.log('Image cropped to 3:4:', finalUri);
           } catch (cropError) {
-            console.error('Error cropping image to square:', cropError);
+            console.error('Error cropping image to 3:4:', cropError);
             // Use original image if cropping fails
             finalUri = photo.uri;
           }
@@ -451,13 +467,25 @@ export default function CameraScreen() {
           </View>
         </SafeAreaView>
 
+        {/* 4:3 aspect ratio viewfinder overlay (only in photo mode) */}
+        {mode === 'photo' && (
+          <View style={styles.viewfinderOverlay} pointerEvents="none">
+            {/* Top dark area */}
+            <View style={styles.darkArea} />
+            {/* 4:3 viewfinder */}
+            <View style={styles.viewfinder} />
+            {/* Bottom dark area */}
+            <View style={styles.darkArea} />
+          </View>
+        )}
+
         <View style={styles.buttonContainer}>
-          {/* Flip button on the left */}
+          {/* Flip button */}
           <TouchableOpacity style={styles.flipButton} onPress={toggleCameraFacing}>
             <MaterialCommunityIcons name="camera-flip" size={32} color="#FFFFFF" />
           </TouchableOpacity>
           
-          {/* Shutter button in the center */}
+          {/* Shutter button centered */}
           {mode === 'photo' ? (
             <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
               <View style={styles.captureButtonInner} />
@@ -482,21 +510,8 @@ export default function CameraScreen() {
             </TouchableOpacity>
           )}
           
-          {/* Square crop button on the right (only in photo mode) */}
-          {mode === 'photo' ? (
-            <TouchableOpacity 
-              style={[styles.squareButton, squareMode && styles.squareButtonActive]} 
-              onPress={() => setSquareMode(!squareMode)}
-            >
-              <MaterialCommunityIcons 
-                name="crop-square" 
-                size={32} 
-                color={squareMode ? IU_CRIMSON : "#FFFFFF"} 
-              />
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.squareButton} />
-          )}
+          {/* Spacer to balance the flip button */}
+          <View style={styles.buttonSpacer} />
         </View>
       </CameraView>
 
@@ -586,9 +601,19 @@ const styles = StyleSheet.create({
     margin: 20,
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    paddingBottom: 40,
+    paddingBottom: 80,
     paddingHorizontal: 20,
-    position: 'relative',
+  },
+  flipButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  buttonSpacer: {
+    width: 50, // Same width as flip button to balance the layout
   },
   captureButton: {
     width: 70,
@@ -601,8 +626,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'absolute',
     left: '50%',
-    marginLeft: -35, // Half of width to center
-    bottom: 40,
+    marginLeft: -35, // Half of width (70/2) to center perfectly
   },
   captureButtonInner: {
     width: 50,
@@ -626,26 +650,32 @@ const styles = StyleSheet.create({
   disabledButton: {
     opacity: 0.5,
   },
-  flipButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  viewfinderOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'column',
+    pointerEvents: 'none',
   },
-  squareButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+  darkArea: {
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flex: 1,
+    width: '100%',
   },
-  squareButtonActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  viewfinder: {
+    width: Dimensions.get('window').width,
+    aspectRatio: 3 / 4, // 3:4 aspect ratio (portrait - height:width = 4:3)
     borderWidth: 2,
-    borderColor: IU_CRIMSON,
+    borderColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 12,
+    backgroundColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+    elevation: 5,
   },
   message: {
     color: '#E6E8F0',
