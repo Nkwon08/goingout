@@ -476,6 +476,22 @@ function ChatTab({ groupId }) {
     };
   }, []);
   
+  // Reset keyboard height when camera modal opens or closes
+  React.useEffect(() => {
+    if (showCamera) {
+      // When camera opens, immediately reset keyboard height to prevent bar from moving
+      Keyboard.dismiss();
+      setKeyboardHeight(0);
+    } else {
+      // When camera closes, dismiss keyboard and reset after delay
+      Keyboard.dismiss();
+      const timer = setTimeout(() => {
+        setKeyboardHeight(0);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [showCamera]);
+  
   // PanResponder for swipe-to-dismiss on image viewer
   const panResponder = React.useRef(
     PanResponder.create({
@@ -1139,6 +1155,10 @@ function ChatTab({ groupId }) {
   // Handle take photo from camera modal
   const handleSelectTakePhoto = React.useCallback(async () => {
     setShowMediaPicker(false);
+    // Reset keyboard height BEFORE opening camera to prevent bar from moving
+    Keyboard.dismiss();
+    setKeyboardHeight(0);
+    
     if (!cameraPermission) {
       // Still loading permission status
       return;
@@ -1356,6 +1376,9 @@ function ChatTab({ groupId }) {
           );
         }}
         renderInputToolbar={(props) => {
+          // Only apply keyboard adjustments when camera is not open
+          const shouldApplyKeyboardOffset = !showCamera && keyboardHeight > 0;
+          
           return (
             <View
               style={{
@@ -1364,8 +1387,8 @@ function ChatTab({ groupId }) {
                 borderTopColor: 'transparent',
                 paddingHorizontal: 8,
                 paddingTop: 4,
-                paddingBottom: keyboardHeight > 0 ? 0 : 12,
-                marginBottom: keyboardHeight > 0 ? -120 : 0,
+                paddingBottom: shouldApplyKeyboardOffset ? 0 : 12,
+                marginBottom: shouldApplyKeyboardOffset ? -80 : 0,
               }}
             >
               {/* Input row with plus button on left */}
@@ -1619,7 +1642,9 @@ function ChatTab({ groupId }) {
       <Modal
         visible={showCamera}
         animationType="slide"
-        onRequestClose={() => setShowCamera(false)}
+        onRequestClose={() => {
+          setShowCamera(false);
+        }}
       >
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           {!cameraPermission ? (
@@ -1756,7 +1781,9 @@ function ChatTab({ groupId }) {
               <SafeAreaView style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30 }} edges={['top']} pointerEvents="box-none">
                 <TouchableOpacity
                   style={{ position: 'absolute', top: 100, left: 16, zIndex: 30, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'center', alignItems: 'center' }}
-                  onPress={() => setShowCamera(false)}
+                  onPress={() => {
+                    setShowCamera(false);
+                  }}
                   activeOpacity={0.7}
                 >
                   <MaterialCommunityIcons name="close" size={24} color="#FFFFFF" />
