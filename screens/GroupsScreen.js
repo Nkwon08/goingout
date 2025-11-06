@@ -1810,7 +1810,7 @@ function ChatTab({ groupId }) {
                     </TouchableOpacity>
                   </View>
                 </View>
-              </View>
+              </SafeAreaView>
 
               {/* 3:4 aspect ratio viewfinder overlay */}
               <Pressable 
