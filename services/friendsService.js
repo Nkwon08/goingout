@@ -67,7 +67,7 @@ import { db, auth } from '../config/firebase';
  * @param {string} authUid - Firebase Auth UID
  * @returns {Promise<string|null>} Username (document ID) or null if not found
  */
-const getUsernameFromAuthUid = async (authUid) => {
+export const getUsernameFromAuthUid = async (authUid) => {
   try {
     if (!authUid || !db || typeof db !== 'object' || Object.keys(db).length === 0) {
       return null;
@@ -93,7 +93,7 @@ const getUsernameFromAuthUid = async (authUid) => {
  * @param {string} username - Username (document ID)
  * @returns {Promise<string|null>} authUid or null if not found
  */
-const getAuthUidFromUsername = async (username) => {
+export const getAuthUidFromUsername = async (username) => {
   try {
     if (!username || !db || typeof db !== 'object' || Object.keys(db).length === 0) {
       return null;
@@ -206,47 +206,72 @@ export const addFriend = async (currentUserId, friendUserId) => {
 
 // Remove a friend (unfriend) - uses transaction for atomic updates
 // Removes friendId from currentUser's friends array and currentUserId from friend's friends array
+// Note: currentUserId and friendId are now Firebase Auth UIDs (not usernames)
+// We need to convert them to usernames to access the documents
 // Returns: { success: boolean, error: string }
 export const removeFriend = async (currentUserId, friendId) => {
   try {
-    console.log('🗑️ Removing friend:', currentUserId, '→', friendId);
+    console.log('🗑️ [removeFriend] Removing friend:', currentUserId, '→', friendId);
     
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      console.error('❌ [removeFriend] Firestore not configured');
       return { success: false, error: 'Firestore not configured' };
     }
 
+    // Get usernames from authUids (document IDs are now usernames)
+    const currentUsername = await getUsernameFromAuthUid(currentUserId);
+    const friendUsername = await getUsernameFromAuthUid(friendId);
+
+    console.log('🗑️ [removeFriend] Usernames:', { currentUsername, friendUsername });
+
+    if (!currentUsername || !friendUsername) {
+      console.error('❌ [removeFriend] User not found:', { currentUsername, friendUsername });
+      return { success: false, error: 'User not found' };
+    }
+
+    if (currentUsername === friendUsername) {
+      console.error('❌ [removeFriend] Cannot remove yourself');
+      return { success: false, error: 'Cannot remove yourself as friend' };
+    }
+
     // Use transaction to ensure atomic updates (both users updated together or neither)
+    // IMPORTANT: Only update the current user's own document (no cross-user writes)
     await runTransaction(db, async (transaction) => {
-      const currentUserRef = doc(db, 'users', currentUserId);
-      const friendRef = doc(db, 'users', friendId);
+      const currentUserRef = doc(db, 'users', currentUsername);
 
-      // Read both documents in the transaction
-      const [currentUserDoc, friendDoc] = await Promise.all([
-        transaction.get(currentUserRef),
-        transaction.get(friendRef),
-      ]);
+      // Read current user document
+      const currentUserDoc = await transaction.get(currentUserRef);
 
-      // Check if documents exist
-      if (!currentUserDoc.exists() || !friendDoc.exists()) {
+      // Check if document exists
+      if (!currentUserDoc.exists()) {
         throw new Error('User not found');
       }
 
-      // Update both users' friends arrays atomically within transaction
-      transaction.update(currentUserRef, {
-        friends: arrayRemove(friendId),
-        updatedAt: serverTimestamp(),
-      });
+      const currentUserData = currentUserDoc.data();
+      const currentFriends = currentUserData.friends || [];
+      
+      console.log('🗑️ [removeFriend] Current friends list:', currentFriends);
+      console.log('🗑️ [removeFriend] Checking if friendUsername is in list:', friendUsername, currentFriends.includes(friendUsername));
 
-      transaction.update(friendRef, {
-        friends: arrayRemove(currentUserId),
+      // Only remove if they're actually in the friends list
+      if (!currentFriends.includes(friendUsername)) {
+        console.log('⚠️ [removeFriend] Friend not in list, nothing to remove');
+        // Don't throw error, just return success (idempotent operation)
+        return;
+      }
+
+      // Only update current user's friends array (remove friendUsername)
+      // The friend will need to remove us from their list when they see the change
+      transaction.update(currentUserRef, {
+        friends: arrayRemove(friendUsername),
         updatedAt: serverTimestamp(),
       });
     });
 
-    console.log('✅ Friend removed successfully (atomic update)');
+    console.log('✅ [removeFriend] Friend removed successfully:', currentUsername, 'removed', friendUsername);
     return { success: true, error: null };
   } catch (error) {
-    console.error('❌ Error removing friend:', error);
+    console.error('❌ [removeFriend] Error removing friend:', error);
     return { success: false, error: error.message || 'Failed to remove friend' };
   }
 };
@@ -794,15 +819,14 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
     }
 
     // Use transaction to ensure atomic updates
+    // IMPORTANT: Only update the receiver's own document (no cross-user writes)
     await runTransaction(db, async (transaction) => {
       const requestRef = doc(db, 'friendRequests', requestId);
-      const fromUserRef = doc(db, 'users', fromUsername);
       const toUserRef = doc(db, 'users', toUsername);
 
-      // Read all documents
-      const [requestDoc, fromUserDoc, toUserDoc] = await Promise.all([
+      // Read documents
+      const [requestDoc, toUserDoc] = await Promise.all([
         transaction.get(requestRef),
-        transaction.get(fromUserRef),
         transaction.get(toUserRef),
       ]);
 
@@ -810,39 +834,37 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
         throw new Error('Friend request not found');
       }
 
-      if (!fromUserDoc.exists() || !toUserDoc.exists()) {
+      const requestData = requestDoc.data();
+      
+      // Verify this request is for the current user (toUserId)
+      if (requestData.toUserId !== toUserId) {
+        throw new Error('Friend request does not belong to current user');
+      }
+
+      // Verify request is still pending
+      if (requestData.status !== 'pending') {
+        throw new Error('Friend request is not pending');
+      }
+
+      if (!toUserDoc.exists()) {
         throw new Error('User not found');
       }
 
-      // Check if already friends (friends arrays now contain usernames)
-      const fromUserData = fromUserDoc.data();
+      // Get user data
       const toUserData = toUserDoc.data();
-      if ((fromUserData.friends || []).includes(toUsername) || (toUserData.friends || []).includes(fromUsername)) {
-        // Already friends, just delete the request
-        transaction.delete(requestRef);
-        return;
-      }
 
-      // Check if either user has blocked the other (blocked arrays now contain usernames)
-      const fromUserBlocked = fromUserData.blocked || [];
+      // Check if user has blocked the sender (blocked arrays now contain usernames)
       const toUserBlocked = toUserData.blocked || [];
       
-      if (fromUserBlocked.includes(toUsername) || toUserBlocked.includes(fromUsername)) {
+      if (toUserBlocked.includes(fromUsername)) {
         throw new Error('Cannot accept friend request: User is blocked');
       }
 
       // Ensure friends array exists (initialize if needed)
-      const fromUserFriends = fromUserData.friends || [];
       const toUserFriends = toUserData.friends || [];
 
-      // Add each other to friends arrays using usernames (only if not already friends)
-      if (!fromUserFriends.includes(toUsername)) {
-        transaction.update(fromUserRef, {
-          friends: arrayUnion(toUsername),
-          updatedAt: serverTimestamp(),
-        });
-      }
-
+      // Add sender to receiver's friends array (only if not already friends)
+      // Only update the receiver's own document (no cross-user write)
       if (!toUserFriends.includes(fromUsername)) {
         transaction.update(toUserRef, {
           friends: arrayUnion(fromUsername),
@@ -850,9 +872,23 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
         });
       }
 
-      // Delete the request
-      transaction.delete(requestRef);
+      // Update request status to 'accepted' first (for sender to observe)
+      transaction.update(requestRef, {
+        status: 'accepted',
+        acceptedAt: serverTimestamp(),
+      });
     });
+
+    // Delete the request after it's been accepted and friend added
+    // The sender's subscription will process the status change before deletion
+    try {
+      const requestRef = doc(db, 'friendRequests', requestId);
+      await deleteDoc(requestRef);
+      console.log('🗑️ [acceptFriendRequest] Deleted accepted friend request:', requestId);
+    } catch (error) {
+      console.error('❌ [acceptFriendRequest] Error deleting accepted request:', error);
+      // Don't fail the whole operation if deletion fails - friend was already added
+    }
 
     console.log('✅ Friend request accepted:', fromUsername, '↔', toUsername);
     return { success: true, error: null };
@@ -867,7 +903,7 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
 
 /**
  * Decline a friend request
- * Deletes the friend request document
+ * Deletes the friend request after declining
  * @param {string} requestId - Friend request document ID
  * @returns {Promise<{ success: boolean, error: string|null }>}
  */
@@ -878,9 +914,27 @@ export const declineFriendRequest = async (requestId) => {
     }
 
     const requestRef = doc(db, 'friendRequests', requestId);
+    
+    // Verify the request exists and is pending before deleting
+    const requestDoc = await getDoc(requestRef);
+    if (!requestDoc.exists()) {
+      return { success: false, error: 'Friend request not found' };
+    }
+
+    const requestData = requestDoc.data();
+    
+    // Verify request is still pending (can only decline pending requests)
+    if (requestData.status !== 'pending') {
+      console.log('⚠️ [declineFriendRequest] Request is not pending, status:', requestData.status);
+      // Still delete it if it's already declined or accepted
+      await deleteDoc(requestRef);
+      return { success: true, error: null };
+    }
+
+    // Delete the request (no need to update status first since we're deleting)
     await deleteDoc(requestRef);
 
-    console.log('✅ Friend request declined:', requestId);
+    console.log('✅ Friend request declined and deleted:', requestId);
     return { success: true, error: null };
   } catch (error) {
     console.error('❌ Error declining friend request:', error);
@@ -1066,6 +1120,130 @@ export const subscribeToFriendRequests = (userId, callback) => {
     };
   } catch (error) {
     console.error('❌ Error setting up friend requests subscription:', error);
+    callback({ requests: [], error: error.message });
+    return () => {};
+  }
+};
+
+/**
+ * Subscribe to outgoing friend requests (sent by current user)
+ * When a request is accepted, the sender adds the receiver to their friends list (client-side reciprocity)
+ * @param {string} userId - User ID to subscribe to outgoing requests for
+ * @param {Function} callback - Callback function (result) => { requests: Array, error: string|null }
+ * @returns {Function} Unsubscribe function
+ */
+export const subscribeToOutgoingFriendRequests = (userId, callback) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      console.error('❌ [subscribeToOutgoingFriendRequests] Firestore not configured');
+      callback({ requests: [], error: 'Firestore not configured' });
+      return () => {};
+    }
+
+    if (!userId) {
+      console.error('❌ [subscribeToOutgoingFriendRequests] No user ID provided');
+      callback({ requests: [], error: 'No user ID provided' });
+      return () => {};
+    }
+
+    console.log('📡 [subscribeToOutgoingFriendRequests] Setting up subscription for userId:', userId);
+
+    const requestsRef = collection(db, 'friendRequests');
+    // Subscribe to requests sent by this user (outgoing requests)
+    const q = query(
+      requestsRef,
+      where('fromUserId', '==', userId),
+      limit(50)
+    );
+
+    let isMounted = true;
+
+    const unsubscribe = onSnapshot(
+      q,
+      async (snapshot) => {
+        if (!isMounted) return;
+
+        console.log('📡 [subscribeToOutgoingFriendRequests] Snapshot received:', {
+          size: snapshot.size,
+          empty: snapshot.empty,
+          hasPendingWrites: snapshot.metadata.hasPendingWrites,
+        });
+
+        // Process accepted requests to complete reciprocity
+        const acceptedRequests = snapshot.docs
+          .filter(doc => doc.data().status === 'accepted')
+          .map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+
+        // For each accepted request, add the receiver to sender's friends list
+        if (acceptedRequests.length > 0 && auth && auth.currentUser) {
+          const currentUserId = auth.currentUser.uid;
+          const currentUsername = await getUsernameFromAuthUid(currentUserId);
+          
+          if (currentUsername) {
+            for (const request of acceptedRequests) {
+              try {
+                // Get receiver's username
+                const receiverUsername = await getUsernameFromAuthUid(request.toUserId);
+                
+                if (receiverUsername) {
+                  // Add receiver to sender's friends list (complete reciprocity)
+                  const userRef = doc(db, 'users', currentUsername);
+                  const userDoc = await getDoc(userRef);
+                  
+                  if (userDoc.exists()) {
+                    const userData = userDoc.data();
+                    const friends = userData.friends || [];
+                    
+                    // Only add if not already friends
+                    if (!friends.includes(receiverUsername)) {
+                      await updateDoc(userRef, {
+                        friends: arrayUnion(receiverUsername),
+                        updatedAt: serverTimestamp(),
+                      });
+                      console.log('✅ [subscribeToOutgoingFriendRequests] Completed reciprocity:', currentUsername, '↔', receiverUsername);
+                    }
+                  }
+                }
+              } catch (error) {
+                console.error('❌ [subscribeToOutgoingFriendRequests] Error completing reciprocity:', error);
+              }
+            }
+          }
+        }
+
+        // Sort by createdAt descending (newest first) client-side
+        const requests = snapshot.docs
+          .map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }))
+          .sort((a, b) => {
+            const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+            const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+            return bTime - aTime; // Newest first
+          });
+
+        console.log('📡 [subscribeToOutgoingFriendRequests] Returning', requests.length, 'requests');
+        callback({ requests, error: null });
+      },
+      (error) => {
+        if (!isMounted) return;
+        console.error('❌ [subscribeToOutgoingFriendRequests] Subscription error:', error);
+        callback({ requests: [], error: error.message || 'Failed to subscribe to outgoing friend requests' });
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe && typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  } catch (error) {
+    console.error('❌ Error setting up outgoing friend requests subscription:', error);
     callback({ requests: [], error: error.message });
     return () => {};
   }

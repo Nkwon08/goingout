@@ -3,7 +3,7 @@ import * as React from 'react';
 import { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { getCurrentUserData, ensureUserDoc, upsertUserProfile } from '../services/authService';
-import { subscribeToFriends } from '../services/friendsService';
+import { subscribeToFriends, subscribeToOutgoingFriendRequests } from '../services/friendsService';
 import { debugListUsernames } from '../services/usersService';
 import { registerForPushNotifications } from '../services/notificationsService';
 import { auth, db } from '../config/firebase';
@@ -36,6 +36,7 @@ export function AuthProvider({ children }) {
   // Single auth listener + friends subscription - centralized
   useEffect(() => {
     let unsubFriends = null;
+    let unsubOutgoingRequests = null;
     let ensuredForUid = null;
     let lastSubscribedUid = null;
     let isMounted = true;
@@ -43,10 +44,14 @@ export function AuthProvider({ children }) {
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!isMounted) return;
 
-      // Clean up existing subscription if user changes
+      // Clean up existing subscriptions if user changes
       if (unsubFriends) {
         unsubFriends();
         unsubFriends = null;
+      }
+      if (unsubOutgoingRequests) {
+        unsubOutgoingRequests();
+        unsubOutgoingRequests = null;
       }
 
       // If no user is signed in, clear friends list and user data
@@ -163,12 +168,29 @@ export function AuthProvider({ children }) {
 
         setFriendsList(result.friends || []);
       });
+
+      // Subscribe to outgoing friend requests to complete reciprocity
+      // When a request is accepted, the sender adds the receiver to their friends list
+      unsubOutgoingRequests = subscribeToOutgoingFriendRequests(firebaseUser.uid, (result) => {
+        if (!isMounted) return;
+        
+        if (result.error) {
+          console.error('❌ Error in outgoing friend requests subscription:', result.error);
+          return;
+        }
+        
+        // The subscription callback handles reciprocity automatically
+        // No need to do anything here - it's handled in the subscription function
+      });
     });
 
     return () => {
       isMounted = false;
       if (unsubFriends && typeof unsubFriends === 'function') {
         unsubFriends();
+      }
+      if (unsubOutgoingRequests && typeof unsubOutgoingRequests === 'function') {
+        unsubOutgoingRequests();
       }
       if (unsubscribeAuth && typeof unsubscribeAuth === 'function') {
         unsubscribeAuth();

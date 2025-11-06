@@ -12,27 +12,11 @@ service cloud.firestore {
       allow create: if request.auth != null && 
         request.resource.data.authUid == request.auth.uid;
       
-      // Allow update: user can update their own document if authUid matches
-      // OR if updating another user's friends array (for accepting friend requests)
-      allow update: if request.auth != null && (
-        // User updating their own document (authUid must match)
-        (request.resource.data.authUid == request.auth.uid && 
-         (!resource.exists || resource.data.authUid == request.auth.uid)) ||
-        // OR allowing another user to update friends array (for accepting friend requests)
-        // This allows updating another user's document if:
-        // 1. The document exists
-        // 2. The document belongs to a different user (authUid doesn't match current user)
-        // 3. The authUid field doesn't change (security check - prevents changing ownership)
-        // 4. Critical immutable fields haven't changed
-        (resource.exists &&
-         resource.data.authUid != request.auth.uid &&
-         request.resource.data.authUid == resource.data.authUid &&
-         // Ensure critical fields haven't changed - check if they exist in both, then compare
-         (request.resource.data.get('email', '') == resource.data.get('email', '')) &&
-         (request.resource.data.get('username', '') == resource.data.get('username', '')) &&
-         (request.resource.data.get('username_lowercase', '') == resource.data.get('username_lowercase', '')) &&
-         (request.resource.data.get('name', '') == resource.data.get('name', '')))
-      );
+      // Allow update: user can only update their own document (authUid must match)
+      // No cross-user writes - each user updates their own document only
+      allow update: if request.auth != null && 
+        request.resource.data.authUid == request.auth.uid && 
+        (!resource.exists || resource.data.authUid == request.auth.uid);
       
       // Allow delete: user can delete their own document
       allow delete: if request.auth != null && 
@@ -75,11 +59,15 @@ service cloud.firestore {
       // Update: allowed if receiver changes only status (accept/decline), 
       // or sender cancels while status == 'pending'
       allow update: if request.auth != null && (
-        // Receiver can update status (accept/decline)
-        (resource.data.toUserId == request.auth.uid) ||
-        // Sender can cancel while status == 'pending'
+        // Receiver can update status to 'accepted' or 'declined'
+        (resource.data.toUserId == request.auth.uid &&
+         (request.resource.data.status == 'accepted' || request.resource.data.status == 'declined') &&
+         request.resource.data.fromUserId == resource.data.fromUserId &&
+         request.resource.data.toUserId == resource.data.toUserId) ||
+        // Sender can cancel while status == 'pending' (change status to 'cancelled')
         (resource.data.fromUserId == request.auth.uid && 
-         resource.data.status == 'pending')
+         resource.data.status == 'pending' &&
+         request.resource.data.status == 'cancelled')
       );
       
       // Delete: allowed if receiver deletes, or sender deletes while status == 'pending'

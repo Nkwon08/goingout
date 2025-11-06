@@ -1,13 +1,15 @@
 import * as React from 'react';
-import { View, ScrollView, ActivityIndicator, Alert } from 'react-native';
-import { Searchbar, Button, Avatar, List, Divider, Text } from 'react-native-paper';
+import { View, ScrollView, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
+import { Searchbar, Button, Avatar, List, Divider, Text, IconButton } from 'react-native-paper';
+import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { addFriend, checkFriendship, getFriends, sendFriendRequest, cancelFriendRequest } from '../services/friendsService';
+import { addFriend, checkFriendship, getFriends, sendFriendRequest, cancelFriendRequest, subscribeToOutgoingFriendRequests, getAuthUidFromUsername, getUsernameFromAuthUid } from '../services/friendsService';
 import { getCurrentUserData as getUserData } from '../services/authService';
-import { searchUsersByUsername, getAllUsers } from '../services/usersService';
+import { searchUsersByUsername, getAllUsers, getUserById } from '../services/usersService';
 
 export default function FriendsTab() {
+  const navigation = useNavigation();
   const { isDarkMode } = useTheme();
   const { user, userData, loading: authLoading, friendsList: friendsListFromContext } = useAuth();
 
@@ -24,6 +26,11 @@ export default function FriendsTab() {
   const [allUsersLoading, setAllUsersLoading] = React.useState(false);
   const [allUsersLastId, setAllUsersLastId] = React.useState(null);
   const [allUsersHasMore, setAllUsersHasMore] = React.useState(true);
+  
+  // Pending friends state (outgoing friend requests)
+  const [pendingFriends, setPendingFriends] = React.useState([]);
+  const [pendingFriendsWithData, setPendingFriendsWithData] = React.useState([]);
+  
 
   const colors = {
     bg: isDarkMode ? '#1A1A1A' : '#EEEDEB',
@@ -37,10 +44,41 @@ export default function FriendsTab() {
   /** Load friends list from AuthContext - subscription is managed centrally */
   React.useEffect(() => {
     // Use friends list from AuthContext (centralized subscription)
-    const friendIds = friendsListFromContext || [];
-    setFriends(friendIds);
+    // Note: friendsList now contains usernames (not UIDs) since document IDs are usernames
+    const friendUsernames = friendsListFromContext || [];
+    
+    // Filter out any pending requests - they should only show in "Pending Friends" section
+    // Get pending friend usernames from pendingFriendsWithData (both by username and UID)
+    const pendingUsernames = new Set(
+      pendingFriendsWithData
+        .map((p) => p.username?.toLowerCase())
+        .filter(Boolean)
+    );
+    const pendingUids = new Set(
+      pendingFriendsWithData
+        .map((p) => p.uid)
+        .filter(Boolean)
+    );
+    
+    // IMPORTANT: If a user is in friendsListFromContext, they're already accepted and should show in Friends section
+    // The pendingFriendsWithData only contains PENDING requests (filtered by status === 'pending')
+    // When a request is accepted, it's removed from pending (status changes or deleted)
+    // So friends should always show in Friends section - don't filter them out
+    // Only users with PENDING requests (not in friends list) should be filtered out
+    const actualFriends = friendUsernames; // Show all friends - they were accepted
+    
+    console.log('🔍 [FriendsTab] Filtering friends:', {
+      totalFriends: friendUsernames.length,
+      pendingFriends: pendingFriendsWithData.length,
+      actualFriends: actualFriends.length,
+      pendingUsernames: Array.from(pendingUsernames),
+      filteredOut: friendUsernames.length - actualFriends.length,
+      note: 'Only filtering out users with PENDING requests, accepted friends should show in Friends section',
+    });
+    
+    setFriends(actualFriends);
 
-    if (!friendIds.length) {
+    if (!actualFriends.length) {
       setFriendsWithData([]);
       return;
     }
@@ -48,30 +86,64 @@ export default function FriendsTab() {
     // Fetch friend data in parallel
     let isMounted = true;
 
+    // Create pending sets for filtering (accessible in loadFriendData)
+    const pendingAuthUidsSet = new Set(
+      pendingFriendsWithData
+        .map((p) => p.uid)
+        .filter(Boolean)
+    );
+    const pendingUsernamesSet = new Set(
+      pendingFriendsWithData
+        .map((p) => p.username?.toLowerCase())
+        .filter(Boolean)
+    );
+
     const loadFriendData = async () => {
       try {
         // Show placeholders immediately
-        setFriendsWithData(friendIds.map((uid) => ({
-          uid,
-          username: 'Loading...',
+        setFriendsWithData(actualFriends.map((username) => ({
+          username,
           name: 'Loading...',
           avatar: null,
         })));
 
-        // Fetch friend data in parallel
+        // Fetch friend data in parallel - friendsList contains usernames (document IDs)
         const friendData = await Promise.all(
-          friendIds.map(async (uid) => {
+          actualFriends.map(async (username) => {
             try {
-              const { userData } = await getUserData(uid);
-              return userData || { uid, username: 'Unknown', name: 'Unknown User', avatar: null };
-            } catch {
-              return { uid, username: 'Unknown', name: 'Unknown User', avatar: null };
+              // Use getUserById which accepts username (document ID) or authUid
+              const { userData } = await getUserById(username);
+              if (userData) {
+                return {
+                  username: userData.username || username,
+                  name: userData.name || 'Unknown User',
+                  avatar: userData.photoURL || userData.avatar || null,
+                  uid: userData.authUid || userData.id || username, // Store authUid for comparison
+                  authUid: userData.authUid || null, // Explicit authUid field
+                };
+              }
+              return { username, name: 'Unknown User', avatar: null, uid: username, authUid: null };
+            } catch (error) {
+              console.error('Error fetching friend data for', username, error);
+              return { username, name: 'Unknown User', avatar: null, uid: username, authUid: null };
             }
           })
         );
 
         if (isMounted) {
-          setFriendsWithData(friendData);
+          // IMPORTANT: If a user is in friendsListFromContext, they're already accepted
+          // They should show in Friends section, regardless of pending status
+          // The pendingFriendsWithData only contains PENDING requests (status === 'pending')
+          // When a request is accepted, it's removed from pending, so friends won't be in pendingFriendsWithData
+          // So show all friends - don't filter them out
+          const finalFriendData = friendData; // Show all friends - they were accepted
+          
+          console.log('🔍 [FriendsTab] Final friend data:', {
+            totalFriends: finalFriendData.length,
+            note: 'All friends are shown (they were accepted)',
+          });
+          
+          setFriendsWithData(finalFriendData);
         }
       } catch (err) {
         console.error('Error fetching friend data:', err);
@@ -83,7 +155,183 @@ export default function FriendsTab() {
     return () => {
       isMounted = false;
     };
-  }, [friendsListFromContext]); // Re-fetch when friends list changes from context
+  }, [friendsListFromContext, pendingFriendsWithData]); // Re-fetch when friends list or pending friends changes
+
+  /** Load pending friends (outgoing friend requests) */
+  React.useEffect(() => {
+    if (!user?.uid) {
+      setPendingFriends([]);
+      setPendingFriendsWithData([]);
+      return;
+    }
+
+    console.log('📡 [FriendsTab] Setting up outgoing friend requests subscription');
+    const unsubscribe = subscribeToOutgoingFriendRequests(user.uid, (result) => {
+      if (result.error) {
+        console.error('❌ [FriendsTab] Error subscribing to outgoing requests:', result.error);
+        setPendingFriends([]);
+        setPendingFriendsWithData([]);
+        return;
+      }
+
+      // Filter for pending requests only (exclude accepted/declined/cancelled)
+      const pendingRequests = result.requests?.filter(
+        (request) => request.status === 'pending'
+      ) || [];
+
+      console.log('📡 [FriendsTab] Outgoing requests:', {
+        total: result.requests?.length || 0,
+        pending: pendingRequests.length,
+        statuses: result.requests?.map(r => r.status) || [],
+        pendingToUserIds: pendingRequests.map(r => r.toUserId),
+      });
+
+      // Extract receiver IDs from pending requests
+      // Note: toUserId might be a UID (long string) or username (short string) depending on when the request was created
+      // IMPORTANT: Exclude anyone who is already a friend - they should only show in Friends section
+      const pendingUserIds = pendingRequests
+        .map((request) => request.toUserId)
+        .filter((userId) => {
+          // If the user is already in friends list, exclude them from pending
+          // This prevents showing accepted friends in both sections
+          if (friendsListFromContext && userId) {
+            // Check if userId is a username (short string) or UID (long string)
+            const isShortString = userId.length < 28;
+            if (isShortString) {
+              // Likely a username - check if it's in friends list
+              const usernameLower = userId.toLowerCase();
+              const isInFriends = friendsListFromContext.some(
+                (friendUsername) => friendUsername?.toLowerCase() === usernameLower
+              );
+              if (isInFriends) {
+                console.log('🔍 [FriendsTab] Excluding pending friend (already accepted):', userId);
+                return false;
+              }
+            }
+            // For UIDs, we'd need to convert to username first, but this is a basic check
+          }
+          return true;
+        });
+      
+      setPendingFriends(pendingUserIds);
+
+      // Load user data for pending friends
+      if (pendingUserIds.length === 0) {
+        setPendingFriendsWithData([]);
+        return;
+      }
+
+      let isMounted = true;
+      const loadPendingFriendData = async () => {
+        try {
+          // Convert IDs to usernames and fetch user data
+          const pendingFriendData = await Promise.all(
+            pendingUserIds.map(async (userId) => {
+              try {
+                let username = null;
+                let authUid = null;
+                
+                // Check if userId is a username (short string) or UID (long string)
+                // UIDs are typically 28 characters, usernames are shorter
+                if (userId && userId.length < 28) {
+                  // Likely a username - try to get user data directly
+                  username = userId.toLowerCase().replace(/\s+/g, '');
+                  const { userData } = await getUserById(username);
+                  if (userData) {
+                    authUid = userData.authUid;
+                    return {
+                      username: userData.username || username,
+                      name: userData.name || 'Unknown User',
+                      avatar: userData.photoURL || userData.avatar || null,
+                      uid: authUid || userId, // Use authUid if available, otherwise use userId
+                      authUid: authUid || null,
+                      requestId: pendingRequests.find((r) => r.toUserId === userId)?.id,
+                    };
+                  }
+                } else {
+                  // Likely a UID - convert to username
+                  username = await getUsernameFromAuthUid(userId);
+                  if (username) {
+                    authUid = userId;
+                    // Get user data by username
+                    const { userData } = await getUserById(username);
+                    if (userData) {
+                      return {
+                        username: userData.username || username,
+                        name: userData.name || 'Unknown User',
+                        avatar: userData.photoURL || userData.avatar || null,
+                        uid: authUid,
+                        authUid: authUid,
+                        requestId: pendingRequests.find((r) => r.toUserId === userId)?.id,
+                      };
+                    }
+                    return {
+                      username,
+                      name: 'Unknown User',
+                      avatar: null,
+                      uid: authUid,
+                      authUid: authUid,
+                      requestId: pendingRequests.find((r) => r.toUserId === userId)?.id,
+                    };
+                  }
+                }
+                
+                // If we couldn't determine username or UID, return null
+                console.error('Could not determine username or UID for pending friend:', userId);
+                return null;
+              } catch (error) {
+                console.error('Error fetching pending friend data for', userId, error);
+                return null;
+              }
+            })
+          );
+
+          const validData = pendingFriendData.filter((data) => {
+            if (!data) return false;
+            
+            // IMPORTANT: Exclude anyone who is already a friend
+            // If they're in friends list, they were accepted and shouldn't show in pending
+            if (friendsListFromContext && data.username) {
+              const usernameLower = data.username.toLowerCase();
+              const isInFriends = friendsListFromContext.some(
+                (friendUsername) => friendUsername?.toLowerCase() === usernameLower
+              );
+              if (isInFriends) {
+                console.log('🔍 [FriendsTab] Excluding pending friend from display (already accepted):', data.username);
+                return false;
+              }
+            }
+            
+            // Also check by authUid if available
+            if (friendsListFromContext && data.authUid) {
+              // We'd need to convert authUid to username, but for now check username first
+              // The username check above should catch most cases
+            }
+            
+            return true;
+          });
+
+          if (isMounted) {
+            setPendingFriendsWithData(validData);
+          }
+        } catch (err) {
+          console.error('Error fetching pending friend data:', err);
+          if (isMounted) {
+            setPendingFriendsWithData([]);
+          }
+        }
+      };
+
+      loadPendingFriendData();
+      return () => { isMounted = false; };
+    });
+
+    return () => {
+      if (unsubscribe && typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, [user?.uid, friendsListFromContext]); // Re-subscribe when friends list changes to exclude accepted friends
 
   /** Handle user search with debounce */
   React.useEffect(() => {
@@ -162,7 +410,8 @@ export default function FriendsTab() {
       
       try {
         // Force fresh data from server (bypasses cache)
-        const result = await getAllUsers(user.uid, 20, null);
+        // Limit to 3 users for "Find Friends" section
+        const result = await getAllUsers(user.uid, 3, null);
         
         if (result.error) {
           // If network error and retries remaining, retry after delay
@@ -175,18 +424,30 @@ export default function FriendsTab() {
           }
           console.error('Error loading users:', result.error);
         } else {
-          // Filter out current user from the list
+          // Get friends and pending friends usernames to filter them out
+          const friendsUsernames = friendsListFromContext || [];
+          const pendingUsernames = pendingFriendsWithData.map((p) => p.username).filter(Boolean);
+          const excludedUsernames = new Set([...friendsUsernames, ...pendingUsernames]);
+          
+          // Filter out current user, friends, and pending friends from the list
           const filteredUsers = result.users.filter((u) => {
             // Exclude current user by comparing UID
             // Note: u.uid might be a username (document ID), so we need to check both
             if (u.uid === user.uid) return false;
             // Also check if username matches current user's username
             if (userData?.username && u.username === userData.username) return false;
+            // Exclude if already a friend
+            if (u.username && excludedUsernames.has(u.username)) return false;
+            // Also check by UID if username not available
+            if (u.uid && friendsUsernames.includes(u.uid)) return false;
             return true;
           });
-          setAllUsers(filteredUsers);
+          
+          // Limit to 3 users maximum
+          const limitedUsers = filteredUsers.slice(0, 3);
+          setAllUsers(limitedUsers);
           setAllUsersLastId(result.lastUserId);
-          setAllUsersHasMore(result.hasMore);
+          setAllUsersHasMore(false); // Don't show "Load More" since we only show 3
         }
       } catch (err) {
         // Retry on error if retries remaining
@@ -210,7 +471,7 @@ export default function FriendsTab() {
     if (!searchQuery.trim()) {
       loadAllUsers();
     }
-  }, [user, searchQuery, authLoading]);
+  }, [user, searchQuery, authLoading, friendsListFromContext, pendingFriendsWithData]);
 
   /** Load more users (pagination) */
   const loadMoreUsers = React.useCallback(async (retryCount = 0) => {
@@ -314,6 +575,54 @@ export default function FriendsTab() {
     }
   }, [user]);
 
+  /** Handle friend profile tap - navigate to user profile screen */
+  const handleFriendProfileTap = React.useCallback((friend) => {
+    if (!friend || !friend.username) {
+      return;
+    }
+
+    // Get the parent navigator (bottom tabs) to navigate to Profile tab
+    const parent = navigation.getParent();
+    if (parent) {
+      // Navigate to Profile tab, then to UserProfile screen
+      // Pass previousTab so we can navigate back correctly
+      parent.navigate('Profile', { 
+        screen: 'UserProfile', 
+        params: { username: friend.username, previousTab: 'NotificationsMain' } 
+      });
+    } else {
+      // Fallback: use regular navigation
+      navigation.navigate('Profile', { 
+        screen: 'UserProfile', 
+        params: { username: friend.username, previousTab: 'NotificationsMain' } 
+      });
+    }
+  }, [navigation]);
+
+  /** Handle user profile tap from Discover Users or search results */
+  const handleUserProfileTap = React.useCallback((user) => {
+    if (!user || !user.username) {
+      return;
+    }
+
+    // Get the parent navigator (bottom tabs) to navigate to Profile tab
+    const parent = navigation.getParent();
+    if (parent) {
+      // Navigate to Profile tab, then to UserProfile screen
+      // Pass previousTab so we can navigate back correctly
+      parent.navigate('Profile', { 
+        screen: 'UserProfile', 
+        params: { username: user.username, previousTab: 'NotificationsMain' } 
+      });
+    } else {
+      // Fallback: use regular navigation
+      navigation.navigate('Profile', { 
+        screen: 'UserProfile', 
+        params: { username: user.username, previousTab: 'NotificationsMain' } 
+      });
+    }
+  }, [navigation]);
+
   if (!user) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: 'center', alignItems: 'center' }}>
@@ -358,13 +667,17 @@ export default function FriendsTab() {
                 {searchResultsWithStatus.map((u, idx) => (
                   <View key={u.uid}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                      <TouchableOpacity 
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}
+                        onPress={() => handleUserProfileTap(u)}
+                        activeOpacity={0.7}
+                      >
                         <Avatar.Image size={40} source={{ uri: u.avatar || 'https://i.pravatar.cc/100?img=12' }} />
                         <View style={{ flex: 1 }}>
                           <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600' }}>{u.name || 'Unknown User'}</Text>
                           <Text style={{ color: colors.subText, fontSize: 12 }}>@{u.username || 'unknown'}</Text>
                         </View>
-                      </View>
+                      </TouchableOpacity>
                       {u.isFriend ? (
                         <Button mode="outlined" textColor={colors.subText} compact disabled icon="account-check">Friends</Button>
                       ) : u.requestSent ? (
@@ -387,7 +700,7 @@ export default function FriendsTab() {
         ) : (
           // All Users List (when search is empty)
           <View style={{ marginBottom: 24 }}>
-            <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Discover Users</Text>
+            <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Suggested Profiles</Text>
             {allUsersLoading && allUsers.length === 0 ? (
               <View style={{ padding: 20, alignItems: 'center' }}>
                 <ActivityIndicator size="small" color={colors.primary} />
@@ -398,7 +711,11 @@ export default function FriendsTab() {
                 {allUsers.map((u, idx) => (
                   <View key={u.uid}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <TouchableOpacity 
+                        style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+                        onPress={() => handleUserProfileTap(u)}
+                        activeOpacity={0.7}
+                      >
                         <Avatar.Image size={48} source={{ uri: u.avatar || 'https://i.pravatar.cc/100?img=12' }} />
                         <View style={{ flex: 1, marginLeft: 12 }}>
                           <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{u.name || 'User'}</Text>
@@ -419,32 +736,25 @@ export default function FriendsTab() {
                             </View>
                           )}
                         </View>
-                      </View>
-                      {friends.includes(u.uid) ? (
-                        <Button mode="outlined" textColor={colors.subText} compact disabled icon="account-check">Friends</Button>
-                      ) : u.requestSent ? (
-                        <Button mode="outlined" textColor={colors.primary} compact onPress={() => handleCancelFriendRequest(u.uid)} icon="close">Request Sent</Button>
-                      ) : (
-                        <Button mode="contained" buttonColor={colors.primary} textColor="#fff" compact onPress={() => handleSendFriendRequest(u.uid)} icon="account-plus">Send Request</Button>
-                      )}
+                      </TouchableOpacity>
+                      {(() => {
+                        // Check if user is already a friend (by username or uid)
+                        const isFriend = u.username && friendsListFromContext?.includes(u.username);
+                        // Check if there's a pending request
+                        const hasPendingRequest = pendingFriendsWithData.some((p) => p.username === u.username);
+                        
+                        if (isFriend) {
+                          return <Button mode="outlined" textColor={colors.subText} compact disabled icon="account-check">Friends</Button>;
+                        } else if (hasPendingRequest || u.requestSent) {
+                          return <Button mode="outlined" textColor={colors.primary} compact onPress={() => handleCancelFriendRequest(u.uid)} icon="close">Request Sent</Button>;
+                        } else {
+                          return <Button mode="contained" buttonColor={colors.primary} textColor="#fff" compact onPress={() => handleSendFriendRequest(u.uid)} icon="account-plus">Send Request</Button>;
+                        }
+                      })()}
                     </View>
                     {idx < allUsers.length - 1 && <Divider style={{ backgroundColor: colors.divider }} />}
                   </View>
                 ))}
-                {allUsersHasMore && (
-                  <View style={{ padding: 16, alignItems: 'center' }}>
-                    <Button
-                      mode="outlined"
-                      onPress={loadMoreUsers}
-                      loading={allUsersLoading}
-                      disabled={allUsersLoading}
-                      textColor={colors.text}
-                      style={{ borderColor: colors.divider }}
-                    >
-                      {allUsersLoading ? 'Loading...' : 'Load More'}
-                    </Button>
-                  </View>
-                )}
               </View>
             ) : (
               <View style={{ padding: 20, alignItems: 'center' }}>
@@ -452,6 +762,42 @@ export default function FriendsTab() {
               </View>
             )}
           </View>
+        )}
+
+        {/* Pending Friends Section */}
+        {pendingFriendsWithData.length > 0 && (
+          <>
+            <Text style={{ color: colors.subText, marginVertical: 6, fontSize: 14, fontWeight: '600' }}>Pending Friends ({pendingFriendsWithData.length})</Text>
+            <View style={{ backgroundColor: colors.surface, borderRadius: 16, marginBottom: 16 }}>
+              {pendingFriendsWithData.map((p, idx) => (
+                <View key={p.uid || idx}>
+                  <List.Item
+                    title={p.name || 'Unknown User'}
+                    description={`@${p.username || 'unknown'}`}
+                    titleStyle={{ color: colors.text }}
+                    descriptionStyle={{ color: colors.subText, fontSize: 12 }}
+                    left={() => <Avatar.Image size={36} source={{ uri: p.avatar || 'https://i.pravatar.cc/100?img=12' }} />}
+                    right={() => (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <IconButton
+                          icon="close-circle"
+                          iconColor={colors.subText}
+                          size={24}
+                          onPress={(e) => {
+                            e.stopPropagation(); // Prevent List.Item onPress from firing
+                            handleCancelFriendRequest(p.uid || p.authUid || p.username);
+                          }}
+                          style={{ margin: 0 }}
+                        />
+                      </View>
+                    )}
+                    onPress={() => handleUserProfileTap(p)}
+                  />
+                  {idx < pendingFriendsWithData.length - 1 && <Divider style={{ backgroundColor: colors.divider }} />}
+                </View>
+              ))}
+            </View>
+          </>
         )}
 
         {/* Friends List */}
@@ -466,6 +812,7 @@ export default function FriendsTab() {
                   titleStyle={{ color: colors.text }}
                   descriptionStyle={{ color: colors.subText, fontSize: 12 }}
                   left={() => <Avatar.Image size={36} source={{ uri: f.avatar || 'https://i.pravatar.cc/100?img=12' }} />}
+                  onPress={() => handleFriendProfileTap(f)}
                 />
                 {idx < friendsWithData.length - 1 && <Divider style={{ backgroundColor: colors.divider }} />}
               </View>
