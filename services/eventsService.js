@@ -59,8 +59,38 @@ export const createEvent = async (userId, userData, eventData) => {
 
     // Create the event in Firestore
     const eventRef = await addDoc(collection(db, 'events'), eventToCreate);
+    const eventId = eventRef.id;
     
-    return { eventId: eventRef.id, error: null };
+    // Create a group associated with this event
+    // The event creator is automatically the group creator and first member
+    const { createGroup } = await import('./groupsService');
+    const groupResult = await createGroup({
+      name: eventToCreate.title,
+      description: `Group for ${eventToCreate.title}`,
+      creator: userId, // Event creator is group creator
+      members: [], // Empty - creator is automatically added by createGroup
+      startTime: eventData.startTime instanceof Date ? eventData.startTime : (eventData.startTime?.toDate ? eventData.startTime.toDate() : eventData.startTime),
+      endTime: eventData.endTime instanceof Date ? eventData.endTime : (eventData.endTime?.toDate ? eventData.endTime.toDate() : eventData.endTime),
+    });
+
+    if (groupResult.error) {
+      console.error('❌ Error creating group for event:', groupResult.error);
+      // Still return success for event creation even if group creation fails
+      // The group can be created later when someone joins
+      return { eventId, error: null };
+    }
+
+    const groupId = groupResult.groupId;
+
+    // Update event with groupId
+    await updateDoc(eventRef, {
+      groupId: groupId,
+      updatedAt: serverTimestamp(),
+    });
+
+    console.log('✅ Event and group created successfully. Event ID:', eventId, 'Group ID:', groupId);
+    
+    return { eventId, groupId, error: null };
   } catch (error) {
     console.error('❌ Error creating event:', error);
     console.error('❌ Error code:', error.code);
@@ -104,6 +134,7 @@ export const getUpcomingEvents = async (limitCount = 50) => {
         creatorName: data.creatorName,
         creatorUsername: data.creatorUsername,
         creatorAvatar: data.creatorAvatar,
+        groupId: data.groupId || null,
         // Format time string for display
         time: formatDateTime(
           data.date?.toDate ? data.date.toDate() : data.date,
@@ -156,6 +187,7 @@ export const subscribeToUpcomingEvents = (callback, limitCount = 50) => {
             creatorName: data.creatorName,
             creatorUsername: data.creatorUsername,
             creatorAvatar: data.creatorAvatar,
+            groupId: data.groupId || null,
             // Format time string for display
             time: formatDateTime(
               data.date?.toDate ? data.date.toDate() : data.date,
@@ -209,6 +241,7 @@ export const getEventById = async (eventId) => {
       creatorName: data.creatorName,
       creatorUsername: data.creatorUsername,
       creatorAvatar: data.creatorAvatar,
+      groupId: data.groupId || null,
       // Format time string for display
       time: formatDateTime(
         data.date?.toDate ? data.date.toDate() : data.date,
