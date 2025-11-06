@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback } from 'react-native';
+import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator } from 'react-native';
 import { Appbar, FAB, Text, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
@@ -9,9 +9,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GroupCard from '../components/GroupCard';
 import PollCard from '../components/PollCard';
-import { groups, polls } from '../data/mock';
+import { polls } from '../data/mock';
 import { useGroupPhotos } from '../context/GroupPhotosContext';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { useAuth } from '../context/AuthContext';
+import { subscribeToUserGroups } from '../services/groupsService';
 
 const TopTab = createMaterialTopTabNavigator();
 
@@ -161,12 +163,37 @@ function GroupDetail({ onBack }) {
 export default function GroupsScreen({ navigation }) {
   const [selected, setSelected] = React.useState(null);
   const [showGroupMenu, setShowGroupMenu] = React.useState(false);
+  const [groups, setGroups] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
   const { background, text, subText, surface } = useThemeColors();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   
   // Calculate bottom position for FAB - position in bottom right corner
   // Account for bottom tab bar height (~70px)
   const fabBottom = insets.bottom - 17;
+
+  // Subscribe to user groups from Firebase
+  React.useEffect(() => {
+    if (!user?.uid) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const unsubscribe = subscribeToUserGroups(user.uid, ({ groups, error }) => {
+      if (error) {
+        console.error('Error loading groups:', error);
+        // Still show groups even if there's an error (might be empty array)
+      }
+      setGroups(groups || []);
+      setLoading(false);
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user?.uid]);
   
   const handleCreateGroup = () => {
     setShowGroupMenu(false);
@@ -189,12 +216,17 @@ export default function GroupsScreen({ navigation }) {
         <Appbar.Content title="My Groups" color={text} />
       </Appbar.Header>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
-        {groups.length > 0 ? (
+        {loading ? (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <ActivityIndicator size="small" color={IU_CRIMSON} />
+            <Text style={{ color: subText, marginTop: 8 }}>Loading groups...</Text>
+          </View>
+        ) : groups.length > 0 ? (
           groups.map((g) => (
             <GroupCard key={g.id} group={g} onPress={() => setSelected(g)} />
           ))
         ) : (
-          <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>Empty</Text>
+          <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>No groups yet. Create one to get started!</Text>
         )}
       </ScrollView>
       

@@ -7,6 +7,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
 import { getUserById } from '../services/usersService';
+import { createGroup } from '../services/groupsService';
 
 const IU_CRIMSON = '#990000';
 
@@ -120,20 +121,31 @@ export default function CreateGroupScreen({ navigation }) {
 
     setCreating(true);
     try {
-      // TODO: Create group in Firestore
-      // For now, just show success message
-      console.log('Creating group:', {
+      // Create group in Firestore
+      const { groupId, error } = await createGroup({
         name: groupName.trim(),
         description: description.trim(),
         members: Array.from(selectedFriends),
         creator: user.uid,
-        startTime: startTime.toISOString(),
-        endTime: endTime.toISOString(),
+        startTime,
+        endTime,
       });
+
+      if (error) {
+        Alert.alert('Error', error, [{ text: 'OK' }]);
+        return;
+      }
+
+      if (!groupId) {
+        Alert.alert('Error', 'Failed to create group', [{ text: 'OK' }]);
+        return;
+      }
+
+      console.log('✅ Group created successfully:', groupId);
 
       Alert.alert(
         'Success',
-        `Group "${groupName.trim()}" created with ${selectedFriends.size} member${selectedFriends.size > 1 ? 's' : ''}!`,
+        `Group "${groupName.trim()}" created with ${selectedFriends.size + 1} member${selectedFriends.size + 1 > 1 ? 's' : ''}!`,
         [
           {
             text: 'OK',

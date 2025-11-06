@@ -6,12 +6,15 @@ import { useThemeColors } from '../hooks/useThemeColors';
 export default function GroupCard({ group, onPress }) {
   const { surface, text, subText, divider } = useThemeColors();
   
+  // Handle both array and number for members (backward compatibility)
+  const memberCount = group.memberCount || (Array.isArray(group.members) ? group.members.length : group.members || 0);
+  
   return (
     <TouchableOpacity onPress={onPress} style={{ backgroundColor: surface, padding: 16, borderRadius: 16, marginBottom: 12, flexDirection: 'row', alignItems: 'center' }}>
       <Avatar.Text size={40} label={group.name.slice(0, 2).toUpperCase()} style={{ backgroundColor: divider, marginRight: 12 }} />
       <View style={{ flex: 1 }}>
         <Text style={{ color: text, fontSize: 16 }}>{group.name}</Text>
-        <Text style={{ color: subText }}>{group.time} • {group.members} members</Text>
+        <Text style={{ color: subText }}>{group.time || ''} • {memberCount} member{memberCount !== 1 ? 's' : ''}</Text>
       </View>
     </TouchableOpacity>
   );
