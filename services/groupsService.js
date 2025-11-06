@@ -278,6 +278,17 @@ export const deleteGroup = async (groupId) => {
       return { error: 'Firestore not configured' };
     }
 
+    // Delete all messages in the messages subcollection first
+    const messagesRef = collection(db, 'groups', groupId, 'messages');
+    const messagesSnapshot = await getDocs(messagesRef);
+    
+    // Delete all messages
+    const deletePromises = messagesSnapshot.docs.map((messageDoc) => 
+      deleteDoc(doc(db, 'groups', groupId, 'messages', messageDoc.id))
+    );
+    await Promise.all(deletePromises);
+
+    // Delete the group document
     const groupRef = doc(db, 'groups', groupId);
     await deleteDoc(groupRef);
     
