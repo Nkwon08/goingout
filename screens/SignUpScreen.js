@@ -24,6 +24,8 @@ export default function SignUpScreen({ navigation }) {
   const [googleLoading, setGoogleLoading] = React.useState(false);
   const [usernameAvailable, setUsernameAvailable] = React.useState(null); // null = not checked, true = available, false = taken
   const [checkingUsername, setCheckingUsername] = React.useState(false);
+  const [usernameTouched, setUsernameTouched] = React.useState(false); // Track if user has interacted with username field
+  const [usernameCheckError, setUsernameCheckError] = React.useState(null); // Track errors during username check
   const usernameCheckTimeoutRef = React.useRef(null);
 
   const { background, text, subText } = useThemeColors();
@@ -39,6 +41,7 @@ export default function SignUpScreen({ navigation }) {
     if (!username.trim()) {
       setUsernameAvailable(null);
       setCheckingUsername(false);
+      setUsernameCheckError(null);
       return;
     }
 
@@ -50,10 +53,18 @@ export default function SignUpScreen({ navigation }) {
     usernameCheckTimeoutRef.current = setTimeout(async () => {
       try {
         const result = await checkUsernameAvailability(username.trim());
-        setUsernameAvailable(result.available);
+        if (result.error) {
+          // If there's an error checking, don't set availability (keep as null)
+          setUsernameCheckError(result.error);
+          setUsernameAvailable(null);
+        } else {
+          setUsernameAvailable(result.available);
+          setUsernameCheckError(null);
+        }
       } catch (error) {
         console.error('Error checking username availability:', error);
         setUsernameAvailable(null); // Reset on error
+        setUsernameCheckError(error.message || 'Failed to check username');
       } finally {
         setCheckingUsername(false);
       }
@@ -67,6 +78,41 @@ export default function SignUpScreen({ navigation }) {
     };
   }, [username]);
 
+  // Force check username availability when user leaves the field (onBlur)
+  const handleUsernameBlur = async () => {
+    setUsernameTouched(true);
+    
+    // If username is empty, reset state
+    if (!username.trim()) {
+      setUsernameAvailable(null);
+      setCheckingUsername(false);
+      return;
+    }
+
+    // Clear any pending timeout and check immediately
+    if (usernameCheckTimeoutRef.current) {
+      clearTimeout(usernameCheckTimeoutRef.current);
+    }
+
+    setCheckingUsername(true);
+    try {
+      const result = await checkUsernameAvailability(username.trim());
+      if (result.error) {
+        setUsernameCheckError(result.error);
+        setUsernameAvailable(null);
+      } else {
+        setUsernameAvailable(result.available);
+        setUsernameCheckError(null);
+      }
+    } catch (error) {
+      console.error('Error checking username availability:', error);
+      setUsernameAvailable(null);
+      setUsernameCheckError(error.message || 'Failed to check username');
+    } finally {
+      setCheckingUsername(false);
+    }
+  };
+
   // Handle sign up
   const handleSignUp = async () => {
     // Validation
@@ -76,6 +122,35 @@ export default function SignUpScreen({ navigation }) {
       return;
     }
 
+    // Ensure username has been checked and is available
+    if (checkingUsername) {
+      setError('Please wait while we check username availability...');
+      setSnackbarVisible(true);
+      return;
+    }
+
+    // If username hasn't been checked yet (null), check it now
+    if (usernameAvailable === null && username.trim()) {
+      setCheckingUsername(true);
+      try {
+        const result = await checkUsernameAvailability(username.trim());
+        setUsernameAvailable(result.available);
+        setCheckingUsername(false);
+        
+        if (!result.available) {
+          setError('This username is already taken. Please choose a different username.');
+          setSnackbarVisible(true);
+          return;
+        }
+      } catch (error) {
+        console.error('Error checking username availability:', error);
+        setCheckingUsername(false);
+        setError('Unable to verify username availability. Please try again.');
+        setSnackbarVisible(true);
+        return;
+      }
+    }
+
     // Check if username is available
     if (usernameAvailable === false) {
       setError('This username is already taken. Please choose a different username.');
@@ -83,9 +158,9 @@ export default function SignUpScreen({ navigation }) {
       return;
     }
 
-    // If username availability is still being checked, wait a bit
-    if (checkingUsername) {
-      setError('Please wait while we check username availability...');
+    // Username must be explicitly available (true) to proceed
+    if (usernameAvailable !== true) {
+      setError('Please ensure your username is available before continuing.');
       setSnackbarVisible(true);
       return;
     }
@@ -185,7 +260,11 @@ export default function SignUpScreen({ navigation }) {
             <TextInput
               label="Username"
               value={username}
-              onChangeText={setUsername}
+              onChangeText={(text) => {
+                setUsername(text);
+                setUsernameTouched(true);
+              }}
+              onBlur={handleUsernameBlur}
               mode="outlined"
               autoCapitalize="none"
               autoComplete="username"
@@ -196,6 +275,12 @@ export default function SignUpScreen({ navigation }) {
             />
             {usernameAvailable === false && (
               <Text style={styles.errorText}>Username not available</Text>
+            )}
+            {usernameCheckError && (
+              <Text style={styles.errorText}>{usernameCheckError}</Text>
+            )}
+            {checkingUsername && username.trim() && !usernameCheckError && (
+              <Text style={[styles.checkingText, { color: subText }]}>Checking availability...</Text>
             )}
           </View>
 
@@ -252,7 +337,7 @@ export default function SignUpScreen({ navigation }) {
             mode="contained"
             onPress={handleSignUp}
             loading={loading}
-            disabled={loading || googleLoading || usernameAvailable === false || checkingUsername}
+            disabled={loading || googleLoading || usernameAvailable === false || checkingUsername || (username.trim() && usernameAvailable !== true)}
             buttonColor={IU_CRIMSON}
             textColor="#FFFFFF"
             style={styles.button}
@@ -403,6 +488,13 @@ const styles = StyleSheet.create({
     marginTop: -12,
     marginBottom: 8,
     marginLeft: 16,
+  },
+  checkingText: {
+    fontSize: 12,
+    marginTop: -12,
+    marginBottom: 8,
+    marginLeft: 16,
+    fontStyle: 'italic',
   },
 });
 

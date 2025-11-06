@@ -5,8 +5,10 @@ service cloud.firestore {
     // Users collection - users can read any profile, update only their own
     // Document ID is now username (not authUid), so we check authUid field instead
     // Exception: Allow updating another user's friends array when accepting a friend request
+    // Exception: Allow unauthenticated reads for username availability checking during signup
     match /users/{username} {
-      allow read: if request.auth != null;
+      // Allow read: authenticated users OR unauthenticated users (for username availability check during signup)
+      allow read: if true;
       
       // Allow create: user can create their own document if authUid matches
       allow create: if request.auth != null && 

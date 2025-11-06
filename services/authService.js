@@ -119,7 +119,9 @@ export const uploadAvatarAndGetURL = async (uid, source) => {
 /**
  * Check if username is available (for signup validation)
  * @param {string} username - Username to check
- * @returns {Promise<{ available: boolean, error: string|null }>}
+ * @returns {Promise<{ available: boolean|null, error: string|null }>}
+ *   - available: true = available, false = taken, null = error/unknown
+ *   - error: error message if check failed, null if successful
  */
 export const checkUsernameAvailability = async (username) => {
   try {
@@ -132,7 +134,7 @@ export const checkUsernameAvailability = async (username) => {
     
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
       console.warn('[checkUsernameAvailability] Firestore not configured');
-      return { available: true, error: null }; // Assume available if DB not configured
+      return { available: null, error: 'Database not configured' };
     }
     
     // Check if username document already exists
@@ -146,7 +148,8 @@ export const checkUsernameAvailability = async (username) => {
     return { available: true, error: null }; // Username is available
   } catch (error) {
     console.error('[checkUsernameAvailability] Error:', error);
-    return { available: true, error: error.message }; // Assume available on error
+    // Return null to indicate we couldn't determine availability
+    return { available: null, error: error.message || 'Failed to check username availability' };
   }
 };
 
