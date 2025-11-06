@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, StyleSheet, TouchableOpacity, Alert, Dimensions } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Alert, Dimensions, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -31,6 +31,8 @@ export default function CameraScreen() {
   const cameraReadyRef = React.useRef(false);
   const [composeVisible, setComposeVisible] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
+  const lastTap = React.useRef(null); // For double tap detection
+  const lastTapTimeout = React.useRef(null);
   const { user, userData } = useAuth();
   const navigation = useNavigation();
 
@@ -438,12 +440,12 @@ export default function CameraScreen() {
   return (
     <View style={styles.container}>
       <CameraView
-        ref={cameraRef}
-        style={styles.camera}
-        facing={facing}
-        mode={mode === 'photo' ? 'picture' : 'video'}
-        onCameraReady={handleCameraReady}
-      >
+          ref={cameraRef}
+          style={styles.camera}
+          facing={facing}
+          mode={mode === 'photo' ? 'picture' : 'video'}
+          onCameraReady={handleCameraReady}
+        >
         {/* Mode Toggle */}
         <SafeAreaView style={styles.safeArea} edges={['top']}>
           <View style={styles.modeContainer}>
@@ -467,16 +469,44 @@ export default function CameraScreen() {
           </View>
         </SafeAreaView>
 
-        {/* 4:3 aspect ratio viewfinder overlay (only in photo mode) */}
+        {/* 3:4 aspect ratio viewfinder overlay (only in photo mode) */}
         {mode === 'photo' && (
-          <View style={styles.viewfinderOverlay} pointerEvents="none">
+          <Pressable 
+            style={styles.viewfinderOverlay} 
+            onPress={() => {
+              console.log('Viewfinder tapped');
+              // Double tap detection
+              const now = Date.now();
+              const DOUBLE_PRESS_DELAY = 300;
+              
+              if (lastTap.current && now - lastTap.current < DOUBLE_PRESS_DELAY) {
+                // Clear the timeout if it exists
+                if (lastTapTimeout.current) {
+                  clearTimeout(lastTapTimeout.current);
+                  lastTapTimeout.current = null;
+                }
+                // Double tap detected
+                console.log('Double tap detected - flipping camera');
+                toggleCameraFacing();
+                lastTap.current = null;
+              } else {
+                // First tap - wait for potential second tap
+                console.log('First tap registered');
+                lastTap.current = now;
+                lastTapTimeout.current = setTimeout(() => {
+                  console.log('Single tap timeout - no double tap');
+                  lastTap.current = null;
+                }, DOUBLE_PRESS_DELAY);
+              }
+            }}
+          >
             {/* Top dark area */}
-            <View style={styles.darkArea} />
-            {/* 4:3 viewfinder */}
-            <View style={styles.viewfinder} />
+            <View style={styles.darkArea} pointerEvents="none" />
+            {/* 3:4 viewfinder */}
+            <View style={styles.viewfinder} pointerEvents="none" />
             {/* Bottom dark area */}
-            <View style={styles.darkArea} />
-          </View>
+            <View style={styles.darkArea} pointerEvents="none" />
+          </Pressable>
         )}
 
         <View style={styles.buttonContainer}>
@@ -485,7 +515,7 @@ export default function CameraScreen() {
             <MaterialCommunityIcons name="camera-flip" size={32} color="#FFFFFF" />
           </TouchableOpacity>
           
-          {/* Shutter button centered */}
+          {/* Shutter button centered - aligned with camera tab icon */}
           {mode === 'photo' ? (
             <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
               <View style={styles.captureButtonInner} />
@@ -601,8 +631,9 @@ const styles = StyleSheet.create({
     margin: 20,
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    paddingBottom: 80,
-    paddingHorizontal: 20,
+    paddingBottom: 20, // Position between viewfinder and bottom nav
+    paddingHorizontal: 0,
+    position: 'relative',
   },
   flipButton: {
     width: 50,
@@ -611,9 +642,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 20,
+    marginBottom: 0, // Align with shutter button
   },
   buttonSpacer: {
     width: 50, // Same width as flip button to balance the layout
+    marginRight: 20,
   },
   captureButton: {
     width: 70,
@@ -626,7 +660,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'absolute',
     left: '50%',
-    marginLeft: -35, // Half of width (70/2) to center perfectly
+    bottom: 20, // Position between viewfinder and bottom nav
+    transform: [{ translateX: -35 }], // Half of width (70/2) to center perfectly
   },
   captureButtonInner: {
     width: 50,
@@ -657,7 +692,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     flexDirection: 'column',
-    pointerEvents: 'none',
   },
   darkArea: {
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
