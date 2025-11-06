@@ -79,6 +79,11 @@ export default function FeedPost({ post, onDelete }) {
   const displayAvatar = isOwnPost && userData 
     ? (userData.photoURL || userData.avatar || post.avatar)
     : post.avatar;
+  
+  // Current user's avatar for comment input (always show the person typing)
+  const currentUserAvatar = userData 
+    ? (userData.photoURL || userData.avatar || null)
+    : null;
 
   // Check if user liked this post on mount
   React.useEffect(() => {
@@ -457,65 +462,68 @@ export default function FeedPost({ post, onDelete }) {
         presentationStyle="pageSheet"
         onRequestClose={() => setCommentsVisible(false)}
       >
-        <KeyboardAvoidingView
-          style={{ flex: 1, backgroundColor: surface }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <View style={{ flex: 1, backgroundColor: surface }}>
-            {/* Header */}
-            <View style={[styles.commentsHeader, { backgroundColor: surface, borderBottomColor: border }]}>
-              <TouchableOpacity onPress={() => setCommentsVisible(false)}>
-                <MaterialCommunityIcons name="close" size={24} color={text} />
-              </TouchableOpacity>
-              <Text style={[styles.commentsTitle, { color: text }]}>Comments</Text>
-              <View style={{ width: 24 }} />
-            </View>
+        <View style={{ flex: 1, backgroundColor: surface }}>
+          {/* Header */}
+          <View style={[styles.commentsHeader, { backgroundColor: surface, borderBottomColor: border }]}>
+            <TouchableOpacity onPress={() => setCommentsVisible(false)}>
+              <MaterialCommunityIcons name="close" size={24} color={text} />
+            </TouchableOpacity>
+            <Text style={[styles.commentsTitle, { color: text }]}>Comments</Text>
+            <View style={{ width: 24 }} />
+          </View>
 
-            {/* Comments List */}
-            <FlatList
-              data={comments}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => {
-                const isOwnComment = item.userId === user?.uid;
-                return (
-                  <View style={[styles.commentItem, { borderBottomColor: border }]}>
-                    <Avatar.Image
-                      size={32}
-                      source={{ uri: item.avatar || 'https://i.pravatar.cc/100?img=12' }}
-                      style={styles.commentAvatar}
-                    />
-                    <View style={styles.commentContent}>
-                      <View style={styles.commentHeader}>
-                        <Text style={[styles.commentUsername, { color: text }]}>
-                          @{item.username || 'user'}
-                        </Text>
-                        {isOwnComment && (
-                          <TouchableOpacity
-                            onPress={() => handleDeleteComment(item.id)}
-                            style={styles.deleteCommentButton}
-                          >
-                            <MaterialCommunityIcons name="delete-outline" size={16} color={subText} />
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                      <Text style={[styles.commentText, { color: text }]}>{item.text}</Text>
+          {/* Comments List */}
+          <FlatList
+            data={comments}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => {
+              const isOwnComment = item.userId === user?.uid;
+              return (
+                <View style={[styles.commentItem, { borderBottomColor: border }]}>
+                  <Avatar.Image
+                    size={32}
+                    source={{ uri: item.avatar || 'https://i.pravatar.cc/100?img=12' }}
+                    style={styles.commentAvatar}
+                  />
+                  <View style={styles.commentContent}>
+                    <View style={styles.commentHeader}>
+                      <Text style={[styles.commentUsername, { color: text }]}>
+                        @{item.username || 'user'}
+                      </Text>
+                      {isOwnComment && (
+                        <TouchableOpacity
+                          onPress={() => handleDeleteComment(item.id)}
+                          style={styles.deleteCommentButton}
+                        >
+                          <MaterialCommunityIcons name="delete-outline" size={16} color={subText} />
+                        </TouchableOpacity>
+                      )}
                     </View>
+                    <Text style={[styles.commentText, { color: text }]}>{item.text}</Text>
                   </View>
-                );
-              }}
-              contentContainerStyle={styles.commentsList}
-              ListEmptyComponent={
-                <View style={styles.emptyComments}>
-                  <Text style={{ color: subText, textAlign: 'center' }}>No comments yet</Text>
                 </View>
-              }
-            />
+              );
+            }}
+            contentContainerStyle={styles.commentsList}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            ListEmptyComponent={
+              <View style={styles.emptyComments}>
+                <Text style={{ color: subText, textAlign: 'center' }}>No comments yet</Text>
+              </View>
+            }
+          />
 
-            {/* Comment Input */}
+          {/* Comment Input - Wrapped in KeyboardAvoidingView */}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+            style={{ marginBottom: Platform.OS === 'ios' ? 10 : 0 }}
+          >
             <View style={[styles.commentInputContainer, { backgroundColor: surface, borderTopColor: border }]}>
               <Avatar.Image
                 size={32}
-                source={{ uri: displayAvatar || 'https://i.pravatar.cc/100?img=12' }}
+                source={{ uri: currentUserAvatar || 'https://i.pravatar.cc/100?img=12' }}
                 style={styles.commentInputAvatar}
               />
               <TextInput
@@ -526,6 +534,8 @@ export default function FeedPost({ post, onDelete }) {
                 onChangeText={setCommentText}
                 multiline
                 maxLength={500}
+                returnKeyType="default"
+                blurOnSubmit={false}
               />
               <TouchableOpacity
                 onPress={handleSubmitComment}
@@ -542,8 +552,8 @@ export default function FeedPost({ post, onDelete }) {
                 )}
               </TouchableOpacity>
             </View>
-          </View>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {/* Menu Popup - Only show if user owns the post */}
@@ -782,6 +792,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 16,
     borderTopWidth: 1,
   },
   commentInputAvatar: {

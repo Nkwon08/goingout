@@ -311,22 +311,6 @@ export default function NotificationsTab() {
     }
   }, [user?.uid, processingInvitation]);
 
-  if (!user) {
-    return (
-      <View style={{ flex: 1, backgroundColor: bgColor, justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ color: subTextColor }}>Please sign in to view notifications</Text>
-      </View>
-    );
-  }
-
-  if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: bgColor, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color={primaryColor} />
-      </View>
-    );
-  }
-
   // Handle notification tap - navigate to post
   const handleNotificationTap = React.useCallback(async (notification) => {
     if (!user?.uid || !notification.postId) return;
@@ -346,6 +330,22 @@ export default function NotificationsTab() {
       params: { highlightPostId: notification.postId }
     });
   }, [user?.uid, navigation]);
+
+  if (!user) {
+    return (
+      <View style={{ flex: 1, backgroundColor: bgColor, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: subTextColor }}>Please sign in to view notifications</Text>
+      </View>
+    );
+  }
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: bgColor, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color={primaryColor} />
+      </View>
+    );
+  }
 
   const hasNotifications = requestsWithData.length > 0 || invitationsWithData.length > 0 || postNotifications.length > 0;
 
