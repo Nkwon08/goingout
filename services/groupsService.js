@@ -416,10 +416,28 @@ export const deleteGroup = async (groupId) => {
     const messagesSnapshot = await getDocs(messagesRef);
     
     // Delete all messages
-    const deletePromises = messagesSnapshot.docs.map((messageDoc) => 
+    const deleteMessagePromises = messagesSnapshot.docs.map((messageDoc) => 
       deleteDoc(doc(db, 'groups', groupId, 'messages', messageDoc.id))
     );
-    await Promise.all(deletePromises);
+    await Promise.all(deleteMessagePromises);
+
+    // Delete all locations in the locations subcollection
+    const locationsRef = collection(db, 'groups', groupId, 'locations');
+    const locationsSnapshot = await getDocs(locationsRef);
+    
+    const deleteLocationPromises = locationsSnapshot.docs.map((locationDoc) => 
+      deleteDoc(doc(db, 'groups', groupId, 'locations', locationDoc.id))
+    );
+    await Promise.all(deleteLocationPromises);
+
+    // Delete all polls in the polls subcollection
+    const pollsRef = collection(db, 'groups', groupId, 'polls');
+    const pollsSnapshot = await getDocs(pollsRef);
+    
+    const deletePollPromises = pollsSnapshot.docs.map((pollDoc) => 
+      deleteDoc(doc(db, 'groups', groupId, 'polls', pollDoc.id))
+    );
+    await Promise.all(deletePollPromises);
 
     // Delete the group document
     const groupRef = doc(db, 'groups', groupId);

@@ -511,8 +511,11 @@ function ChatTab({ groupId }) {
     
     // Handle poll messages
     if (props.currentMessage.type === 'poll' && props.currentMessage.pollId) {
-      // Find the poll with matching ID - use the latest poll data from subscription
-      const poll = polls.find(p => p.id === props.currentMessage.pollId);
+      // Use pollData from message if available (faster, already merged), otherwise find it
+      let poll = props.currentMessage.pollData;
+      if (!poll) {
+        poll = polls.find(p => p.id === props.currentMessage.pollId);
+      }
       
       // If poll not found in subscription yet, use message data as fallback
       if (!poll) {
@@ -780,10 +783,14 @@ function ChatTab({ groupId }) {
     );
   }, [polls, user?.uid, handlePollVote, votingPoll, bubbleOwn, bubbleOther, textOwn, textOther]);
   
+  // Store raw messages separately to merge with poll data
+  const [rawMessages, setRawMessages] = React.useState([]);
+
   // Subscribe to messages when groupId changes
   React.useEffect(() => {
     if (!groupId || !user?.uid) {
       setMessages([]);
+      setRawMessages([]);
       return;
     }
 
@@ -792,10 +799,28 @@ function ChatTab({ groupId }) {
         console.error('Error loading messages:', error);
         return;
       }
-      // Convert to GiftedChat format
-      // GiftedChat expects messages sorted by createdAt DESCENDING (newest first in array)
-      // Service returns ascending (oldest first), so we reverse it
-      const giftedChatMessages = newMessages.map((msg) => ({
+      // Store raw messages
+      setRawMessages(newMessages);
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [groupId, user?.uid]);
+
+  // Merge poll data into messages whenever polls or rawMessages change
+  // This ensures poll messages update immediately when votes change
+  React.useEffect(() => {
+    if (!rawMessages.length) {
+      setMessages([]);
+      return;
+    }
+
+    // Convert to GiftedChat format and merge poll data
+    // GiftedChat expects messages sorted by createdAt DESCENDING (newest first in array)
+    // Service returns ascending (oldest first), so we reverse it
+    const giftedChatMessages = rawMessages.map((msg) => {
+      const message = {
         _id: msg._id,
         text: msg.text || '',
         createdAt: msg.createdAt,
@@ -809,14 +834,24 @@ function ChatTab({ groupId }) {
         pollId: msg.pollId || null,
         pollQuestion: msg.pollQuestion || null,
         pollOptions: msg.pollOptions || null,
-      })).reverse();
-      setMessages(giftedChatMessages);
-    });
+      };
 
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
-  }, [groupId, user?.uid]);
+      // If this is a poll message, merge latest poll data and add vote count key for re-rendering
+      if (msg.type === 'poll' && msg.pollId) {
+        const poll = polls.find(p => p.id === msg.pollId);
+        if (poll) {
+          // Add poll data and a key based on vote counts to force re-render
+          const voteKey = poll.options.map(o => `${o.id}:${o.votes || 0}`).join('|');
+          message.pollData = poll;
+          message.pollVoteKey = voteKey; // Key that changes when votes change
+        }
+      }
+
+      return message;
+    }).reverse();
+    
+    setMessages(giftedChatMessages);
+  }, [rawMessages, polls]); // Re-run when polls change to update poll messages
 
   // Handle sending text messages
   const onSend = React.useCallback(async (newMessages = []) => {
@@ -973,7 +1008,7 @@ function ChatTab({ groupId }) {
         isTyping={sending}
         placeholder="Message"
         showUserAvatar={true}
-        key={`chat-${groupId}-${polls.length}-${polls.reduce((sum, p) => sum + (p.totalVotes || 0), 0)}`}
+        key={`chat-${groupId}-${messages.length}-${messages.filter(m => m.type === 'poll').map(m => m.pollVoteKey || m.pollId).join('-')}`}
         textInputProps={{
           style: {
             fontSize: 16,

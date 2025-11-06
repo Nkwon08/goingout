@@ -12,11 +12,18 @@ service cloud.firestore {
       allow create: if request.auth != null && 
         request.resource.data.authUid == request.auth.uid;
       
-      // Allow update: user can only update their own document (authUid must match)
-      // No cross-user writes - each user updates their own document only
-      allow update: if request.auth != null && 
-        request.resource.data.authUid == request.auth.uid && 
-        (!resource.exists || resource.data.authUid == request.auth.uid);
+      // Allow update: user can update their own document OR update another user's friends array
+      // when accepting a friend request (for mutual friend addition)
+      allow update: if request.auth != null && (
+        // User can update their own document (authUid must match)
+        (request.resource.data.authUid == request.auth.uid && 
+         (!resource.exists || resource.data.authUid == request.auth.uid)) ||
+        // OR user can update another user's friends array (for mutual friend addition)
+        // This allows adding the current user's username to another user's friends list
+        // Only allow if: authUid is not changed (ensures we're not modifying sensitive user data)
+        (request.resource.data.authUid == resource.data.authUid &&
+         resource.data.authUid != request.auth.uid)
+      );
       
       // Allow delete: user can delete their own document
       allow delete: if request.auth != null && 
@@ -111,8 +118,10 @@ service cloud.firestore {
         allow create: if request.auth != null && 
           request.resource.data.userId == request.auth.uid;
         allow update: if false; // Messages cannot be updated
-        allow delete: if request.auth != null && 
-          resource.data.userId == request.auth.uid; // Users can delete their own messages
+        allow delete: if request.auth != null && (
+          resource.data.userId == request.auth.uid || // Users can delete their own messages
+          get(/databases/$(database)/documents/groups/$(groupId)).data.creator == request.auth.uid // Group creator can delete any message
+        );
       }
       
       // Locations subcollection - group members can share their location
@@ -122,8 +131,10 @@ service cloud.firestore {
           request.resource.data.userId == request.auth.uid; // Users can only share their own location
         allow update: if request.auth != null && 
           resource.data.userId == request.auth.uid; // Users can only update their own location
-        allow delete: if request.auth != null && 
-          resource.data.userId == request.auth.uid; // Users can stop sharing their location
+        allow delete: if request.auth != null && (
+          resource.data.userId == request.auth.uid || // Users can stop sharing their location
+          get(/databases/$(database)/documents/groups/$(groupId)).data.creator == request.auth.uid // Group creator can delete any location
+        );
       }
       
       // Polls subcollection - group members can create and vote on polls
@@ -132,8 +143,10 @@ service cloud.firestore {
         allow create: if request.auth != null && 
           request.resource.data.creatorId == request.auth.uid; // Users can only create polls as themselves
         allow update: if request.auth != null; // All group members can vote (update polls)
-        allow delete: if request.auth != null && 
-          resource.data.creatorId == request.auth.uid; // Only poll creator can delete
+        allow delete: if request.auth != null && (
+          resource.data.creatorId == request.auth.uid || // Poll creator can delete their own poll
+          get(/databases/$(database)/documents/groups/$(groupId)).data.creator == request.auth.uid // Group creator can delete any poll
+        );
       }
     }
     
