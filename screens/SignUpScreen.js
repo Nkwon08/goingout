@@ -58,8 +58,19 @@ export default function SignUpScreen({ navigation }) {
       const isEmailInUse = result.errorCode === 'email-already-in-use' || 
                           result.error.includes('already exists') || 
                           result.error.includes('email-already-in-use');
+      
+      // Check if error is username taken
+      const isUsernameTaken = result.error === 'username_taken' || 
+                             result.errorCode === 'username_taken';
+      
       setEmailInUse(isEmailInUse);
-      setError(result.error);
+      
+      if (isUsernameTaken) {
+        setError('This username is already taken. Please choose a different username.');
+      } else {
+        setError(result.error);
+      }
+      
       setSnackbarVisible(true);
     } else {
       // Navigation handled by auth state change in App.js

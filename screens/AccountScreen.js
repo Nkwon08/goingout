@@ -163,14 +163,18 @@ export default function AccountScreen({ navigation }) {
             onPress={() => navigation.navigate('EditProfile')}
           />
           <Divider style={{ backgroundColor: dividerColor }} />
-          {/* TEMPORARY: Migration button - remove after all users are migrated */}
+          {/* TEMPORARY: Debug button - test username storage */}
           <List.Item 
-            title="Migrate Usernames" 
-            description="Add usernameLowercase to all users (temporary)"
+            title="Debug Usernames" 
+            description="Test username storage and list all usernames"
             titleStyle={{ color: '#FFA500' }} 
             descriptionStyle={{ color: subTextColor, fontSize: 12 }}
             left={(p) => <List.Icon {...p} color="#FFA500" icon="database-sync-outline" />} 
-            onPress={() => navigation.navigate('MigrateUsernames')}
+            onPress={async () => {
+              const { debugListUsernames } = await import('../services/usersService');
+              await debugListUsernames(50);
+              alert('Check console for username list');
+            }}
           />
           <Divider style={{ backgroundColor: dividerColor }} />
           <List.Item title="Privacy" titleStyle={{ color: textColor }} left={(p) => <List.Icon {...p} color={textColor} icon="shield-outline" />} onPress={() => {}} />

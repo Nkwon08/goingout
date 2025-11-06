@@ -3,13 +3,13 @@ import { View, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { Searchbar, Button, Avatar, List, Divider, Text } from 'react-native-paper';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { subscribeToFriends, addFriend, checkFriendship, getFriends } from '../services/friendsService';
+import { addFriend, checkFriendship, getFriends } from '../services/friendsService';
 import { getCurrentUserData as getUserData } from '../services/authService';
-import { searchUsersByUsername } from '../services/usersService';
+import { searchUsersByUsername, getAllUsers } from '../services/usersService';
 
 export default function FriendsTab() {
   const { isDarkMode } = useTheme();
-  const { user } = useAuth();
+  const { user, loading: authLoading, friendsList: friendsListFromContext } = useAuth();
 
   const [searchQuery, setSearchQuery] = React.useState('');
   const [friends, setFriends] = React.useState([]);
@@ -18,6 +18,12 @@ export default function FriendsTab() {
   const [searchLoading, setSearchLoading] = React.useState(false);
   const [searchResultsWithStatus, setSearchResultsWithStatus] = React.useState([]);
   const [loading, setLoading] = React.useState(false); // Start with false to show UI immediately
+  
+  // All users list state (for displaying all users)
+  const [allUsers, setAllUsers] = React.useState([]);
+  const [allUsersLoading, setAllUsersLoading] = React.useState(false);
+  const [allUsersLastId, setAllUsersLastId] = React.useState(null);
+  const [allUsersHasMore, setAllUsersHasMore] = React.useState(true);
 
   const colors = {
     bg: isDarkMode ? '#1A1A1A' : '#EEEDEB',
@@ -28,149 +34,56 @@ export default function FriendsTab() {
     primary: '#990000',
   };
 
-  /** Load friends list and fetch user data - optimized for fast initial load */
+  /** Load friends list from AuthContext - subscription is managed centrally */
   React.useEffect(() => {
-    if (!user) return;
+    // Use friends list from AuthContext (centralized subscription)
+    const friendIds = friendsListFromContext || [];
+    setFriends(friendIds);
 
-    // Fast initial load: fetch friends list immediately (one-time read)
+    if (!friendIds.length) {
+      setFriendsWithData([]);
+      return;
+    }
+
+    // Fetch friend data in parallel
     let isMounted = true;
-    let unsubscribe = null;
 
-    const loadFriends = async () => {
+    const loadFriendData = async () => {
       try {
-        // Fetch initial friends list quickly (one-time read, faster than waiting for subscription)
-        const initialResult = await getFriends(user.uid);
-        if (!isMounted) return;
+        // Show placeholders immediately
+        setFriendsWithData(friendIds.map((uid) => ({
+          uid,
+          username: 'Loading...',
+          name: 'Loading...',
+          avatar: null,
+        })));
 
-        const friendIds = initialResult.friends || [];
-        setFriends(friendIds);
-
-        if (!friendIds.length) {
-          setFriendsWithData([]);
-        } else {
-          // Show placeholders immediately
-          setFriendsWithData(friendIds.map((uid) => ({
-            uid,
-            username: 'Loading...',
-            name: 'Loading...',
-            avatar: null,
-          })));
-
-          // Fetch friend data in parallel (optimized)
-          try {
-            const friendData = await Promise.all(
-              friendIds.map(async (uid) => {
-                try {
-                  const { userData } = await getUserData(uid);
-                  return userData || { uid, username: 'Unknown', name: 'Unknown User', avatar: null };
-                } catch {
-                  return { uid, username: 'Unknown', name: 'Unknown User', avatar: null };
-                }
-              })
-            );
-            if (isMounted) {
-              setFriendsWithData(friendData);
+        // Fetch friend data in parallel
+        const friendData = await Promise.all(
+          friendIds.map(async (uid) => {
+            try {
+              const { userData } = await getUserData(uid);
+              return userData || { uid, username: 'Unknown', name: 'Unknown User', avatar: null };
+            } catch {
+              return { uid, username: 'Unknown', name: 'Unknown User', avatar: null };
             }
-          } catch (err) {
-            console.error('Error fetching friend data:', err);
-          }
+          })
+        );
+
+        if (isMounted) {
+          setFriendsWithData(friendData);
         }
       } catch (err) {
-        console.error('Error loading initial friends:', err);
+        console.error('Error fetching friend data:', err);
       }
-
-      // Then subscribe for real-time updates (non-blocking)
-      unsubscribe = subscribeToFriends(user.uid, async (result) => {
-        if (!isMounted) return;
-
-        if (result.error) {
-          console.error('Error in friends subscription:', result.error);
-          return;
-        }
-
-        const friendIds = result.friends || [];
-        setFriends(friendIds);
-
-        if (!friendIds.length) {
-          setFriendsWithData([]);
-          return;
-        }
-
-        // Update placeholders if needed - use current state via callback
-        setFriendsWithData((prev) => {
-          const currentIds = new Set(prev.map(f => f.uid));
-          const newIds = new Set(friendIds);
-          const hasChanges = friendIds.length !== prev.length || 
-            friendIds.some(id => !currentIds.has(id)) ||
-            prev.some(f => !newIds.has(f.uid));
-
-          if (!hasChanges) {
-            return prev; // No changes, keep existing data
-          }
-
-          // Show placeholders for new friends, keep existing loaded data
-          const prevMap = new Map(prev.map(f => [f.uid, f]));
-          const updated = friendIds.map((uid) => {
-            const existing = prevMap.get(uid);
-            if (existing && existing.username !== 'Loading...') {
-              return existing; // Keep loaded data
-            }
-            return {
-              uid,
-              username: 'Loading...',
-              name: 'Loading...',
-              avatar: null,
-            };
-          });
-
-          // Fetch data for new friends only (in background)
-          const newFriendIds = friendIds.filter(id => !currentIds.has(id));
-          if (newFriendIds.length > 0) {
-            // Don't await - fetch in background
-            Promise.all(
-              newFriendIds.map(async (uid) => {
-                try {
-                  const { userData } = await getUserData(uid);
-                  return userData || { uid, username: 'Unknown', name: 'Unknown User', avatar: null };
-                } catch {
-                  return { uid, username: 'Unknown', name: 'Unknown User', avatar: null };
-                }
-              })
-            ).then((newFriendData) => {
-              if (isMounted) {
-                // Use current friendIds from the latest subscription update
-                setFriendsWithData((current) => {
-                  const currentMap = new Map(current.map(f => [f.uid, f]));
-                  newFriendData.forEach(f => currentMap.set(f.uid, f));
-                  // Use the latest friendIds from state (setFriends was called earlier)
-                  const latestFriendIds = friendIds; // Captured from subscription callback
-                  return latestFriendIds.map(uid => currentMap.get(uid) || {
-                    uid,
-                    username: 'Loading...',
-                    name: 'Loading...',
-                    avatar: null,
-                  });
-                });
-              }
-            }).catch((err) => {
-              console.error('Error fetching new friend data:', err);
-            });
-          }
-
-          return updated;
-        });
-      });
     };
 
-    loadFriends();
+    loadFriendData();
 
     return () => {
       isMounted = false;
-      if (unsubscribe && typeof unsubscribe === 'function') {
-        unsubscribe();
-      }
     };
-  }, [user]);
+  }, [friendsListFromContext]); // Re-fetch when friends list changes from context
 
   /** Handle user search with debounce */
   React.useEffect(() => {
@@ -229,6 +142,114 @@ export default function FriendsTab() {
 
     return () => clearTimeout(timeout);
   }, [searchQuery, user, friends]);
+
+  /** Load all users (for "Discover" section when search is empty) */
+  React.useEffect(() => {
+    // Wait for auth to be fully initialized
+    if (authLoading) {
+      return; // Still loading auth state
+    }
+    
+    // Wait for auth to be fully initialized and user to be signed in
+    if (!user || !user.uid) {
+      console.log('ℹ️ No user signed in - skipping user fetch');
+      return;
+    }
+    
+    const loadAllUsers = async (retryCount = 0) => {
+      const maxRetries = 3;
+      setAllUsersLoading(true);
+      
+      try {
+        // Force fresh data from server (bypasses cache)
+        const result = await getAllUsers(user.uid, 20, null);
+        
+        if (result.error) {
+          // If network error and retries remaining, retry after delay
+          if (result.error.includes('Unable to connect') && retryCount < maxRetries) {
+            console.log(`⚠️ Network error, retrying... (${retryCount + 1}/${maxRetries})`);
+            setTimeout(() => {
+              loadAllUsers(retryCount + 1);
+            }, 1000 * (retryCount + 1)); // Exponential backoff: 1s, 2s, 3s
+            return;
+          }
+          console.error('Error loading users:', result.error);
+        } else {
+          setAllUsers(result.users);
+          setAllUsersLastId(result.lastUserId);
+          setAllUsersHasMore(result.hasMore);
+        }
+      } catch (err) {
+        // Retry on error if retries remaining
+        if (retryCount < maxRetries) {
+          console.log(`⚠️ Error loading users, retrying... (${retryCount + 1}/${maxRetries})`);
+          setTimeout(() => {
+            loadAllUsers(retryCount + 1);
+          }, 1000 * (retryCount + 1));
+          return;
+        }
+        console.error('Error loading all users:', err);
+      } finally {
+        if (retryCount === 0) {
+          // Only set loading to false on first attempt or final retry
+          setAllUsersLoading(false);
+        }
+      }
+    };
+
+    // Only load if search is empty
+    if (!searchQuery.trim()) {
+      loadAllUsers();
+    }
+  }, [user, searchQuery, authLoading]);
+
+  /** Load more users (pagination) */
+  const loadMoreUsers = React.useCallback(async (retryCount = 0) => {
+    const maxRetries = 3;
+    
+    // Safety checks
+    if (!user || !user.uid) {
+      console.log('ℹ️ No user signed in - skipping load more');
+      return;
+    }
+    
+    if (!allUsersHasMore || allUsersLoading || !allUsersLastId) return;
+
+    setAllUsersLoading(true);
+    try {
+      const result = await getAllUsers(user.uid, 20, allUsersLastId);
+      
+      if (result.error) {
+        // Retry on network errors
+        if (result.error.includes('Unable to connect') && retryCount < maxRetries) {
+          console.log(`⚠️ Network error loading more, retrying... (${retryCount + 1}/${maxRetries})`);
+          setTimeout(() => {
+            loadMoreUsers(retryCount + 1);
+          }, 1000 * (retryCount + 1));
+          return;
+        }
+        console.error('Error loading more users:', result.error);
+      } else {
+        setAllUsers((prev) => [...prev, ...result.users]);
+        setAllUsersLastId(result.lastUserId);
+        setAllUsersHasMore(result.hasMore);
+      }
+    } catch (err) {
+      // Retry on error
+      if (retryCount < maxRetries) {
+        console.log(`⚠️ Error loading more users, retrying... (${retryCount + 1}/${maxRetries})`);
+        setTimeout(() => {
+          loadMoreUsers(retryCount + 1);
+        }, 1000 * (retryCount + 1));
+        return;
+      }
+      console.error('Error loading more users:', err);
+    } finally {
+      if (retryCount === 0) {
+        setAllUsersLoading(false);
+      }
+    }
+  }, [user, allUsersLastId, allUsersHasMore, allUsersLoading]);
 
   /** Add a friend */
   const handleAddFriend = React.useCallback(async (targetUid) => {
@@ -317,7 +338,66 @@ export default function FriendsTab() {
               </View>
             )}
           </View>
-        ) : null}
+        ) : (
+          // All Users List (when search is empty)
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Discover Users</Text>
+            {allUsersLoading && allUsers.length === 0 ? (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={{ color: colors.subText, marginTop: 8, fontSize: 14 }}>Loading users...</Text>
+              </View>
+            ) : allUsers.length > 0 ? (
+              <View style={{ backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden' }}>
+                {allUsers.map((u, idx) => (
+                  <View key={u.uid}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16 }}>
+                      <Avatar.Image size={48} source={{ uri: u.avatar || 'https://i.pravatar.cc/100?img=12' }} />
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{u.name || 'User'}</Text>
+                        <Text style={{ color: colors.subText, fontSize: 14 }}>@{u.username || 'username'}</Text>
+                        {u.bio && (
+                          <Text style={{ color: colors.subText, fontSize: 12, marginTop: 4 }} numberOfLines={2}>
+                            {u.bio}
+                          </Text>
+                        )}
+                        {(u.age || u.gender) && (
+                          <View style={{ flexDirection: 'row', marginTop: 4, gap: 8 }}>
+                            {u.age && (
+                              <Text style={{ color: colors.subText, fontSize: 12 }}>{u.age} years old</Text>
+                            )}
+                            {u.gender && (
+                              <Text style={{ color: colors.subText, fontSize: 12 }}>{u.gender}</Text>
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                    {idx < allUsers.length - 1 && <Divider style={{ backgroundColor: colors.divider }} />}
+                  </View>
+                ))}
+                {allUsersHasMore && (
+                  <View style={{ padding: 16, alignItems: 'center' }}>
+                    <Button
+                      mode="outlined"
+                      onPress={loadMoreUsers}
+                      loading={allUsersLoading}
+                      disabled={allUsersLoading}
+                      textColor={colors.text}
+                      style={{ borderColor: colors.divider }}
+                    >
+                      {allUsersLoading ? 'Loading...' : 'Load More'}
+                    </Button>
+                  </View>
+                )}
+              </View>
+            ) : (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <Text style={{ color: colors.subText, textAlign: 'center', fontSize: 14 }}>No users found</Text>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* Friends List */}
         <Text style={{ color: colors.subText, marginVertical: 6, fontSize: 14, fontWeight: '600' }}>Friends ({friendsWithData.length})</Text>

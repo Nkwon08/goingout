@@ -12,7 +12,6 @@ import { subscribeToPosts, createPost } from '../services/postsService';
 import { uploadImages } from '../services/storageService';
 import { getCurrentUserData } from '../services/authService';
 import { getCurrentLocation } from '../services/locationService';
-import { subscribeToFriends } from '../services/friendsService';
 
 const IU_CRIMSON = '#990000';
 
@@ -31,11 +30,8 @@ export default function ActivityRecent() {
   const [userLocation, setUserLocation] = React.useState(null); // City name
   const [loadingLocation, setLoadingLocation] = React.useState(true);
   
-  // Friends list state (for filtering Friends Only posts)
-  const [friendsList, setFriendsList] = React.useState([]);
-
-  // Get current user from auth context
-  const { user, userData, loading: authLoading } = useAuth();
+  // Get current user from auth context (friendsList is managed centrally in AuthContext)
+  const { user, userData, loading: authLoading, friendsList } = useAuth();
   const { background, subText } = useThemeColors();
   const insets = useSafeAreaInsets();
   
@@ -74,23 +70,9 @@ export default function ActivityRecent() {
       });
   }, [user]); // Get location when user logs in
   
-  // Subscribe to friends list for filtering Friends Only posts
-  React.useEffect(() => {
-    if (!user) {
-      return;
-    }
-
-    const unsubscribe = subscribeToFriends(user.uid, (result) => {
-      if (result.error) {
-        console.error('❌ Error getting friends list:', result.error);
-        return;
-      }
-
-      setFriendsList(result.friends);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
+  // Use friends list from AuthContext (centralized subscription)
+  // No need to create a new subscription here - AuthContext manages it
+  // friendsList is already available from useAuth() hook
 
       // Reset submitting state when opening compose modal
       React.useEffect(() => {

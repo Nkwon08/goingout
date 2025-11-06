@@ -6,7 +6,7 @@ import ActivityScreen from '../screens/ActivityScreen';
 import GroupsStack from './GroupsStack';
 import CameraScreen from '../screens/CameraScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
-import AccountStack from './AccountStack';
+import ProfileStack from './AccountStack';
 import { useThemeColors } from '../hooks/useThemeColors';
 
 const Tab = createBottomTabNavigator();
@@ -38,8 +38,8 @@ export default function BottomTabs() {
             Activity: 'compass-outline',
             Groups: 'account-group-outline',
             Camera: 'camera-outline',
-            Notifications: 'bell-outline',
-            Account: 'account-circle-outline',
+            NotificationsMain: 'bell-outline',
+            Profile: 'account-circle-outline',
           };
           const name = iconMap[route.name] || 'circle-outline';
           return <MaterialCommunityIcons name={name} size={size} color={color} />;
@@ -50,8 +50,8 @@ export default function BottomTabs() {
       <Tab.Screen name="Activity" component={ActivityScreen} />
       <Tab.Screen name="Groups" component={GroupsStack} />
       <Tab.Screen name="Camera" component={CameraScreen} />
-      <Tab.Screen name="Notifications" component={NotificationsScreen} />
-      <Tab.Screen name="Account" component={AccountStack} />
+      <Tab.Screen name="NotificationsMain" component={NotificationsScreen} />
+      <Tab.Screen name="Profile" component={ProfileStack} />
     </Tab.Navigator>
   );
 }

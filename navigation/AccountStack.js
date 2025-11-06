@@ -1,19 +1,19 @@
-// Account stack navigation - handles account screen and edit profile
+// Profile stack navigation - handles profile screen and edit profile
 import * as React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import AccountScreen from '../screens/AccountScreen';
+import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 
 const Stack = createNativeStackNavigator();
 
-export default function AccountStack() {
+export default function ProfileStack() {
   return (
     <Stack.Navigator
       screenOptions={{
         headerShown: false,
       }}
     >
-      <Stack.Screen name="AccountMain" component={AccountScreen} />
+      <Stack.Screen name="ProfileMain" component={ProfileScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
     </Stack.Navigator>
   );

@@ -1,7 +1,11 @@
 // Authentication context - manages user authentication state across the app
 import * as React from 'react';
 import { createContext, useContext, useState, useEffect } from 'react';
-import { onAuthStateChange, getCurrentUserData } from '../services/authService';
+import { onAuthStateChanged } from 'firebase/auth';
+import { getCurrentUserData, ensureUserDoc, upsertUserProfile } from '../services/authService';
+import { subscribeToFriends } from '../services/friendsService';
+import { debugListUsernames } from '../services/usersService';
+import { auth } from '../config/firebase';
 
 const AuthContext = createContext();
 
@@ -10,6 +14,8 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Friends list state - managed centrally
+  const [friendsList, setFriendsList] = useState([]);
 
   // Function to refresh user data manually
   const refreshUserData = React.useCallback(async (uid) => {
@@ -25,88 +31,120 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  // Listen to authentication state changes
+  // Single auth listener + friends subscription - centralized
   useEffect(() => {
+    let unsubFriends = null;
+    let ensuredForUid = null;
+    let lastSubscribedUid = null;
     let isMounted = true;
-    let timeoutId;
-    
-    try {
-      // Set a timeout to stop blocking the app if auth check takes too long
-      // Firebase auth with persistence should respond quickly, but give it 5 seconds
-      timeoutId = setTimeout(() => {
-        if (isMounted) {
-          console.warn('⚠️ Auth check taking too long, showing app anyway');
-          setLoading(false);
-        }
-      }, 5000); // Show app after 5 seconds max (Firebase persistence should be faster)
 
-      const unsubscribe = onAuthStateChange(async (firebaseUser) => {
-        if (!isMounted) return;
-        
-        try {
-          // Clear timeout since we got a response
-          if (timeoutId) {
-            clearTimeout(timeoutId);
-          }
-          
-          if (firebaseUser) {
-            // User is signed in - automatically restored from AsyncStorage (persistence)
-            setUser(firebaseUser);
-            
-            // Set basic userData immediately from Firebase Auth (don't block UI)
-            setUserData({
-              name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
-              username: firebaseUser.email?.split('@')[0] || 'user',
-              avatar: firebaseUser.photoURL || null,
-            });
-            setLoading(false); // Show app immediately, don't wait for Firestore
-            
-            // Fetch full user data from Firestore in background (non-blocking)
-            if (firebaseUser.uid) {
-              getCurrentUserData(firebaseUser.uid).then(({ userData: data }) => {
-                if (isMounted && data) {
-                  setUserData(data);
-                }
-              }).catch((error) => {
-                // Silently fail - we already have basic data from Auth
-              });
-            }
-          } else {
-            // No user signed in - show login screen
-            setUser(null);
-            setUserData(null);
-            setLoading(false);
-          }
-        } catch (error) {
-          console.error('Auth state change error:', error);
-          if (isMounted) {
-            setUser(null);
-            setUserData(null);
-            setLoading(false);
-          }
-        }
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!isMounted) return;
+
+      // Clean up existing subscription if user changes
+      if (unsubFriends) {
+        unsubFriends();
+        unsubFriends = null;
+      }
+
+      // If no user is signed in, clear friends list and user data
+      if (!firebaseUser?.uid) {
+        console.log('User not signed in, skipping friends subscription');
+        setFriendsList([]);
+        setUser(null);
+        setUserData(null);
+        setLoading(false);
+        return;
+      }
+
+      // Verify auth.currentUser exists before proceeding
+      if (!auth.currentUser || auth.currentUser.uid !== firebaseUser.uid) {
+        console.log('Auth currentUser not ready, skipping user doc check and friends subscription');
+        return;
+      }
+
+      // Set user immediately
+      setUser(firebaseUser);
+      setLoading(false);
+
+      // Set basic userData immediately from Firebase Auth (don't block UI)
+      setUserData({
+        name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+        username: firebaseUser.email?.split('@')[0] || 'user',
+        avatar: firebaseUser.photoURL || null,
       });
 
-      return () => {
-        isMounted = false;
-        if (timeoutId) {
-          clearTimeout(timeoutId);
+      // Ensure user document exists (one-time per uid)
+      if (ensuredForUid !== firebaseUser.uid) {
+        try {
+          // Ensure document exists (minimal write-first)
+          await ensureUserDoc(firebaseUser.uid).catch(() => {});
+          
+          // Upsert profile with fallbacks (non-blocking, fills missing fields)
+          await upsertUserProfile(firebaseUser.uid, {}).catch(() => {});
+          
+          ensuredForUid = firebaseUser.uid;
+          console.log('✅ User document ensured:', firebaseUser.uid);
+
+          // Fetch full user data after ensuring document
+          const { userData: data } = await getCurrentUserData(firebaseUser.uid);
+          if (isMounted && data) {
+            setUserData({
+              username: data.username,
+              name: data.name,
+              avatar: data.photo,
+              bio: data.bio,
+              age: data.age,
+              gender: data.gender,
+            });
+          }
+
+          // Debug: List all usernames after ensuring document (one-time per session)
+          // This helps verify usernames are being stored correctly
+          setTimeout(async () => {
+            try {
+              await debugListUsernames(20);
+            } catch (debugError) {
+              console.warn('[AuthContext] Debug list usernames failed:', debugError);
+            }
+          }, 2000); // Wait 2 seconds after ensureUserDoc completes
+        } catch (e) {
+          console.error('ensureUserDoc error (non-fatal):', e?.message || e);
         }
-        if (unsubscribe && typeof unsubscribe === 'function') {
-          unsubscribe();
-        }
-      };
-    } catch (error) {
-      console.error('Auth listener setup error:', error);
-      // If Firebase not configured, just set loading to false
-      if (isMounted) {
-        setLoading(false);
       }
-    }
-  }, []);
+
+      // Prevent duplicate subscriptions
+      if (lastSubscribedUid === firebaseUser.uid) return;
+      lastSubscribedUid = firebaseUser.uid;
+
+      console.log('✅ Setting up friends subscription for', firebaseUser.uid);
+
+      // Create friends subscription once per session
+      unsubFriends = subscribeToFriends(firebaseUser.uid, (result) => {
+        if (!isMounted) return;
+
+        if (result.error) {
+          console.error('❌ Error in friends subscription:', result.error);
+          return;
+        }
+
+        setFriendsList(result.friends || []);
+      });
+    });
+
+    return () => {
+      isMounted = false;
+      if (unsubFriends && typeof unsubFriends === 'function') {
+        unsubFriends();
+      }
+      if (unsubscribeAuth && typeof unsubscribeAuth === 'function') {
+        unsubscribeAuth();
+      }
+    };
+  }, []); // Run once on mount - onAuthStateChanged handles all auth state changes
 
   return (
-    <AuthContext.Provider value={{ user, userData, loading, refreshUserData }}>
+    <AuthContext.Provider value={{ user, userData, loading, refreshUserData, friendsList }}>
       {children}
     </AuthContext.Provider>
   );

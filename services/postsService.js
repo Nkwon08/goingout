@@ -14,7 +14,6 @@ import {
   serverTimestamp,
   onSnapshot,
   Timestamp,
-  enableNetwork,
   disableNetwork,
   waitForPendingWrites,
 } from 'firebase/firestore';
@@ -73,17 +72,7 @@ export const createPost = async (userId, userData, postData) => {
     
     console.log('📝 Creating post with location:', postLocation, 'GPS:', postLat, postLng);
 
-    // Try to enable network quickly (in case Firestore is offline)
-    // Don't wait too long - if it fails, try anyway
-    try {
-      const enableNetworkPromise = enableNetwork(db);
-      const networkTimeout = new Promise((resolve) => setTimeout(resolve, 500)); // Reduced to 500ms for speed
-      await Promise.race([enableNetworkPromise, networkTimeout]);
-    } catch (networkError) {
-      // Continue anyway - network might already be enabled
-    }
-    
-    // Create the post in Firestore (no timeout - let it complete naturally)
+    // Create the post in Firestore
     const postRef = await addDoc(collection(db, 'posts'), postToCreate);
     
     return { postId: postRef.id, error: null };
@@ -95,16 +84,102 @@ export const createPost = async (userId, userData, postData) => {
   }
 };
 
+// Get posts by user ID
+export const getUserPosts = async (userId, pageSize = 50) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { posts: [], error: 'Firestore not configured' };
+    }
+
+    const q = query(
+      collection(db, 'posts'),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc'),
+      limit(pageSize)
+    );
+
+    const querySnapshot = await getDocs(q);
+    const posts = querySnapshot.docs
+      .map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
+          expiresAt: data.expiresAt?.toDate ? data.expiresAt.toDate() : (data.expiresAt ? new Date(data.expiresAt) : null),
+          timeAgo: formatTimeAgo(data.createdAt),
+        };
+      });
+
+    return { posts, error: null };
+  } catch (error) {
+    console.error('❌ Error getting user posts:', error);
+    return { posts: [], error: error.message };
+  }
+};
+
+// Subscribe to user posts in real-time
+export const subscribeToUserPosts = (userId, callback, pageSize = 50) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      callback({ posts: [], error: 'Firestore not configured' });
+      return () => {};
+    }
+
+    if (Object.keys(db).length === 0) {
+      callback({ posts: [], error: 'Firestore not configured' });
+      return () => {};
+    }
+
+    const q = query(
+      collection(db, 'posts'),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc'),
+      limit(pageSize)
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const posts = snapshot.docs
+          .map((doc) => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              ...data,
+              createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
+              expiresAt: data.expiresAt?.toDate ? data.expiresAt.toDate() : (data.expiresAt ? new Date(data.expiresAt) : null),
+              timeAgo: formatTimeAgo(data.createdAt),
+            };
+          });
+        callback({ posts, error: null });
+      },
+      (error) => {
+        console.error('❌ Error subscribing to user posts:', error);
+        callback({ posts: [], error: error.message });
+      }
+    );
+
+    return unsubscribe;
+  } catch (error) {
+    console.error('❌ Error setting up user posts subscription:', error);
+    callback({ posts: [], error: error.message });
+    return () => {};
+  }
+};
+
 // Get all posts (feed) - one-time fetch
 export const getPosts = async (lastPostId = null, pageSize = 20) => {
   try {
     const now = new Date();
     const nowTimestamp = Timestamp.fromDate(now);
     
+    // Query uses composite index: expiresAt (Ascending), createdAt (Descending)
+    // Index must be created in Firebase Console: posts collection
     let q = query(
       collection(db, 'posts'),
-      where('expiresAt', '>', nowTimestamp), // Only show posts that haven't expired
-      orderBy('createdAt', 'desc'),
+      where('expiresAt', '>', nowTimestamp), // Filter: only show posts that haven't expired
+      orderBy('createdAt', 'desc'), // Order: newest first (uses composite index)
       limit(pageSize)
     );
 
@@ -163,15 +238,17 @@ export const subscribeToPosts = (callback, pageSize = 20, userLocation = null, u
     const now = new Date();
     const nowTimestamp = Timestamp.fromDate(now);
 
-    // Build query with filters
-    // Temporarily simplify query to avoid index issues - filter only by expiration
-    // Location filtering will be done client-side
+    // Build query with filters - uses composite index
+    // IMPORTANT: When using range query (>) on one field and orderBy on another,
+    // the index must have: createdAt (Ascending), expiresAt (Ascending), __name__ (Ascending)
+    // Use the URL from error message to create the correct index
     let constraints = [];
     
-    // Filter expired posts only (no location filter in query to avoid index issues)
+    // Filter expired posts - range query on expiresAt
     constraints.push(where('expiresAt', '>', nowTimestamp));
     
-    // Order by creation date
+    // Order by creation date (newest first) - requires composite index
+    // Index needed: createdAt (Ascending), expiresAt (Ascending), __name__ (Ascending)
     constraints.push(orderBy('createdAt', 'desc'));
     
     // Limit results
@@ -269,94 +346,26 @@ export const subscribeToPosts = (callback, pageSize = 20, userLocation = null, u
         console.error('❌ Error code:', error.code);
         console.error('❌ Error message:', error.message);
         
-        // Check for Firestore index error - fall back to simple query without orderBy
+        // Check for Firestore index error - extract the index creation URL from error
         if (error.code === 'failed-precondition' || error.message.includes('index') || error.message.includes('requires an index')) {
-          console.warn('⚠️ Index error - trying fallback query without orderBy...');
+          console.error('❌ Index error - make sure the composite index is created and enabled in Firebase Console');
           
-          // Fallback: query without orderBy (no index needed)
-          // Still filter expired posts client-side
-          let fallbackConstraints = [
-            where('expiresAt', '>', Timestamp.fromDate(new Date())), // Filter expired posts
-          ];
+          // Extract index URL from error message if available
+          let indexUrl = 'https://console.firebase.google.com/project/goingout-8b2e0/firestore/indexes';
+          const urlMatch = error.message.match(/https:\/\/[^\s]+/);
+          if (urlMatch) {
+            indexUrl = urlMatch[0];
+          }
           
-          fallbackConstraints.push(limit(pageSize));
+          console.error('❌ Index URL:', indexUrl);
+          console.error('❌ Required index: posts collection');
+          console.error('❌ Fields: createdAt (Ascending), expiresAt (Ascending), __name__ (Ascending)');
           
-          const fallbackQ = query(collection(db, 'posts'), ...fallbackConstraints);
-          
-          // Replace unsubscribe function with fallback query
-          if (unsubscribeFn) unsubscribeFn();
-          unsubscribeFn = onSnapshot(
-            fallbackQ,
-            (snapshot) => {
-              const now = new Date();
-                  const posts = snapshot.docs
-                    .map((doc) => {
-                      const data = doc.data();
-                      return {
-                        id: doc.id,
-                        ...data,
-                        createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(),
-                        expiresAt: data.expiresAt?.toDate ? data.expiresAt.toDate() : (data.expiresAt ? new Date(data.expiresAt) : null),
-                        timeAgo: formatTimeAgo(data.createdAt),
-                      };
-                    })
-                    .filter((post) => {
-                      // Check expiration first
-                      if (post.expiresAt) {
-                        const expiresAtTime = post.expiresAt.getTime ? post.expiresAt.getTime() : new Date(post.expiresAt).getTime();
-                        const nowTime = now.getTime();
-                        if (expiresAtTime <= nowTime) {
-                          return false;
-                        }
-                      }
-                      
-                      // Filter by visibility setting
-                      if (post.visibility === 'friends') {
-                        const isPostAuthorFriend = friendsList.includes(post.userId);
-                        const isOwnPost = userId === post.userId;
-                        if (!isOwnPost && !isPostAuthorFriend) {
-                          return false;
-                        }
-                        // For friends-only posts, skip location filtering
-                        return true;
-                      }
-                      
-                      // For location-based posts, filter by matching account location
-                      // Normalize location strings for comparison (trim and lowercase)
-                      const normalizeLocation = (loc) => {
-                        if (!loc) return '';
-                        return String(loc).trim().toLowerCase();
-                      };
-                      
-                      const postLocation = normalizeLocation(post.location);
-                      const userAccountLocation = normalizeLocation(userLocation);
-                      
-                      // Show post if locations match (or if user hasn't set location yet)
-                      if (userAccountLocation && postLocation) {
-                        if (postLocation !== userAccountLocation) {
-                          return false;
-                        }
-                      }
-                      
-                      return true;
-                    });
-              // Sort posts by createdAt descending (newest first) - order always based on when it was posted
-              posts.sort((a, b) => {
-                const aTime = a.createdAt?.getTime ? a.createdAt.getTime() : new Date(a.createdAt || 0).getTime();
-                const bTime = b.createdAt?.getTime ? b.createdAt.getTime() : new Date(b.createdAt || 0).getTime();
-                return bTime - aTime; // b - a means newest (larger timestamp) comes first
-              });
-              callback({ posts, error: null });
-            },
-            (fallbackError) => {
-              console.error('❌ Fallback query also failed:', fallbackError);
-              const indexUrl = `https://console.firebase.google.com/project/goingout-8b2e0/firestore/indexes?create_composite=Clhwcm9qZWN0cy9nb2luZ291dC04YjJlMC9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvcG9zdHMvaW5kZXhlcy9fEAEaCgoGdXNlcklkEAEaDAoKY3JlYXRlZEF0EAIaDAoIZGVmYXVsdBABGi8KCmNyZWF0ZWRBdBAIGgwKCHN0YXJ0QXQQBBoKCgZ1c2VySWQQAQ`;
-              callback({ 
-                posts: [], 
-                error: `Firestore error. Please check your Firebase configuration or create an index:\n${indexUrl}` 
-              });
-            }
-          );
+          // Provide helpful error message with link to create index
+          callback({ 
+            posts: [], 
+            error: `Firestore index not found. Click the link in the error message above to create the index automatically, or create manually:\n\nCollection: posts\nFields:\n  - createdAt (Ascending)\n  - expiresAt (Ascending)\n  - __name__ (Ascending)\n\n${indexUrl}` 
+          });
         } else {
           callback({ posts: [], error: error.message });
         }

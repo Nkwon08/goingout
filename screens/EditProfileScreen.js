@@ -97,106 +97,58 @@ export default function EditProfileScreen({ navigation }) {
       return;
     }
 
-    // Check if image needs to be uploaded (if it's a local file URI)
-    if (profilePicture && profilePicture.startsWith('file://')) {
-      Alert.alert('Please wait', 'Profile picture is still uploading. Please wait and try again.');
-      return;
-    }
-
     setSaving(true);
 
     try {
       console.log('💾 Starting profile update...');
-      console.log('🔍 User UID:', user.uid);
-      console.log('🔍 DB object:', db ? 'exists' : 'null');
-      console.log('🔍 DB keys:', db && typeof db === 'object' ? Object.keys(db).length : 'not an object');
-
-      // Check if Firestore is configured
-      if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
-        throw new Error('Firestore not configured. Please check your Firebase configuration.');
-      }
-
-      // Prepare update data
-      const finalUsername = username.trim();
-      const updateData = {
+      
+      // Import upsertUserProfile
+      const { upsertUserProfile } = await import('../services/authService');
+      
+      // Determine if profile picture is a local URI that needs uploading
+      const pfpUri = profilePicture && profilePicture.startsWith('file://') ? profilePicture : null;
+      const photoURL = profilePicture && !profilePicture.startsWith('file://') ? profilePicture : null;
+      
+      // Use upsertUserProfile (handles username reservation, avatar upload, etc.)
+      const result = await upsertUserProfile(user.uid, {
         name: name.trim(),
-        username: finalUsername,
-        username_lowercase: finalUsername.trim().toLowerCase(), // For faster username search (trim again to be safe)
-        avatar: profilePicture || userData?.avatar || '',
+        username: username.trim(),
         bio: bio.trim() || null,
         age: age ? parseInt(age) : null,
         gender: gender || null,
-        updatedAt: new Date().toISOString(),
-      };
+        pfpUri, // Upload local avatar if provided
+        photoURL, // Use existing URL if provided
+      });
 
-      console.log('📦 Update data:', updateData);
-
-      // Update Firestore user document (this is the most important update)
-      console.log('📝 Updating Firestore user document...');
-      console.log('📝 User UID:', user.uid);
-      console.log('📝 DB type:', typeof db);
-      console.log('📝 DB is empty object?', Object.keys(db || {}).length === 0);
-      
-      let firestoreSuccess = false;
-      const userRef = doc(db, 'users', user.uid);
-      console.log('📝 User ref created:', userRef.id);
-      
-      // Try to update Firestore with a shorter timeout
-      console.log('⏳ Starting Firestore update...');
-      try {
-        const firestoreUpdatePromise = setDoc(userRef, updateData, { merge: true });
-        
-        // Create timeout that will reject after 5 seconds
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => {
-            console.error('⏱️ Firestore update timeout after 5 seconds');
-            reject(new Error('TIMEOUT'));
-          }, 5000);
-        });
-        
-        console.log('⏳ Waiting for Firestore update (max 5 seconds)...');
-        await Promise.race([firestoreUpdatePromise, timeoutPromise]);
-        console.log('✅ Firestore user document updated successfully');
-        firestoreSuccess = true;
-      } catch (firestoreError) {
-        console.error('❌ Firestore update error:', firestoreError);
-        if (firestoreError.message === 'TIMEOUT') {
-          console.warn('⚠️ Firestore update timed out - this might be a network or permissions issue');
-          // Continue anyway - we'll show a warning
-        } else {
-          console.error('❌ Firestore update failed:', firestoreError.message);
-          // Continue anyway - we'll show a warning
+      if (!result.success) {
+        // Handle username_taken error
+        if (result.error === 'username_taken') {
+          Alert.alert('Username Taken', 'This username is already taken. Please choose a different username.');
+          setSaving(false);
+          return;
         }
+        
+        throw new Error(result.error || 'Failed to update profile');
       }
 
-      // Try to update Firebase Auth display name and photo (non-blocking)
+      // Update Firebase Auth display name (non-blocking)
       if (auth && !auth._isMock && user) {
-        console.log('📝 Attempting Firebase Auth profile update...');
         try {
-          await Promise.race([
-            updateProfile(user, {
-              displayName: name.trim(),
-              photoURL: profilePicture || null,
-            }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Auth update timeout')), 5000)),
-          ]);
-          console.log('✅ Firebase Auth profile updated');
+          await updateProfile(user, {
+            displayName: name.trim(),
+            photoURL: photoURL || null,
+          });
         } catch (authError) {
           console.warn('⚠️ Firebase Auth update failed (non-critical):', authError.message);
           // Continue - Firestore update is more important
         }
       }
 
-      // Success - show message and go back
+      // Success
       console.log('✅ Profile update completed');
       setSaving(false);
       
-      // Show success message (with warning if Firestore timed out)
-      const message = firestoreSuccess 
-        ? 'Profile updated successfully!'
-        : 'Profile updated! Some changes may not be saved yet due to connection issues. Please try again later.';
-      
-      Alert.alert(firestoreSuccess ? 'Success' : 'Warning', message, [
+      Alert.alert('Success', 'Profile updated successfully!', [
         {
           text: 'OK',
           onPress: () => {
@@ -208,7 +160,6 @@ export default function EditProfileScreen({ navigation }) {
       console.error('❌ Error updating profile:', error);
       console.error('❌ Error code:', error.code);
       console.error('❌ Error message:', error.message);
-      console.error('❌ Error stack:', error.stack);
       setSaving(false);
       Alert.alert('Error', error.message || 'Failed to update profile. Please check your connection and try again.');
     }

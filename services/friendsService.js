@@ -50,7 +50,8 @@ import {
   arrayRemove,
   runTransaction,
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { db, auth } from '../config/firebase';
 
 /**
  * Add friend (mutual)
@@ -196,15 +197,59 @@ export const checkFriendship = async (userId1OrFriendsArray, userId2) => {
   }
 };
 
+/**
+ * Wait for Firebase Auth to be ready before proceeding
+ * Ensures onAuthStateChanged has fired and user is authenticated
+ */
+const waitForAuthReady = () => {
+  return new Promise((resolve) => {
+    // Check if auth is already initialized
+    if (!auth) {
+      console.warn('⚠️ Firebase Auth not initialized');
+      resolve(null);
+      return;
+    }
+
+    // Use onAuthStateChanged to wait for auth state
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      unsubscribe(); // Only run once
+      resolve(user);
+    });
+
+    // Timeout after 2 seconds if auth state doesn't change
+    setTimeout(() => {
+      unsubscribe();
+      resolve(auth.currentUser);
+    }, 2000);
+  });
+};
+
 // Get friends list for a user
+// Checks auth.currentUser first before querying Firestore
 // Returns: { friends: array of userIds, error: string }
 export const getFriends = async (userId) => {
   try {
-    console.log('👥 Getting friends for:', userId);
+    // First check auth.currentUser directly (no async wait needed)
+    if (!auth || !auth.currentUser || !auth.currentUser.uid) {
+      console.log('User not found, skipping fetch');
+      return { friends: [], error: 'User not signed in' };
+    }
+
+    // If no userId provided, use auth.currentUser
+    if (!userId) {
+      userId = auth.currentUser.uid;
+    }
+
+    // Verify userId matches current user (safety check)
+    if (userId !== auth.currentUser.uid) {
+      console.warn('⚠️ User ID mismatch - using current user ID');
+      userId = auth.currentUser.uid;
+    }
     
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
       return { friends: [], error: 'Firestore not configured' };
     }
+
 
     const userRef = doc(db, 'users', userId);
     const userDoc = await getDoc(userRef);
@@ -242,21 +287,52 @@ export const getFriends = async (userId) => {
 };
 
 // Listen to friends list in real-time
+// Checks auth.currentUser first before setting up subscription
 // Returns: unsubscribe function
 // Note: Listens to the user document's friends array field
 // If a friend removes you, your friends array will update automatically
 export const subscribeToFriends = (userId, callback) => {
   try {
+    // Check auth.currentUser first (no async wait needed)
+    if (!auth || !auth.currentUser || !auth.currentUser.uid) {
+      console.log('User not found, skipping friends subscription');
+      callback({ friends: [], error: 'User not signed in' });
+      return () => {};
+    }
+
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
       callback({ friends: [], error: 'Firestore not configured' });
       return () => {};
     }
 
+    // If no userId provided, use auth.currentUser
+    if (!userId) {
+      userId = auth.currentUser.uid;
+    }
+
+    // Verify userId matches current user (safety check)
+    if (userId !== auth.currentUser.uid) {
+      console.warn('⚠️ User ID mismatch - using current user ID');
+      userId = auth.currentUser.uid;
+    }
+
+    let unsubscribeSnapshot = null;
+    let isMounted = true;
+
+
     const userRef = doc(db, 'users', userId);
 
-    const unsubscribe = onSnapshot(
+    unsubscribeSnapshot = onSnapshot(
       userRef,
       (snapshot) => {
+        if (!isMounted) return;
+
+        // Verify user still signed in
+        if (!auth.currentUser || auth.currentUser.uid !== userId) {
+          console.log('User changed during subscription, ignoring update');
+          return;
+        }
+
         if (!snapshot.exists()) {
           callback({ friends: [], error: 'User not found' });
           return;
@@ -268,6 +344,14 @@ export const subscribeToFriends = (userId, callback) => {
         callback({ friends, error: null });
       },
       (error) => {
+        if (!isMounted) return;
+
+        // Verify user still signed in
+        if (!auth.currentUser || auth.currentUser.uid !== userId) {
+          console.log('User changed during subscription error, ignoring');
+          return;
+        }
+
         console.error('❌ Friends subscription error:', error);
         console.error('❌ Error code:', error.code);
         console.error('❌ Error message:', error.message);
@@ -285,7 +369,13 @@ export const subscribeToFriends = (userId, callback) => {
       }
     );
 
-    return unsubscribe;
+    // Return unsubscribe function
+    return () => {
+      isMounted = false;
+      if (unsubscribeSnapshot && typeof unsubscribeSnapshot === 'function') {
+        unsubscribeSnapshot();
+      }
+    };
   } catch (error) {
     console.error('❌ Error setting up friends subscription:', error);
     callback({ friends: [], error: error.message });

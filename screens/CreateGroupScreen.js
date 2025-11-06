@@ -6,14 +6,13 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
-import { getFriends } from '../services/friendsService';
 import { getUserById } from '../services/usersService';
 
 const IU_CRIMSON = '#990000';
 
 export default function CreateGroupScreen({ navigation }) {
   const { background, text, subText, surface, divider } = useThemeColors();
-  const { user, userData } = useAuth();
+  const { user, userData, friendsList: friendsListFromContext } = useAuth();
   
   const [groupName, setGroupName] = React.useState('');
   const [description, setDescription] = React.useState('');
@@ -29,30 +28,23 @@ export default function CreateGroupScreen({ navigation }) {
   const [showStartPicker, setShowStartPicker] = React.useState(false);
   const [showEndPicker, setShowEndPicker] = React.useState(false);
 
-  // Load friends list
+  // Load friends list from AuthContext - subscription is managed centrally
   React.useEffect(() => {
-    if (!user) return;
+    let isMounted = true;
 
-    const loadFriends = async () => {
+    // Use friends list from AuthContext (centralized subscription)
+    const friendIds = friendsListFromContext || [];
+    setFriends(friendIds);
+
+    if (!friendIds.length) {
+      setFriendsWithData([]);
+      setLoading(false);
+      return;
+    }
+
+    // Fetch friend user data in parallel
+    const loadFriendData = async () => {
       try {
-        // Get initial friends list quickly
-        const initialResult = await getFriends(user.uid);
-        if (initialResult.error) {
-          console.error('Error getting friends:', initialResult.error);
-          setLoading(false);
-          return;
-        }
-
-        const friendIds = initialResult.friends || [];
-        setFriends(friendIds);
-
-        if (!friendIds.length) {
-          setFriendsWithData([]);
-          setLoading(false);
-          return;
-        }
-
-        // Fetch friend user data in parallel
         const friendData = await Promise.all(
           friendIds.map(async (uid) => {
             try {
@@ -67,16 +59,25 @@ export default function CreateGroupScreen({ navigation }) {
             }
           })
         );
-        setFriendsWithData(friendData);
-        setLoading(false);
+        
+        if (isMounted) {
+          setFriendsWithData(friendData);
+          setLoading(false);
+        }
       } catch (err) {
         console.error('Error loading friends:', err);
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
-    loadFriends();
-  }, [user]);
+    loadFriendData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [friendsListFromContext]); // Re-fetch when friends list changes from context
 
   const handleToggleFriend = (friendId) => {
     setSelectedFriends((prev) => {
