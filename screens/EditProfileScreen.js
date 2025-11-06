@@ -16,7 +16,7 @@ const IU_CRIMSON = '#990000';
 
 export default function EditProfileScreen({ navigation }) {
   // Get current user data
-  const { user, userData } = useAuth();
+  const { user, userData, refreshUserData } = useAuth();
   const { background, text, subText, surface, border } = useThemeColors();
 
   // Form state
@@ -25,9 +25,16 @@ export default function EditProfileScreen({ navigation }) {
   const [bio, setBio] = React.useState(userData?.bio || '');
   const [age, setAge] = React.useState(userData?.age?.toString() || '');
   const [gender, setGender] = React.useState(userData?.gender || '');
-  const [profilePicture, setProfilePicture] = React.useState(userData?.avatar || user?.photoURL || '');
+  const [profilePicture, setProfilePicture] = React.useState(userData?.photoURL || userData?.avatar || user?.photoURL || '');
   const [saving, setSaving] = React.useState(false);
-  const [uploadingImage, setUploadingImage] = React.useState(false);
+
+  // Update profile picture when userData changes (e.g., after refresh)
+  React.useEffect(() => {
+    const newPhotoURL = userData?.photoURL || userData?.avatar || user?.photoURL || '';
+    if (newPhotoURL && newPhotoURL !== profilePicture) {
+      setProfilePicture(newPhotoURL);
+    }
+  }, [userData?.photoURL, userData?.avatar, user?.photoURL, profilePicture]);
 
   // Gender options
   const genderOptions = ['', 'Male', 'Female', 'Non-binary', 'Prefer not to say'];
@@ -49,23 +56,10 @@ export default function EditProfileScreen({ navigation }) {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setUploadingImage(true);
+        // Store the local file URI - it will be uploaded when saving
+        // This ensures it's uploaded to the correct path (avatar.jpg) via upsertUserProfile
         const imageUri = result.assets[0].uri;
-        
-        // Upload image to Firebase Storage
-        if (user?.uid) {
-          const uploadResult = await uploadImages([imageUri], user.uid, 'profile');
-          if (uploadResult.urls && uploadResult.urls.length > 0) {
-            setProfilePicture(uploadResult.urls[0]);
-            setUploadingImage(false);
-          } else {
-            Alert.alert('Error', 'Failed to upload profile picture. Please try again.');
-            setUploadingImage(false);
-          }
-        } else {
-          setProfilePicture(imageUri);
-          setUploadingImage(false);
-        }
+        setProfilePicture(imageUri);
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -93,23 +87,10 @@ export default function EditProfileScreen({ navigation }) {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setUploadingImage(true);
+        // Store the local file URI - it will be uploaded when saving
+        // This ensures it's uploaded to the correct path (avatar.jpg) via upsertUserProfile
         const imageUri = result.assets[0].uri;
-        
-        // Upload image to Firebase Storage
-        if (user?.uid) {
-          const uploadResult = await uploadImages([imageUri], user.uid, 'profile');
-          if (uploadResult.urls && uploadResult.urls.length > 0) {
-            setProfilePicture(uploadResult.urls[0]);
-            setUploadingImage(false);
-          } else {
-            Alert.alert('Error', 'Failed to upload profile picture. Please try again.');
-            setUploadingImage(false);
-          }
-        } else {
-          setProfilePicture(imageUri);
-          setUploadingImage(false);
-        }
+        setProfilePicture(imageUri);
       }
     } catch (error) {
       console.error('Error taking picture:', error);
@@ -150,8 +131,16 @@ export default function EditProfileScreen({ navigation }) {
       const { upsertUserProfile } = await import('../services/authService');
       
       // Determine if profile picture is a local URI that needs uploading
+      // If it's a local file URI, we'll upload it via pfpUri
+      // If it's already a URL, we'll use it as photoURL
       const pfpUri = profilePicture && profilePicture.startsWith('file://') ? profilePicture : null;
       const photoURL = profilePicture && !profilePicture.startsWith('file://') ? profilePicture : null;
+      
+      console.log('💾 Saving profile with:', { 
+        hasPfpUri: !!pfpUri, 
+        hasPhotoURL: !!photoURL, 
+        profilePictureType: profilePicture ? (profilePicture.startsWith('file://') ? 'file' : 'url') : 'none' 
+      });
       
       // Use upsertUserProfile (handles username reservation, avatar upload, etc.)
       const result = await upsertUserProfile(user.uid, {
@@ -188,14 +177,29 @@ export default function EditProfileScreen({ navigation }) {
         }
       }
 
-      // Success
+      // Success - refresh user data to get updated profile picture
       console.log('✅ Profile update completed');
+      
+      // Wait a moment for Firestore to update, then refresh user data
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Refresh user data to get the updated profile picture
+      try {
+        await refreshUserData(user.uid);
+        console.log('✅ User data refreshed after profile update');
+        console.log('✅ Updated photoURL:', userData?.photoURL || 'not set yet');
+      } catch (refreshError) {
+        console.warn('⚠️ Failed to refresh user data after profile update:', refreshError.message);
+        // Continue anyway - the profile was updated successfully
+      }
+      
       setSaving(false);
       
       Alert.alert('Success', 'Profile updated successfully!', [
         {
           text: 'OK',
           onPress: () => {
+            // Navigate back - ProfileScreen will refresh on focus
             navigation.goBack();
           },
         },
@@ -221,8 +225,8 @@ export default function EditProfileScreen({ navigation }) {
         <Appbar.Action
           icon="check"
           onPress={handleSave}
-          disabled={saving || uploadingImage}
-          color={saving || uploadingImage ? subText : IU_CRIMSON}
+          disabled={saving}
+          color={saving ? subText : IU_CRIMSON}
         />
       </Appbar.Header>
 
@@ -233,7 +237,7 @@ export default function EditProfileScreen({ navigation }) {
         {/* Profile Picture Section */}
         <View style={styles.profilePictureSection}>
           <View style={{ position: 'relative' }}>
-            <TouchableOpacity onPress={handlePickImage} disabled={uploadingImage}>
+            <TouchableOpacity onPress={handlePickImage} disabled={saving}>
               {profilePicture ? (
                 <Image
                   source={{ uri: profilePicture }}
@@ -248,7 +252,7 @@ export default function EditProfileScreen({ navigation }) {
             <TouchableOpacity 
               style={styles.cameraIconContainer}
               onPress={handleTakePicture}
-              disabled={uploadingImage}
+              disabled={saving}
               activeOpacity={0.7}
             >
               <MaterialCommunityIcons
@@ -258,7 +262,7 @@ export default function EditProfileScreen({ navigation }) {
               />
             </TouchableOpacity>
           </View>
-          {uploadingImage && (
+          {saving && profilePicture && profilePicture.startsWith('file://') && (
             <Text style={[styles.uploadingText, { color: subText }]}>Uploading...</Text>
           )}
         </View>
@@ -347,7 +351,7 @@ export default function EditProfileScreen({ navigation }) {
           mode="contained"
           onPress={handleSave}
           loading={saving}
-          disabled={saving || uploadingImage || !name.trim() || !username.trim()}
+          disabled={saving || !name.trim() || !username.trim()}
           buttonColor={IU_CRIMSON}
           textColor="#FFFFFF"
           style={styles.saveButton}
