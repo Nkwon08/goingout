@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native';
-import { Appbar, FAB, Text, Button, Avatar } from 'react-native-paper';
+import { Appbar, FAB, Text, Button, Avatar, Checkbox } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { useNavigation } from '@react-navigation/native';
@@ -15,7 +15,7 @@ import PollCard from '../components/PollCard';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { subscribeToUserGroups, deleteGroup } from '../services/groupsService';
+import { subscribeToUserGroups, deleteGroup, addMemberToGroup } from '../services/groupsService';
 import { shareLocationInGroup, stopSharingLocationInGroup, subscribeToGroupLocations } from '../services/groupLocationService';
 import { getCurrentLocation } from '../services/locationService';
 import { createGroupPoll, voteOnGroupPoll, subscribeToGroupPolls } from '../services/groupPollsService';
@@ -1817,13 +1817,18 @@ function PollsTab({ groupId }) {
 
 function GroupDetail({ group, onBack }) {
   const { background, text, subText, surface } = useThemeColors();
-  const { user } = useAuth();
+  const { user, friendsList: friendsListFromContext } = useAuth();
   const navigation = useNavigation();
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
   const [showMembersModal, setShowMembersModal] = React.useState(false);
   const [membersData, setMembersData] = React.useState([]);
   const [loadingMembers, setLoadingMembers] = React.useState(false);
+  const [showAddMembersModal, setShowAddMembersModal] = React.useState(false);
+  const [friendsWithData, setFriendsWithData] = React.useState([]);
+  const [selectedFriends, setSelectedFriends] = React.useState(new Set());
+  const [loadingFriends, setLoadingFriends] = React.useState(false);
+  const [addingMembers, setAddingMembers] = React.useState(false);
   
   // Handle member profile tap - navigate to user profile
   const handleMemberProfileTap = React.useCallback((member) => {
@@ -1899,6 +1904,115 @@ function GroupDetail({ group, onBack }) {
       setMembersData([]);
     }
   }, [showMembersModal, group?.members]);
+  
+  // Load friends data when add members modal opens
+  React.useEffect(() => {
+    if (showAddMembersModal && friendsListFromContext && group?.members) {
+      setLoadingFriends(true);
+      const loadFriends = async () => {
+        try {
+          // Convert friend usernames to UIDs
+          const { getAuthUidFromUsername } = await import('../services/friendsService');
+          const friendUids = await Promise.all(
+            friendsListFromContext.map(async (friendUsername) => {
+              try {
+                const uid = await getAuthUidFromUsername(friendUsername);
+                return uid;
+              } catch (error) {
+                console.error('Error converting username to UID:', error);
+                return null;
+              }
+            })
+          );
+          
+          // Filter out nulls and friends who are already members
+          const validFriendUids = friendUids.filter(uid => uid && !group.members.includes(uid));
+          
+          // Load friend user data
+          const friendsData = await Promise.all(
+            validFriendUids.map(async (uid) => {
+              try {
+                const { userData } = await getUserById(uid);
+                if (userData) {
+                  return {
+                    uid: uid,
+                    username: userData.username || 'unknown',
+                    name: userData.name || 'Unknown User',
+                    avatar: userData.photoURL || userData.avatar || null,
+                  };
+                }
+                return null;
+              } catch (error) {
+                console.error('Error loading friend data:', error);
+                return null;
+              }
+            })
+          );
+          
+          setFriendsWithData(friendsData.filter(f => f !== null));
+          setSelectedFriends(new Set()); // Reset selections
+        } catch (error) {
+          console.error('Error loading friends:', error);
+          setFriendsWithData([]);
+        } finally {
+          setLoadingFriends(false);
+        }
+      };
+      
+      loadFriends();
+    } else if (!showAddMembersModal) {
+      setFriendsWithData([]);
+      setSelectedFriends(new Set());
+    }
+  }, [showAddMembersModal, friendsListFromContext, group?.members]);
+
+  // Handle toggle friend selection
+  const handleToggleFriend = (friendUid) => {
+    setSelectedFriends((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(friendUid)) {
+        newSet.delete(friendUid);
+      } else {
+        newSet.add(friendUid);
+      }
+      return newSet;
+    });
+  };
+
+  // Handle add selected members to group
+  const handleAddMembers = async () => {
+    if (!group?.id || selectedFriends.size === 0) {
+      return;
+    }
+
+    setAddingMembers(true);
+    try {
+      const addPromises = Array.from(selectedFriends).map(async (friendUid) => {
+        const result = await addMemberToGroup(group.id, friendUid);
+        if (result.error && result.error !== 'User is already a member') {
+          console.error(`Error adding member ${friendUid}:`, result.error);
+          return { success: false, error: result.error };
+        }
+        return { success: true };
+      });
+
+      const results = await Promise.all(addPromises);
+      const successCount = results.filter(r => r.success).length;
+
+      if (successCount > 0) {
+        Alert.alert('Success', `Added ${successCount} member${successCount > 1 ? 's' : ''} to the group.`);
+        setShowAddMembersModal(false);
+        setSelectedFriends(new Set());
+      } else {
+        Alert.alert('Error', 'Failed to add members. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error adding members:', error);
+      Alert.alert('Error', 'Failed to add members. Please try again.');
+    } finally {
+      setAddingMembers(false);
+    }
+  };
   
   // Check if current user is the group owner
   const isOwner = group?.creator === user?.uid;
@@ -1984,9 +2098,11 @@ function GroupDetail({ group, onBack }) {
             disabled={deleting}
           />
         )}
-        <Button mode="contained" buttonColor={IU_CRIMSON} textColor="#FFFFFF" style={{ marginRight: 12 }}>
-          {formatTimeRemaining()}
-        </Button>
+        <Appbar.Action 
+          icon="account-plus" 
+          onPress={() => setShowAddMembersModal(true)}
+          color={text}
+        />
       </Appbar.Header>
       <TopTab.Navigator
         initialRouteName={isExpired ? "Album" : "Chat"}
@@ -2065,7 +2181,15 @@ function GroupDetail({ group, onBack }) {
         <View style={{ flex: 1, backgroundColor: background }}>
           <Appbar.Header mode="center-aligned" style={{ backgroundColor: background }}>
             <Appbar.Action icon="arrow-left" onPress={() => setShowMembersModal(false)} color={text} />
-            <Appbar.Content title="Group Members" color={text} />
+            <Appbar.Content title="Group Information" color={text} />
+            <Appbar.Action 
+              icon="account-plus" 
+              onPress={() => {
+                setShowMembersModal(false);
+                setShowAddMembersModal(true);
+              }}
+              color={text}
+            />
           </Appbar.Header>
           {loadingMembers ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -2074,6 +2198,22 @@ function GroupDetail({ group, onBack }) {
             </View>
           ) : membersData.length > 0 ? (
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+              {/* Timer Display */}
+              {group?.endTime && (
+                <View style={{ 
+                  backgroundColor: surface, 
+                  borderRadius: 12, 
+                  padding: 16, 
+                  marginBottom: 16,
+                  alignItems: 'center'
+                }}>
+                  <Text style={{ color: subText, fontSize: 12, marginBottom: 4 }}>Time Remaining</Text>
+                  <Text style={{ color: text, fontSize: 20, fontWeight: '600' }}>
+                    {formatTimeRemaining()}
+                  </Text>
+                </View>
+              )}
+              
               {membersData.map((member, index) => (
                 <View key={member.uid}>
                   <TouchableOpacity
@@ -2109,6 +2249,71 @@ function GroupDetail({ group, onBack }) {
           ) : (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
               <Text style={{ color: subText }}>No members found</Text>
+            </View>
+          )}
+        </View>
+      </Modal>
+
+      {/* Add Members Modal */}
+      <Modal
+        visible={showAddMembersModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowAddMembersModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: background }}>
+          <Appbar.Header mode="center-aligned" style={{ backgroundColor: background }}>
+            <Appbar.Action icon="arrow-left" onPress={() => setShowAddMembersModal(false)} color={text} />
+            <Appbar.Content title="Add Members" color={text} />
+            <Appbar.Action 
+              icon="check" 
+              onPress={handleAddMembers}
+              disabled={selectedFriends.size === 0 || addingMembers}
+              color={selectedFriends.size > 0 ? IU_CRIMSON : subText}
+            />
+          </Appbar.Header>
+          {loadingFriends ? (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+              <ActivityIndicator size="small" color={IU_CRIMSON} />
+              <Text style={{ color: subText, marginTop: 12 }}>Loading friends...</Text>
+            </View>
+          ) : friendsWithData.length > 0 ? (
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+              {friendsWithData.map((friend, index) => (
+                <View key={friend.uid}>
+                  <TouchableOpacity
+                    onPress={() => handleToggleFriend(friend.uid)}
+                    activeOpacity={0.7}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12 }}
+                  >
+                    <Avatar.Image
+                      size={48}
+                      source={{ uri: friend.avatar || 'https://i.pravatar.cc/100?img=12' }}
+                      style={{ backgroundColor: surface }}
+                    />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={{ color: text, fontSize: 16, fontWeight: '600' }}>
+                        {friend.name}
+                      </Text>
+                      <Text style={{ color: subText, fontSize: 14 }}>
+                        @{friend.username}
+                      </Text>
+                    </View>
+                    <Checkbox
+                      status={selectedFriends.has(friend.uid) ? 'checked' : 'unchecked'}
+                      onPress={() => handleToggleFriend(friend.uid)}
+                      color={IU_CRIMSON}
+                    />
+                  </TouchableOpacity>
+                  {index < friendsWithData.length - 1 && (
+                    <View style={{ height: 1, backgroundColor: surface, marginLeft: 60 }} />
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+              <Text style={{ color: subText }}>No friends available to add</Text>
             </View>
           )}
         </View>
