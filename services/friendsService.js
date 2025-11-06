@@ -235,37 +235,59 @@ export const removeFriend = async (currentUserId, friendId) => {
     }
 
     // Use transaction to ensure atomic updates (both users updated together or neither)
-    // IMPORTANT: Only update the current user's own document (no cross-user writes)
+    // IMPORTANT: Update BOTH users' friends arrays immediately for instant mutual unfriending
     await runTransaction(db, async (transaction) => {
       const currentUserRef = doc(db, 'users', currentUsername);
+      const friendUserRef = doc(db, 'users', friendUsername);
 
-      // Read current user document
-      const currentUserDoc = await transaction.get(currentUserRef);
+      // Read both documents in the transaction
+      const [currentUserDoc, friendUserDoc] = await Promise.all([
+        transaction.get(currentUserRef),
+        transaction.get(friendUserRef),
+      ]);
 
-      // Check if document exists
-      if (!currentUserDoc.exists()) {
+      // Check if documents exist
+      if (!currentUserDoc.exists() || !friendUserDoc.exists()) {
         throw new Error('User not found');
       }
 
       const currentUserData = currentUserDoc.data();
+      const friendUserData = friendUserDoc.data();
       const currentFriends = currentUserData.friends || [];
+      const friendFriends = friendUserData.friends || [];
       
       console.log('🗑️ [removeFriend] Current friends list:', currentFriends);
-      console.log('🗑️ [removeFriend] Checking if friendUsername is in list:', friendUsername, currentFriends.includes(friendUsername));
+      console.log('🗑️ [removeFriend] Friend friends list:', friendFriends);
+      console.log('🗑️ [removeFriend] Checking if friendUsername is in current list:', friendUsername, currentFriends.includes(friendUsername));
+      console.log('🗑️ [removeFriend] Checking if currentUsername is in friend list:', currentUsername, friendFriends.includes(currentUsername));
 
-      // Only remove if they're actually in the friends list
-      if (!currentFriends.includes(friendUsername)) {
-        console.log('⚠️ [removeFriend] Friend not in list, nothing to remove');
-        // Don't throw error, just return success (idempotent operation)
+      // Check if they're actually friends (at least one side)
+      const areFriendsOnCurrentSide = currentFriends.includes(friendUsername);
+      const areFriendsOnFriendSide = friendFriends.includes(currentUsername);
+
+      // If neither side has the friendship, nothing to do (idempotent operation)
+      if (!areFriendsOnCurrentSide && !areFriendsOnFriendSide) {
+        console.log('⚠️ [removeFriend] Not friends on either side, nothing to remove');
         return;
       }
 
-      // Only update current user's friends array (remove friendUsername)
-      // The friend will need to remove us from their list when they see the change
-      transaction.update(currentUserRef, {
-        friends: arrayRemove(friendUsername),
-        updatedAt: serverTimestamp(),
-      });
+      // Remove friendUsername from current user's friends array (if present)
+      if (areFriendsOnCurrentSide) {
+        transaction.update(currentUserRef, {
+          friends: arrayRemove(friendUsername),
+          updatedAt: serverTimestamp(),
+        });
+        console.log('🗑️ [removeFriend] Removed', friendUsername, 'from', currentUsername + "'s friends list");
+      }
+
+      // Remove currentUsername from friend's friends array (if present)
+      if (areFriendsOnFriendSide) {
+        transaction.update(friendUserRef, {
+          friends: arrayRemove(currentUsername),
+          updatedAt: serverTimestamp(),
+        });
+        console.log('🗑️ [removeFriend] Removed', currentUsername, 'from', friendUsername + "'s friends list");
+      }
     });
 
     console.log('✅ [removeFriend] Friend removed successfully:', currentUsername, 'removed', friendUsername);
