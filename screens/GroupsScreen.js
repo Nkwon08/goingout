@@ -1,8 +1,9 @@
 import * as React from 'react';
 import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native';
-import { Appbar, FAB, Text, Button } from 'react-native-paper';
+import { Appbar, FAB, Text, Button, Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
+import { useNavigation } from '@react-navigation/native';
 import MapView, { Marker } from 'react-native-maps';
 import { GiftedChat } from 'react-native-gifted-chat';
 import * as ImagePicker from 'expo-image-picker';
@@ -20,6 +21,7 @@ import { getCurrentLocation } from '../services/locationService';
 import { createGroupPoll, voteOnGroupPoll, subscribeToGroupPolls } from '../services/groupPollsService';
 import { subscribeToGroupPhotos, addPhotoToAlbum, addVideoToAlbum } from '../services/groupPhotosService';
 import { uploadImage } from '../services/storageService';
+import { getUserById } from '../services/usersService';
 
 const TopTab = createMaterialTopTabNavigator();
 
@@ -590,6 +592,8 @@ function ChatTab({ groupId }) {
             elevation: 4,
             minWidth: '80%',
             maxWidth: '85%',
+            marginLeft: 0, // Ensure no left margin
+            marginRight: 0, // Ensure no right margin
           }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
@@ -737,6 +741,8 @@ function ChatTab({ groupId }) {
           shadowRadius: 2,
           elevation: 2,
           maxWidth: '75%',
+          marginLeft: 0, // Ensure no left margin
+          marginRight: 0, // Ensure no right margin
         }}
       >
         {props.currentMessage.image && (
@@ -1072,12 +1078,16 @@ function ChatTab({ groupId }) {
             </Text>
           );
         }}
-        renderMessageContainer={(props) => {
-          // Explicitly check user ID to ensure own messages are always right-aligned
-          // This prevents GiftedChat's consecutive message grouping from affecting alignment
+        renderMessage={(props) => {
+          // Override default message rendering to prevent consecutive message indentation
           const messageUserId = String(props.currentMessage?.user?._id || '');
           const currentUserId = String(user?.uid || '');
           const isOwnMessage = messageUserId === currentUserId;
+          
+          // Check if previous message is from same user (consecutive message)
+          const previousMessage = props.previousMessage;
+          const isConsecutive = previousMessage && 
+            String(previousMessage.user?._id || '') === messageUserId;
           
           return (
             <View
@@ -1086,11 +1096,25 @@ function ChatTab({ groupId }) {
                 flexDirection: 'row',
                 justifyContent: isOwnMessage ? 'flex-end' : 'flex-start',
                 marginVertical: 4,
-                paddingHorizontal: 8,
+                paddingLeft: 0,
+                paddingRight: isOwnMessage ? 8 : 0, // Small right padding for own messages to align to edge
                 alignItems: 'flex-end',
+                marginLeft: 0,
+                marginRight: 0,
+                alignSelf: 'stretch',
               }}
             >
-              {props.children}
+              {/* Only show avatar for other users' messages, and only if not consecutive */}
+              {!isOwnMessage && !isConsecutive && (
+                <View style={{ marginRight: 8, marginBottom: 4 }}>
+                  <Image
+                    source={{ uri: props.currentMessage.user.avatar || 'https://i.pravatar.cc/100?img=12' }}
+                    style={{ width: 32, height: 32, borderRadius: 16 }}
+                  />
+                </View>
+              )}
+              {renderBubble(props)}
+              {/* Timestamp removed for now */}
             </View>
           );
         }}
@@ -1221,10 +1245,24 @@ function ChatTab({ groupId }) {
           left: { 
             marginLeft: 0,
             marginRight: 0,
+            paddingLeft: 0,
+            paddingRight: 0,
           },
           right: { 
             marginLeft: 0,
             marginRight: 0,
+            paddingLeft: 0,
+            paddingRight: 0,
+          },
+        }}
+        wrapperStyle={{
+          left: {
+            marginLeft: 0,
+            paddingLeft: 0,
+          },
+          right: {
+            marginRight: 0,
+            paddingRight: 0,
           },
         }}
       />
@@ -1462,7 +1500,29 @@ function AlbumTab({ groupId }) {
           <Text style={{ color: subText }}>Empty</Text>
         </View>
       )}
-      <FAB icon="plus" onPress={pick} style={{ position: 'absolute', right: 16, bottom: 16, backgroundColor: IU_CRIMSON }} iconColor="#FFFFFF" customSize={56} variant="primary" />
+      <TouchableOpacity
+        onPress={pick}
+        style={{
+          position: 'absolute',
+          right: 16,
+          bottom: 16,
+          width: 56,
+          height: 56,
+          borderRadius: 28,
+          backgroundColor: IU_CRIMSON,
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000,
+          elevation: 8,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 4,
+        }}
+        activeOpacity={0.8}
+      >
+        <MaterialCommunityIcons name="plus" size={28} color="#FFFFFF" />
+      </TouchableOpacity>
       
       {/* Full-screen Image Viewer Modal */}
       <Modal
@@ -1752,10 +1812,89 @@ function PollsTab({ groupId }) {
 }
 
 function GroupDetail({ group, onBack }) {
-  const { background, text, subText } = useThemeColors();
+  const { background, text, subText, surface } = useThemeColors();
   const { user } = useAuth();
+  const navigation = useNavigation();
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
+  const [showMembersModal, setShowMembersModal] = React.useState(false);
+  const [membersData, setMembersData] = React.useState([]);
+  const [loadingMembers, setLoadingMembers] = React.useState(false);
+  
+  // Handle member profile tap - navigate to user profile
+  const handleMemberProfileTap = React.useCallback((member) => {
+    if (!member || !member.username) {
+      return;
+    }
+
+    // Close members modal first
+    setShowMembersModal(false);
+
+    // Navigate to UserProfileModal in the root navigator
+    // Go up navigation hierarchy to find root navigator
+    let rootNavigator = navigation;
+    let parent = navigation.getParent();
+    
+    // Navigate up to find root navigator
+    while (parent) {
+      rootNavigator = parent;
+      parent = parent.getParent();
+    }
+    
+    // Navigate to the root modal
+    rootNavigator.navigate('UserProfileModal', { 
+      username: member.username 
+    });
+  }, [navigation]);
+  
+  // Load members data when modal opens
+  React.useEffect(() => {
+    if (showMembersModal && group?.members && Array.isArray(group.members)) {
+      setLoadingMembers(true);
+      const loadMembers = async () => {
+        try {
+          const members = await Promise.all(
+            group.members.map(async (memberUid) => {
+              try {
+                const { userData } = await getUserById(memberUid);
+                if (userData) {
+                  return {
+                    uid: memberUid,
+                    username: userData.username || 'unknown',
+                    name: userData.name || 'Unknown User',
+                    avatar: userData.photoURL || userData.avatar || null,
+                  };
+                }
+                return {
+                  uid: memberUid,
+                  username: 'unknown',
+                  name: 'Unknown User',
+                  avatar: null,
+                };
+              } catch (error) {
+                console.error('Error loading member data:', error);
+                return {
+                  uid: memberUid,
+                  username: 'unknown',
+                  name: 'Unknown User',
+                  avatar: null,
+                };
+              }
+            })
+          );
+          setMembersData(members);
+        } catch (error) {
+          console.error('Error loading members:', error);
+          setMembersData([]);
+        } finally {
+          setLoadingMembers(false);
+        }
+      };
+      loadMembers();
+    } else if (!showMembersModal) {
+      setMembersData([]);
+    }
+  }, [showMembersModal, group?.members]);
   
   // Check if current user is the group owner
   const isOwner = group?.creator === user?.uid;
@@ -1824,7 +1963,15 @@ function GroupDetail({ group, onBack }) {
     <View style={{ flex: 1, backgroundColor: background }}>
       <Appbar.Header mode="small" elevated={false} style={{ backgroundColor: background }}>
         <Appbar.Action icon="arrow-left" onPress={onBack} color={text} />
-        <Appbar.Content title={group?.name || 'Group'} color={text} />
+        <TouchableOpacity
+          onPress={() => setShowMembersModal(true)}
+          style={{ flex: 1, justifyContent: 'center', paddingLeft: 8 }}
+          activeOpacity={0.7}
+        >
+          <Text style={{ color: text, fontSize: 18, fontWeight: '500' }}>
+            {group?.name || 'Group'}
+          </Text>
+        </TouchableOpacity>
         {isOwner && (
           <Appbar.Action 
             icon="delete" 
@@ -1901,6 +2048,65 @@ function GroupDetail({ group, onBack }) {
               </Button>
             </View>
           </View>
+        </View>
+      </Modal>
+      
+      {/* Members List Modal */}
+      <Modal
+        visible={showMembersModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowMembersModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: background }}>
+          <Appbar.Header mode="center-aligned" style={{ backgroundColor: background }}>
+            <Appbar.Action icon="arrow-left" onPress={() => setShowMembersModal(false)} color={text} />
+            <Appbar.Content title="Group Members" color={text} />
+          </Appbar.Header>
+          {loadingMembers ? (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+              <ActivityIndicator size="small" color={IU_CRIMSON} />
+              <Text style={{ color: subText, marginTop: 12 }}>Loading members...</Text>
+            </View>
+          ) : membersData.length > 0 ? (
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+              {membersData.map((member, index) => (
+                <View key={member.uid}>
+                  <TouchableOpacity
+                    onPress={() => handleMemberProfileTap(member)}
+                    activeOpacity={0.7}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12 }}
+                  >
+                    <Avatar.Image
+                      size={48}
+                      source={{ uri: member.avatar || 'https://i.pravatar.cc/100?img=12' }}
+                      style={{ backgroundColor: surface }}
+                    />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={{ color: text, fontSize: 16, fontWeight: '600' }}>
+                        {member.name}
+                      </Text>
+                      <Text style={{ color: subText, fontSize: 14 }}>
+                        @{member.username}
+                      </Text>
+                    </View>
+                    {member.uid === group?.creator && (
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: IU_CRIMSON, borderRadius: 12 }}>
+                        <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>Creator</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                  {index < membersData.length - 1 && (
+                    <View style={{ height: 1, backgroundColor: surface, marginLeft: 60 }} />
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+              <Text style={{ color: subText }}>No members found</Text>
+            </View>
+          )}
         </View>
       </Modal>
     </View>
