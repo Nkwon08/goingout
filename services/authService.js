@@ -209,11 +209,15 @@ export const upsertUserProfile = async (uid, payload = {}) => {
     let photoURL = payload.photoURL ?? null;
     if (payload.pfpUri && !photoURL) {
       try {
+        console.log('[upsertUserProfile] Uploading avatar from pfpUri:', payload.pfpUri);
         photoURL = await uploadAvatarAndGetURL(uid, payload.pfpUri);
+        console.log('[upsertUserProfile] Avatar uploaded successfully:', photoURL);
       } catch (error) {
-        console.warn('[upsertUserProfile] Avatar upload failed:', error.message);
+        console.error('[upsertUserProfile] Avatar upload failed:', error.message);
         // Continue without photoURL
       }
+    } else if (payload.photoURL) {
+      console.log('[upsertUserProfile] Using provided photoURL:', payload.photoURL);
     }
     
     // Fallbacks for name and photoURL
@@ -268,7 +272,7 @@ export const upsertUserProfile = async (uid, payload = {}) => {
     
     try {
       await setDoc(userRef, write, { merge: true });
-      console.log('[upsertUserProfile] write', { uid, username, hasPhoto: !!photoURL });
+      console.log('[upsertUserProfile] write', { uid, username, hasPhoto: !!photoURL, photoURL });
       return { success: true, error: null };
     } catch (writeError) {
       console.error('[upsertUserProfile] Write error:', writeError);

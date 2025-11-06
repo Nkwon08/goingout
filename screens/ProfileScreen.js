@@ -276,7 +276,7 @@ export default function ProfileScreen({ navigation }) {
       {/* Profile Header Section */}
       <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 20, backgroundColor: bgColor }}>
         {/* Profile Photo on the left */}
-        <Avatar.Image size={96} source={{ uri: userData?.avatar || 'https://i.pravatar.cc/200?img=12' }} />
+        <Avatar.Image size={96} source={{ uri: userData?.photoURL || userData?.avatar || 'https://i.pravatar.cc/200?img=12' }} />
         
         {/* User info on the right */}
         <View style={{ flex: 1, marginLeft: 16, justifyContent: 'center' }}>

@@ -10,7 +10,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyA4LjGDNcL_MnTKN28zhtVB3Tc8T5G3Gkk",
   authDomain: "goingout-8b2e0.firebaseapp.com",
   projectId: "goingout-8b2e0",
-  storageBucket: "goingout-8b2e0.appspot.com",
+  storageBucket: "goingout-8b2e0.firebasestorage.app",
   messagingSenderId: "861094736123",
   appId: "1:861094736123:web:4e7163d87a8624b3ae805e",
   measurementId: "G-VRM4FBNHM7",
@@ -37,6 +37,17 @@ const db = initializeFirestore(app, {
   useFetchStreams: false,
 });
 
-const storage = getStorage(app);
+// Initialize Storage - try explicit bucket first, fallback to default
+let storage;
+try {
+  // First try with explicit bucket name
+  storage = getStorage(app, firebaseConfig.storageBucket);
+  console.log('✅ Storage initialized with bucket:', firebaseConfig.storageBucket);
+} catch (error) {
+  console.warn('⚠️ Failed to initialize Storage with explicit bucket, trying default:', error.message);
+  // Fallback to default bucket
+  storage = getStorage(app);
+  console.log('✅ Storage initialized with default bucket');
+}
 
 export { app, auth, db, storage };
