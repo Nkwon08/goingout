@@ -45,6 +45,7 @@ import {
   updateDoc,
   doc,
   setDoc,
+  addDoc,
   deleteDoc,
   serverTimestamp,
   onSnapshot,
@@ -393,59 +394,70 @@ export const subscribeToFriends = (userId, callback) => {
 
 /**
  * Send a friend request
- * Creates a friend request document in friendRequests collection
- * @param {string} fromUserId - User sending the request
- * @param {string} toUserId - User receiving the request
+ * Creates a friend request document in friendRequests collection using addDoc
+ * Requires auth.currentUser.uid - rejects self-requests
+ * @param {string} targetUid - User receiving the request
  * @returns {Promise<{ success: boolean, error: string|null }>}
  */
-export const sendFriendRequest = async (fromUserId, toUserId) => {
+export const sendFriendRequest = async (targetUid) => {
   try {
+    // Require auth.currentUser.uid
+    if (!auth || !auth.currentUser || !auth.currentUser.uid) {
+      return { success: false, error: 'User not authenticated' };
+    }
+
+    const fromUserId = auth.currentUser.uid;
+    const toUserId = targetUid;
+
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
       return { success: false, error: 'Firestore not configured' };
     }
 
-    if (!fromUserId || !toUserId || fromUserId === toUserId) {
-      return { success: false, error: 'Invalid user IDs' };
+    // Reject self-requests
+    if (!toUserId || fromUserId === toUserId) {
+      return { success: false, error: 'Cannot send friend request to yourself' };
     }
 
-    // Check if already friends
-    const fromUserRef = doc(db, 'users', fromUserId);
-    const fromUserDoc = await getDoc(fromUserRef);
-    if (fromUserDoc.exists()) {
-      const fromUserData = fromUserDoc.data();
-      if ((fromUserData.friends || []).includes(toUserId)) {
-        return { success: false, error: 'Already friends' };
-      }
-    }
-
-    // Check if request already exists
-    const requestId = `${fromUserId}_${toUserId}`;
-    const requestRef = doc(db, 'friendRequests', requestId);
-    const existingRequest = await getDoc(requestRef);
-    
-    if (existingRequest.exists()) {
-      const requestData = existingRequest.data();
-      if (requestData.status === 'pending') {
-        return { success: false, error: 'Request already sent' };
-      }
-      // If request exists but is not pending, we can't delete it (only receiver can)
-      // Just return error - they should wait for it to be processed
-      return { success: false, error: 'A previous request exists. Please wait for it to be processed.' };
-    }
-
-    // Create friend request (only create if document doesn't exist)
-    await setDoc(requestRef, {
-      fromUserId,
-      toUserId,
+    // Prepare payload
+    const payload = {
+      fromUserId: fromUserId,
+      toUserId: toUserId,
       status: 'pending',
       createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+    };
 
-    console.log('✅ Friend request sent:', fromUserId, '→', toUserId);
+    // Log path and payload before write
+    const collectionPath = 'friendRequests';
+    console.log('📝 Sending friend request:');
+    console.log('   Path: friendRequests/ (addDoc will generate ID)');
+    console.log('   Payload:', {
+      fromUserId: payload.fromUserId,
+      toUserId: payload.toUserId,
+      status: payload.status,
+      createdAt: '[serverTimestamp]',
+    });
+    console.log('   Method: addDoc');
+
+    // Use addDoc to create document (Firestore will generate ID)
+    const collectionRef = collection(db, collectionPath);
+    const docRef = await addDoc(collectionRef, payload);
+
+    console.log('✅ Friend request sent successfully:', fromUserId, '→', toUserId);
+    console.log('   Document ID:', docRef.id);
+    console.log('   Full path: friendRequests/' + docRef.id);
     return { success: true, error: null };
   } catch (error) {
     console.error('❌ Error sending friend request:', error);
+    console.error('   Error code:', error.code);
+    console.error('   Error message:', error.message);
+    console.error('   Write path: friendRequests/ (addDoc)');
+    console.error('   Full payload:', {
+      fromUserId: auth?.currentUser?.uid || 'unknown',
+      toUserId: targetUid || 'unknown',
+      status: 'pending',
+      createdAt: '[serverTimestamp]',
+    });
+    console.error('   Method used: addDoc');
     return { success: false, error: error.message || 'Failed to send friend request' };
   }
 };
