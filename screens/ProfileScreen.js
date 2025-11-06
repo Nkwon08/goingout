@@ -350,10 +350,21 @@ export default function ProfileScreen({ navigation }) {
   const [showAllPosts, setShowAllPosts] = React.useState(false);
   const [showFriendsList, setShowFriendsList] = React.useState(false);
   const [selectedPost, setSelectedPost] = React.useState(null);
+  const [avatarKey, setAvatarKey] = React.useState(0);
   
   const { isDarkMode, toggleTheme } = useTheme();
   const { user, userData, refreshUserData, friendsList } = useAuth();
   const themeColors = useThemeColors();
+  
+  // Update avatar key when photoURL changes to force image reload
+  const prevPhotoURL = React.useRef(userData?.photoURL || userData?.avatar);
+  React.useEffect(() => {
+    const currentPhotoURL = userData?.photoURL || userData?.avatar;
+    if (currentPhotoURL && currentPhotoURL !== prevPhotoURL.current) {
+      prevPhotoURL.current = currentPhotoURL;
+      setAvatarKey(prev => prev + 1);
+    }
+  }, [userData?.photoURL, userData?.avatar]);
   
   // Logout handler
   const handleLogout = React.useCallback(async () => {
@@ -441,7 +452,11 @@ export default function ProfileScreen({ navigation }) {
     const unsubscribe = navigation.addListener('focus', () => {
       if (user?.uid) {
         console.log('🔄 Refreshing user data on screen focus...');
-        refreshUserData(user.uid);
+        // Reduced delay to make refresh faster while still ensuring Firestore has updated
+        setTimeout(() => {
+          refreshUserData(user.uid);
+          console.log('✅ ProfileScreen refresh completed');
+        }, 800); // Reduced from 2000ms to 800ms
         
         setLoadingLocation(true);
         getCurrentLocation()
@@ -522,8 +537,11 @@ export default function ProfileScreen({ navigation }) {
             backgroundColor: '#2A2A2A',
           }}>
             <Avatar.Image 
+              key={`avatar-${avatarKey}`}
               size={120} 
-              source={{ uri: userData?.photoURL || userData?.avatar || 'https://i.pravatar.cc/200?img=12' }}
+              source={{ 
+                uri: (userData?.photoURL || userData?.avatar || 'https://i.pravatar.cc/200?img=12') + (userData?.photoURL || userData?.avatar ? `?t=${avatarKey}` : '')
+              }}
               style={{
                 width: '100%',
                 height: '100%',
