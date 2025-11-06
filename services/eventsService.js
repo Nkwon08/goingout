@@ -179,6 +179,152 @@ export const subscribeToUpcomingEvents = (callback, limitCount = 50) => {
   }
 };
 
+// Get a single event by ID
+export const getEventById = async (eventId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { event: null, error: 'Firestore not configured' };
+    }
+
+    const eventRef = doc(db, 'events', eventId);
+    const eventDoc = await getDoc(eventRef);
+    
+    if (!eventDoc.exists()) {
+      return { event: null, error: 'Event not found' };
+    }
+
+    const data = eventDoc.data();
+    const event = {
+      id: eventDoc.id,
+      title: data.title,
+      description: data.description,
+      location: data.location,
+      host: data.host,
+      image: data.image,
+      date: data.date?.toDate ? data.date.toDate() : data.date,
+      startTime: data.startTime?.toDate ? data.startTime.toDate() : data.startTime,
+      endTime: data.endTime?.toDate ? data.endTime.toDate() : data.endTime,
+      createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt,
+      userId: data.userId,
+      creatorName: data.creatorName,
+      creatorUsername: data.creatorUsername,
+      creatorAvatar: data.creatorAvatar,
+      // Format time string for display
+      time: formatDateTime(
+        data.date?.toDate ? data.date.toDate() : data.date,
+        data.startTime?.toDate ? data.startTime.toDate() : data.startTime
+      ),
+    };
+
+    return { event, error: null };
+  } catch (error) {
+    console.error('❌ Error fetching event:', error);
+    return { event: null, error: error.message };
+  }
+};
+
+// Join an event - creates or adds user to the event's group
+export const joinEvent = async (eventId, userId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { success: false, error: 'Firestore not configured' };
+    }
+
+    // Get the event
+    const eventRef = doc(db, 'events', eventId);
+    const eventDoc = await getDoc(eventRef);
+
+    if (!eventDoc.exists()) {
+      return { success: false, error: 'Event not found' };
+    }
+
+    const eventData = eventDoc.data();
+    let groupId = eventData.groupId;
+
+    // If event doesn't have a group yet, create one
+    if (!groupId) {
+      const { createGroup } = await import('./groupsService');
+      
+      // Create group with event details
+      // The event creator is automatically the group creator and first member
+      // Note: createGroup automatically adds the creator to members, so we pass empty array
+      const groupResult = await createGroup({
+        name: eventData.title,
+        description: `Group for ${eventData.title}`,
+        creator: eventData.userId, // Event creator is group creator
+        members: [], // Empty - creator is automatically added by createGroup
+        startTime: eventData.startTime?.toDate ? eventData.startTime.toDate() : eventData.startTime,
+        endTime: eventData.endTime?.toDate ? eventData.endTime.toDate() : eventData.endTime,
+      });
+
+      if (groupResult.error) {
+        return { success: false, error: groupResult.error };
+      }
+
+      groupId = groupResult.groupId;
+
+      // Update event with groupId
+      await updateDoc(eventRef, {
+        groupId: groupId,
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    // Add user to the group (if not already a member)
+    // Note: The event creator is already a member, so they won't be added again
+    const { addMemberToGroup } = await import('./groupsService');
+    const addResult = await addMemberToGroup(groupId, userId);
+
+    if (addResult.error && addResult.error !== 'User is already a member') {
+      return { success: false, error: addResult.error };
+    }
+
+    return { success: true, groupId, error: null };
+  } catch (error) {
+    console.error('❌ Error joining event:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Check if user has joined an event
+export const checkEventJoinStatus = async (eventId, userId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { joined: false, error: 'Firestore not configured' };
+    }
+
+    // Get the event
+    const eventRef = doc(db, 'events', eventId);
+    const eventDoc = await getDoc(eventRef);
+
+    if (!eventDoc.exists()) {
+      return { joined: false, error: 'Event not found' };
+    }
+
+    const eventData = eventDoc.data();
+    const groupId = eventData.groupId;
+
+    // If no group exists, user hasn't joined
+    if (!groupId) {
+      return { joined: false, error: null };
+    }
+
+    // Check if user is in the group
+    const { getGroupById } = await import('./groupsService');
+    const { group, error } = await getGroupById(groupId);
+
+    if (error) {
+      return { joined: false, error };
+    }
+
+    const joined = group?.members?.includes(userId) || false;
+    return { joined, groupId, error: null };
+  } catch (error) {
+    console.error('❌ Error checking event join status:', error);
+    return { joined: false, error: error.message };
+  }
+};
+
 // Helper function to format date and time for display
 const formatDateTime = (date, time) => {
   if (!date || !time) return '';
@@ -189,6 +335,56 @@ const formatDateTime = (date, time) => {
   const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const timeStr = timeObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   return `${dateStr} at ${timeStr}`;
+};
+
+// Update an event (only creator can update)
+export const updateEvent = async (eventId, userId, eventData) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { error: 'Firestore not configured' };
+    }
+
+    const eventRef = doc(db, 'events', eventId);
+    const eventDoc = await getDoc(eventRef);
+    
+    if (!eventDoc.exists()) {
+      return { error: 'Event not found' };
+    }
+
+    if (eventDoc.data().userId !== userId) {
+      return { error: 'You can only update your own events' };
+    }
+
+    // Convert Date objects to Firestore Timestamps
+    const dateTimestamp = eventData.date instanceof Date 
+      ? Timestamp.fromDate(eventData.date) 
+      : Timestamp.fromMillis(eventData.date.getTime ? eventData.date.getTime() : eventData.date);
+    
+    const startTimeTimestamp = eventData.startTime instanceof Date 
+      ? Timestamp.fromDate(eventData.startTime) 
+      : Timestamp.fromMillis(eventData.startTime.getTime ? eventData.startTime.getTime() : eventData.startTime);
+    
+    const endTimeTimestamp = eventData.endTime instanceof Date 
+      ? Timestamp.fromDate(eventData.endTime) 
+      : Timestamp.fromMillis(eventData.endTime.getTime ? eventData.endTime.getTime() : eventData.endTime);
+
+    await updateDoc(eventRef, {
+      title: eventData.name.trim(),
+      description: eventData.description.trim(),
+      location: eventData.location.trim(),
+      host: eventData.host.trim(),
+      image: eventData.photo || eventDoc.data().image, // Keep existing image if no new photo
+      date: dateTimestamp,
+      startTime: startTimeTimestamp,
+      endTime: endTimeTimestamp,
+      updatedAt: serverTimestamp(),
+    });
+
+    return { error: null };
+  } catch (error) {
+    console.error('❌ Error updating event:', error);
+    return { error: error.message };
+  }
 };
 
 // Delete an event (only creator can delete)

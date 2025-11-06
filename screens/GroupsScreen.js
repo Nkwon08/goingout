@@ -1941,7 +1941,7 @@ function GroupDetail({ group, onBack }) {
     
     setDeleting(true);
     try {
-      const { error } = await deleteGroup(group.id);
+      const { error } = await deleteGroup(group.id, user.uid);
       if (error) {
         Alert.alert('Error', error);
       } else {
@@ -2205,7 +2205,7 @@ export default function GroupsScreen({ navigation }) {
     
     setDeleting(true);
     try {
-      const { error } = await deleteGroup(selectedGroupForDelete.id);
+      const { error } = await deleteGroup(selectedGroupForDelete.id, user.uid);
       if (error) {
         Alert.alert('Error', error);
       } else {

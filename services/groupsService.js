@@ -397,11 +397,30 @@ export const declineGroupInvitation = async (notificationId, userId) => {
   }
 };
 
-// Delete a group
-export const deleteGroup = async (groupId) => {
+// Delete a group (only creator can delete)
+export const deleteGroup = async (groupId, userId) => {
   try {
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
       return { error: 'Firestore not configured' };
+    }
+
+    if (!userId) {
+      return { error: 'User ID is required' };
+    }
+
+    // Get the group to verify ownership
+    const groupRef = doc(db, 'groups', groupId);
+    const groupDoc = await getDoc(groupRef);
+
+    if (!groupDoc.exists()) {
+      return { error: 'Group not found' };
+    }
+
+    const groupData = groupDoc.data();
+    
+    // Verify that the user is the group creator
+    if (groupData.creator !== userId) {
+      return { error: 'Only the group creator can delete the group' };
     }
 
     // Delete all messages in the messages subcollection first
@@ -433,7 +452,6 @@ export const deleteGroup = async (groupId) => {
     await Promise.all(deletePollPromises);
 
     // Delete the group document
-    const groupRef = doc(db, 'groups', groupId);
     await deleteDoc(groupRef);
     
     return { error: null };

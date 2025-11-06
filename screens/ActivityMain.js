@@ -10,7 +10,7 @@ import CreateEventModal from '../components/CreateEventModal';
 import { events, feedPosts } from '../data/mock';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
-import { createEvent, subscribeToUpcomingEvents } from '../services/eventsService';
+import { createEvent, subscribeToUpcomingEvents, joinEvent, updateEvent, deleteEvent } from '../services/eventsService';
 
 const SectionHeader = ({ title, textColor }) => (
   <Text variant="titleLarge" style={{ color: textColor, marginBottom: 12 }}>{title}</Text>
@@ -19,6 +19,7 @@ const SectionHeader = ({ title, textColor }) => (
 export default function ActivityMain() {
   const [selectedLocation, setSelectedLocation] = React.useState(null);
   const [createEventVisible, setCreateEventVisible] = React.useState(false);
+  const [editEvent, setEditEvent] = React.useState(null);
   const [localEvents, setLocalEvents] = React.useState([]);
   const [loadingEvents, setLoadingEvents] = React.useState(true);
   const { background, text, subText } = useThemeColors();
@@ -133,51 +134,99 @@ export default function ActivityMain() {
       {upcomingEvents.length > 0 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
           {upcomingEvents.map((e, index) => (
-            <EventCard key={e.id || index} event={e} onJoin={() => {}} onSave={() => {}} />
+            <EventCard 
+              key={e.id || index} 
+              event={e} 
+              onJoin={async (eventId) => {
+                if (!user?.uid) {
+                  Alert.alert('Error', 'You must be logged in to join events.');
+                  return;
+                }
+
+                try {
+                  const result = await joinEvent(eventId, user.uid);
+                  
+                  if (result.error) {
+                    Alert.alert('Error', result.error);
+                  } else {
+                    Alert.alert('Success', 'You have joined this event! You can now chat with other attendees in the Groups tab.');
+                  }
+                } catch (error) {
+                  Alert.alert('Error', 'Failed to join event. Please try again.');
+                }
+              }}
+              onEdit={(event) => {
+                setEditEvent(event);
+                setCreateEventVisible(true);
+              }}
+            />
           ))}
         </ScrollView>
       ) : null}
 
-      {/* Create Event Modal */}
+      {/* Create/Edit Event Modal */}
       <CreateEventModal
         visible={createEventVisible}
-        onClose={() => setCreateEventVisible(false)}
-        onSubmit={async (eventData) => {
-          console.log('Creating event with data:', eventData);
-          
-          if (!user?.uid) {
-            Alert.alert('Error', 'You must be logged in to create events.');
-            return;
-          }
-
-          // Save to Firebase
-          const result = await createEvent(user.uid, userData || {
-            name: user?.displayName || user?.email || 'User',
-            username: userData?.username || user?.email?.split('@')[0] || 'user',
-            photoURL: userData?.photoURL || userData?.avatar || null,
-            avatar: userData?.avatar || null,
-          }, {
-            name: eventData.name,
-            description: eventData.description,
-            location: eventData.location,
-            host: eventData.host,
-            photo: eventData.photo,
-            date: eventData.date,
-            startTime: eventData.startTime,
-            endTime: eventData.endTime,
-          });
-
-          if (result.error) {
-            Alert.alert('Error', `Failed to create event: ${result.error}`);
-            return;
-          }
-
-          console.log('Event created successfully with ID:', result.eventId);
-          
-          // Close modal
+        onClose={() => {
           setCreateEventVisible(false);
-          
-          // The event will automatically appear via the real-time subscription
+          setEditEvent(null);
+        }}
+        onSubmit={async (eventData) => {
+          if (editEvent) {
+            // Editing existing event
+            if (!user?.uid) {
+              Alert.alert('Error', 'You must be logged in to edit events.');
+              return;
+            }
+
+            const result = await updateEvent(editEvent.id, user.uid, eventData);
+            
+            if (result.error) {
+              Alert.alert('Error', `Failed to update event: ${result.error}`);
+              return;
+            }
+
+            Alert.alert('Success', 'Event updated successfully!');
+            setCreateEventVisible(false);
+            setEditEvent(null);
+          } else {
+            // Creating new event
+            console.log('Creating event with data:', eventData);
+            
+            if (!user?.uid) {
+              Alert.alert('Error', 'You must be logged in to create events.');
+              return;
+            }
+
+            // Save to Firebase
+            const result = await createEvent(user.uid, userData || {
+              name: user?.displayName || user?.email || 'User',
+              username: userData?.username || user?.email?.split('@')[0] || 'user',
+              photoURL: userData?.photoURL || userData?.avatar || null,
+              avatar: userData?.avatar || null,
+            }, {
+              name: eventData.name,
+              description: eventData.description,
+              location: eventData.location,
+              host: eventData.host,
+              photo: eventData.photo,
+              date: eventData.date,
+              startTime: eventData.startTime,
+              endTime: eventData.endTime,
+            });
+
+            if (result.error) {
+              Alert.alert('Error', `Failed to create event: ${result.error}`);
+              return;
+            }
+
+            console.log('Event created successfully with ID:', result.eventId);
+            
+            // Close modal
+            setCreateEventVisible(false);
+            
+            // The event will automatically appear via the real-time subscription
+          }
         }}
         currentUser={{
           ...(userData || { 
@@ -185,6 +234,25 @@ export default function ActivityMain() {
             username: user?.email?.split('@')[0] || 'user'
           }),
           uid: user?.uid
+        }}
+        event={editEvent}
+        isEditMode={!!editEvent}
+        onDelete={async (eventId) => {
+          if (!user?.uid) {
+            Alert.alert('Error', 'You must be logged in to delete events.');
+            return;
+          }
+
+          const result = await deleteEvent(eventId, user.uid);
+          
+          if (result.error) {
+            Alert.alert('Error', result.error);
+            return;
+          }
+
+          Alert.alert('Success', 'Event deleted successfully');
+          setCreateEventVisible(false);
+          setEditEvent(null);
         }}
       />
     </ScrollView>

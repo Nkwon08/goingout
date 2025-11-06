@@ -10,7 +10,7 @@ import { uploadImage } from '../services/storageService';
 
 const IU_CRIMSON = '#990000';
 
-export default function CreateEventModal({ visible, onClose, onSubmit, currentUser }) {
+export default function CreateEventModal({ visible, onClose, onSubmit, currentUser, event, isEditMode = false, onDelete }) {
   const { surface, text, subText, background, border } = useThemeColors();
   
   // State for event content
@@ -20,6 +20,7 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
   const [host, setHost] = React.useState('');
   const [photo, setPhoto] = React.useState(null);
   const [submitting, setSubmitting] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   
   // Date and time state
   const [date, setDate] = React.useState(new Date());
@@ -29,23 +30,46 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
   const [showStartTimePicker, setShowStartTimePicker] = React.useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = React.useState(false);
 
-  // Set default host from current user when modal opens
+  // Set default host from current user when modal opens, or load event data if editing
   React.useEffect(() => {
     if (visible) {
-      // Reset form when modal opens
-      setName('');
-      setDescription('');
-      setLocation('');
-      setHost(currentUser?.name || currentUser?.username || '');
-      setPhoto(null);
+      if (isEditMode && event) {
+        // Load event data for editing
+        setName(event.title || '');
+        setDescription(event.description || '');
+        setLocation(event.location || '');
+        setHost(event.host || '');
+        setPhoto(event.image || null);
+        
+        // Set dates and times
+        if (event.date) {
+          const eventDate = event.date instanceof Date ? event.date : event.date.toDate ? event.date.toDate() : new Date(event.date);
+          setDate(eventDate);
+        }
+        if (event.startTime) {
+          const start = event.startTime instanceof Date ? event.startTime : event.startTime.toDate ? event.startTime.toDate() : new Date(event.startTime);
+          setStartTime(start);
+        }
+        if (event.endTime) {
+          const end = event.endTime instanceof Date ? event.endTime : event.endTime.toDate ? event.endTime.toDate() : new Date(event.endTime);
+          setEndTime(end);
+        }
+      } else {
+        // Reset form when creating new event
+        setName('');
+        setDescription('');
+        setLocation('');
+        setHost(currentUser?.name || currentUser?.username || '');
+        setPhoto(null);
+        // Set default date to today, start time to current hour, end time to 2 hours later
+        const now = new Date();
+        setDate(now);
+        setStartTime(now);
+        const endTimeDefault = new Date(now);
+        endTimeDefault.setHours(now.getHours() + 2);
+        setEndTime(endTimeDefault);
+      }
       setSubmitting(false);
-      // Set default date to today, start time to current hour, end time to 2 hours later
-      const now = new Date();
-      setDate(now);
-      setStartTime(now);
-      const endTimeDefault = new Date(now);
-      endTimeDefault.setHours(now.getHours() + 2);
-      setEndTime(endTimeDefault);
       setShowDatePicker(false);
       setShowStartTimePicker(false);
       setShowEndTimePicker(false);
@@ -61,7 +85,7 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
       setShowStartTimePicker(false);
       setShowEndTimePicker(false);
     }
-  }, [visible, currentUser]);
+  }, [visible, currentUser, isEditMode, event]);
 
   const handlePickPhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -186,6 +210,38 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
     setPhoto(null);
   };
 
+  const handleDelete = async () => {
+    if (!onDelete || !event?.id) {
+      return;
+    }
+
+    Alert.alert(
+      'Delete Event',
+      'Are you sure you want to delete this event? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              await onDelete(event.id);
+            } catch (error) {
+              console.error('Error deleting event:', error);
+              Alert.alert('Error', 'Failed to delete event. Please try again.');
+            } finally {
+              setDeleting(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
       <KeyboardAvoidingView
@@ -202,7 +258,7 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
                     <Text style={[styles.cancelText, { color: text }]}>Cancel</Text>
                   </TouchableOpacity>
                   <View style={styles.titleContainer}>
-                    <Text style={[styles.title, { color: text }]}>Create Event</Text>
+                    <Text style={[styles.title, { color: text }]}>{isEditMode ? 'Edit Event' : 'Create Event'}</Text>
                   </View>
                   <TouchableOpacity
                     onPress={handleSubmit}
@@ -212,7 +268,7 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
                       ((!name.trim() || !description.trim() || !location.trim() || !host.trim()) || submitting) && styles.submitButtonDisabled
                     ]}
                   >
-                    <Text style={styles.submitButtonText}>{submitting ? 'Creating...' : 'Create'}</Text>
+                    <Text style={styles.submitButtonText}>{submitting ? (isEditMode ? 'Saving...' : 'Creating...') : (isEditMode ? 'Save' : 'Create')}</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -384,6 +440,23 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
                     </View>
                   </View>
                 </ScrollView>
+
+                {/* Delete Button - Only show in edit mode */}
+                {isEditMode && (
+                  <View style={styles.deleteContainer}>
+                    <Button
+                      mode="outlined"
+                      textColor="#FF6B6B"
+                      onPress={handleDelete}
+                      loading={deleting}
+                      disabled={deleting}
+                      icon="delete"
+                      style={styles.deleteButton}
+                    >
+                      Delete Event
+                    </Button>
+                  </View>
+                )}
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -521,6 +594,14 @@ const styles = StyleSheet.create({
   },
   dateTimeText: {
     fontSize: 16,
+  },
+  deleteContainer: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#D0CFCD',
+  },
+  deleteButton: {
+    borderColor: '#FF6B6B',
   },
 });
 
