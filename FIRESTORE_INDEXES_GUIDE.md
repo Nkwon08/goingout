@@ -2,7 +2,7 @@
 
 ## Do You Need Indexes?
 
-**Yes, you need ONE composite index** for storing and querying posts efficiently.
+**Yes, you need TWO indexes** for storing and querying posts and events efficiently.
 
 ## Index Required for Posts Collection
 
@@ -13,6 +13,16 @@
 - Order by: `createdAt` (descending)
 
 This requires a **composite index** because you're filtering by one field (`expiresAt`) and ordering by another (`createdAt`).
+
+## Index Required for Events Collection
+
+### Index Needed: `events` collection
+
+**Query Pattern:**
+- Filter by: `endTime > now`
+- Order by: `endTime` (ascending)
+
+This requires an index on `endTime` for efficient querying.
 
 ## How to Create the Index
 
@@ -30,6 +40,7 @@ This requires a **composite index** because you're filtering by one field (`expi
 
 ### Option 2: Manual Creation
 
+#### Posts Index:
 1. Go to [Firebase Console - Firestore Indexes](https://console.firebase.google.com/project/goingout-8b2e0/firestore/indexes)
 2. Click **"Create Index"**
 3. Configure:
@@ -37,6 +48,17 @@ This requires a **composite index** because you're filtering by one field (`expi
    - **Fields to index:**
      - Field: `expiresAt` → Mode: **Ascending**
      - Field: `createdAt` → Mode: **Descending**
+   - **Query scope:** Collection
+4. Click **"Create"**
+5. Wait 1-5 minutes for the index to build
+
+#### Events Index:
+1. Go to [Firebase Console - Firestore Indexes](https://console.firebase.google.com/project/goingout-8b2e0/firestore/indexes)
+2. Click **"Create Index"**
+3. Configure:
+   - **Collection ID:** `events`
+   - **Fields to index:**
+     - Field: `endTime` → Mode: **Ascending**
    - **Query scope:** Collection
 4. Click **"Create"**
 5. Wait 1-5 minutes for the index to build
@@ -50,6 +72,13 @@ This requires a **composite index** because you're filtering by one field (`expi
 **Fields:**
 1. `expiresAt` - **Ascending** (for `where('expiresAt', '>', timestamp)`)
 2. `createdAt` - **Descending** (for `orderBy('createdAt', 'desc')`)
+
+### Events Collection Index
+
+**Collection:** `events`
+
+**Fields:**
+1. `endTime` - **Ascending** (for `where('endTime', '>', timestamp)` and `orderBy('endTime', 'asc')`)
 
 **Query Scope:** Collection
 
@@ -102,10 +131,15 @@ You can still use your app while indexes are building, but queries that need the
 
 ## Summary
 
-**You only need ONE index:**
-- **Collection:** `posts`
-- **Fields:** `expiresAt` (Ascending), `createdAt` (Descending)
-- **How to create:** Use the automatic link from error message, or create manually in Firebase Console
+**You need TWO indexes:**
+
+1. **Posts Collection:**
+   - **Fields:** `expiresAt` (Ascending), `createdAt` (Descending)
+
+2. **Events Collection:**
+   - **Fields:** `endTime` (Ascending)
+
+**How to create:** Use the automatic link from error message, or create manually in Firebase Console
 
 Everything else (users, usernames, groups) works without indexes!
 
