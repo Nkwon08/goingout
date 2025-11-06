@@ -141,13 +141,16 @@ function PostsTab({ user, userData, themeColors }) {
           const images = post.images || [];
           const firstImage = images.length > 0 ? images[0] : null;
           
+          // Calculate height for 3:4 aspect ratio
+          const itemHeight = itemSize * (4 / 3);
+          
           return (
             <TouchableOpacity
               key={post.id}
               onPress={() => handlePostPress(post)}
               style={{
                 width: itemSize,
-                height: itemSize,
+                height: itemHeight,
                 backgroundColor: surface,
                 borderRadius: 4,
                 overflow: 'hidden',

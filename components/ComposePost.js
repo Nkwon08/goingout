@@ -560,7 +560,7 @@ const styles = StyleSheet.create({
   },
   imagesPreview: {
     marginBottom: 8,
-    height: 150,
+    height: 200 * (4 / 3), // 3:4 aspect ratio height (268)
   },
   imagesPreviewContent: {
     flexDirection: 'row',
@@ -568,7 +568,7 @@ const styles = StyleSheet.create({
   },
   imagePreviewWrapper: {
     width: 200,
-    height: 150,
+    height: 200 * (4 / 3), // 3:4 aspect ratio (268)
     marginRight: 12,
     justifyContent: 'center',
     alignItems: 'center',
@@ -577,11 +577,11 @@ const styles = StyleSheet.create({
   imagePreview: {
     position: 'relative',
     width: 150,
-    height: 150,
+    height: 150 * (4 / 3), // 3:4 aspect ratio (200)
   },
   previewImage: {
     width: 150,
-    height: 150,
+    height: 150 * (4 / 3), // 3:4 aspect ratio (200)
     borderRadius: 12,
     backgroundColor: '#D0CFCD',
   },
@@ -619,7 +619,7 @@ const styles = StyleSheet.create({
   },
   gridItem: {
     width: '31%',
-    aspectRatio: 1,
+    aspectRatio: 3 / 4, // 3:4 aspect ratio
     borderRadius: 10,
     overflow: 'hidden',
     backgroundColor: '#F5F4F2',
