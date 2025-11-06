@@ -581,22 +581,22 @@ export default function FriendsTab() {
       return;
     }
 
-    // Get the parent navigator (bottom tabs) to navigate to Profile tab
-    const parent = navigation.getParent();
-    if (parent) {
-      // Navigate to Profile tab, then to UserProfile screen
-      // Pass previousTab so we can navigate back correctly
-      parent.navigate('Profile', { 
-        screen: 'UserProfile', 
-        params: { username: friend.username, previousTab: 'NotificationsMain' } 
-      });
-    } else {
-      // Fallback: use regular navigation
-      navigation.navigate('Profile', { 
-        screen: 'UserProfile', 
-        params: { username: friend.username, previousTab: 'NotificationsMain' } 
-      });
+    // Navigate to UserProfileModal in the root navigator
+    // This keeps the current tab active
+    // Go up navigation hierarchy: FriendsTab -> NotificationsScreen -> BottomTabs -> RootNavigator
+    let rootNavigator = navigation;
+    let parent = navigation.getParent();
+    
+    // Navigate up to find root navigator (3 levels up from FriendsTab)
+    while (parent) {
+      rootNavigator = parent;
+      parent = parent.getParent();
     }
+    
+    // Navigate to the root modal
+    rootNavigator.navigate('UserProfileModal', { 
+      username: friend.username 
+    });
   }, [navigation]);
 
   /** Handle user profile tap from Discover Users or search results */
@@ -605,22 +605,22 @@ export default function FriendsTab() {
       return;
     }
 
-    // Get the parent navigator (bottom tabs) to navigate to Profile tab
-    const parent = navigation.getParent();
-    if (parent) {
-      // Navigate to Profile tab, then to UserProfile screen
-      // Pass previousTab so we can navigate back correctly
-      parent.navigate('Profile', { 
-        screen: 'UserProfile', 
-        params: { username: user.username, previousTab: 'NotificationsMain' } 
-      });
-    } else {
-      // Fallback: use regular navigation
-      navigation.navigate('Profile', { 
-        screen: 'UserProfile', 
-        params: { username: user.username, previousTab: 'NotificationsMain' } 
-      });
+    // Navigate to UserProfileModal in the root navigator
+    // This keeps the current tab active
+    // Go up navigation hierarchy: FriendsTab -> NotificationsScreen -> BottomTabs -> RootNavigator
+    let rootNavigator = navigation;
+    let parent = navigation.getParent();
+    
+    // Navigate up to find root navigator (3 levels up from FriendsTab)
+    while (parent) {
+      rootNavigator = parent;
+      parent = parent.getParent();
     }
+    
+    // Navigate to the root modal
+    rootNavigator.navigate('UserProfileModal', { 
+      username: user.username 
+    });
   }, [navigation]);
 
   if (!user) {

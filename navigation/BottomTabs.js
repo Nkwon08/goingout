@@ -51,7 +51,19 @@ export default function BottomTabs() {
       <Tab.Screen name="Groups" component={GroupsStack} />
       <Tab.Screen name="Camera" component={CameraScreen} />
       <Tab.Screen name="NotificationsMain" component={NotificationsScreen} />
-      <Tab.Screen name="Profile" component={ProfileStack} />
+      <Tab.Screen 
+        name="Profile" 
+        component={ProfileStack}
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            // Always navigate to ProfileMain when Profile tab is pressed
+            // This ensures clicking the Profile tab always shows your own profile
+            navigation.navigate('Profile', { 
+              screen: 'ProfileMain',
+            });
+          },
+        })}
+      />
     </Tab.Navigator>
   );
 }

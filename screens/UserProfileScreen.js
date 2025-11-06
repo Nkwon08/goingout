@@ -84,7 +84,7 @@ function UserPostsTab({ userId, username, themeColors }) {
 }
 
 export default function UserProfileScreen({ route, navigation }) {
-  const { username: targetUsername, previousTab } = route.params || {};
+  const { username: targetUsername } = route.params || {};
   
   const [userProfile, setUserProfile] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
@@ -390,21 +390,16 @@ export default function UserProfileScreen({ route, navigation }) {
         <Appbar.Action 
           icon="arrow-left" 
           onPress={() => {
-            // Try to get the parent navigator (bottom tabs) to navigate back to the previous tab
-            const parent = navigation.getParent();
-            
-            if (parent && previousTab) {
-              // Navigate back to the tab we came from
-              parent.navigate(previousTab);
-            } else if (navigation.canGoBack()) {
-              // Fallback: use goBack if we can
+            // If we're in a modal (UserProfileModal), just go back
+            // This will close the modal and return to the current tab
+            if (navigation.canGoBack()) {
               navigation.goBack();
-            } else if (parent) {
-              // Fallback: navigate to NotificationsMain tab
-              parent.navigate('NotificationsMain');
             } else {
-              // Last resort: navigate to NotificationsMain
-              navigation.navigate('NotificationsMain');
+              // Fallback: try to get parent and navigate
+              const parent = navigation.getParent();
+              if (parent) {
+                parent.goBack();
+              }
             }
           }} 
           color={textColor} 

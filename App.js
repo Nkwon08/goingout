@@ -6,7 +6,7 @@ import { NavigationContainer, DarkTheme as NavigationDarkTheme, DefaultTheme as 
 import { GroupPhotosProvider } from './context/GroupPhotosContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import BottomTabs from './navigation/BottomTabs';
+import RootNavigator from './navigation/RootNavigator';
 import AuthStack from './navigation/AuthStack';
 import { ActivityIndicator, View } from 'react-native';
 
@@ -98,7 +98,7 @@ function AppContent() {
     <PaperProvider theme={paperTheme}>
       <NavigationContainer theme={navTheme}>
         <StatusBar style={isDarkMode ? 'light' : 'dark'} />
-        {user ? <BottomTabs /> : <AuthStack />}
+        {user ? <RootNavigator /> : <AuthStack />}
       </NavigationContainer>
     </PaperProvider>
   );

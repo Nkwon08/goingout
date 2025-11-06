@@ -14,19 +14,54 @@ function ProfileStackContent() {
   
   // Listen for tab press to reset stack to ProfileMain
   React.useEffect(() => {
-    const unsubscribe = navigation?.addListener?.('tabPress', (e) => {
-      // When Profile tab is pressed, reset to ProfileMain if we're deeper in the stack
+    // Get the parent navigator (bottom tabs)
+    const parent = navigation.getParent();
+    
+    const handleTabPress = (e) => {
+      // Always reset to ProfileMain when Profile tab is pressed
+      // This ensures clicking the Profile tab always shows your own profile
       const state = navigation.getState();
-      if (state && state.routes && state.routes.length > 1) {
-        // Reset to ProfileMain when tab is pressed
+      const currentRoute = state?.routes?.[state?.index];
+      
+      // If we're not already on ProfileMain, reset to it
+      if (currentRoute?.name !== 'ProfileMain') {
         navigation.reset({
           index: 0,
           routes: [{ name: 'ProfileMain' }],
         });
       }
+    };
+    
+    // Listen for tab press on the parent navigator
+    const unsubscribeTabPress = parent?.addListener?.('tabPress', (e) => {
+      // Only handle if it's the Profile tab
+      if (e.target?.includes('Profile')) {
+        handleTabPress(e);
+      }
+    });
+    
+    // Also listen for focus events as a backup
+    const unsubscribeFocus = navigation?.addListener?.('focus', () => {
+      // When Profile stack comes into focus, check if we need to reset
+      const state = navigation.getState();
+      const currentRoute = state?.routes?.[state?.index];
+      
+      // If we're on UserProfile (someone else's profile), reset to ProfileMain
+      if (currentRoute?.name === 'UserProfile') {
+        // Use setTimeout to avoid navigation during render
+        setTimeout(() => {
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'ProfileMain' }],
+          });
+        }, 0);
+      }
     });
 
-    return unsubscribe;
+    return () => {
+      if (unsubscribeTabPress) unsubscribeTabPress();
+      if (unsubscribeFocus) unsubscribeFocus();
+    };
   }, [navigation]);
 
   return (
