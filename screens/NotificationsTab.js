@@ -32,14 +32,22 @@ export default function NotificationsTab() {
     }
 
     setLoading(true);
+    console.log('🔔 [NotificationsTab] Setting up friend requests subscription for user:', user.uid);
     const unsubscribe = subscribeToFriendRequests(user.uid, (result) => {
+      console.log('🔔 [NotificationsTab] Friend requests callback received:', {
+        hasError: !!result.error,
+        error: result.error,
+        requestCount: result.requests?.length || 0,
+      });
+      
       if (result.error) {
-        console.error('Error in friend requests subscription:', result.error);
+        console.error('❌ [NotificationsTab] Error in friend requests subscription:', result.error);
         setFriendRequests([]);
         setLoading(false);
         return;
       }
 
+      console.log('✅ [NotificationsTab] Setting', result.requests?.length || 0, 'friend requests');
       setFriendRequests(result.requests || []);
       setLoading(false);
     });

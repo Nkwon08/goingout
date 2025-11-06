@@ -279,14 +279,20 @@ export const getAllUsers = async (currentUserId, pageSize = 20, lastUserId = nul
     const docs = hasMore ? querySnapshot.docs.slice(0, pageSize) : querySnapshot.docs;
     
     // Filter out current user and map to user objects
+    // Note: doc.id is now username (document ID), not UID
+    // We need to filter by authUid field instead
     const users = docs
-      .filter((doc) => doc.id !== currentUserId) // Exclude current user
+      .filter((doc) => {
+        const data = doc.data();
+        // Exclude current user by comparing authUid (document ID is now username)
+        return data.authUid !== currentUserId;
+      })
       .map((doc) => {
         const data = doc.data();
         // Check photoURL first (new field), then avatar (backward compatibility), then photo (legacy)
         const avatarUrl = data.photoURL || data.avatar || data.photo || 'https://i.pravatar.cc/100';
         return {
-          uid: doc.id,
+          uid: doc.id, // This is now the username (document ID), but we'll use it as uid for display
           username: data.username || 'username',
           name: data.name || 'User',
           avatar: avatarUrl,

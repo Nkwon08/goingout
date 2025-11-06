@@ -9,7 +9,7 @@ import { searchUsersByUsername, getAllUsers } from '../services/usersService';
 
 export default function FriendsTab() {
   const { isDarkMode } = useTheme();
-  const { user, loading: authLoading, friendsList: friendsListFromContext } = useAuth();
+  const { user, userData, loading: authLoading, friendsList: friendsListFromContext } = useAuth();
 
   const [searchQuery, setSearchQuery] = React.useState('');
   const [friends, setFriends] = React.useState([]);
@@ -175,7 +175,16 @@ export default function FriendsTab() {
           }
           console.error('Error loading users:', result.error);
         } else {
-          setAllUsers(result.users);
+          // Filter out current user from the list
+          const filteredUsers = result.users.filter((u) => {
+            // Exclude current user by comparing UID
+            // Note: u.uid might be a username (document ID), so we need to check both
+            if (u.uid === user.uid) return false;
+            // Also check if username matches current user's username
+            if (userData?.username && u.username === userData.username) return false;
+            return true;
+          });
+          setAllUsers(filteredUsers);
           setAllUsersLastId(result.lastUserId);
           setAllUsersHasMore(result.hasMore);
         }
@@ -230,7 +239,15 @@ export default function FriendsTab() {
         }
         console.error('Error loading more users:', result.error);
       } else {
-        setAllUsers((prev) => [...prev, ...result.users]);
+        // Filter out current user from the new users
+        const filteredUsers = result.users.filter((u) => {
+          // Exclude current user by comparing UID
+          if (u.uid === user.uid) return false;
+          // Also check if username matches current user's username
+          if (userData?.username && u.username === userData.username) return false;
+          return true;
+        });
+        setAllUsers((prev) => [...prev, ...filteredUsers]);
         setAllUsersLastId(result.lastUserId);
         setAllUsersHasMore(result.hasMore);
       }

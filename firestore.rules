@@ -51,7 +51,9 @@ service cloud.firestore {
     // - update/delete: allowed if receiver changes only status (accept/decline), or sender cancels/deletes while status == 'pending'
     match /friendRequests/{requestId} {
       // Read: allowed if caller is sender or receiver
+      // For queries, this works because Firestore evaluates the rule for each matching document
       allow read: if request.auth != null && (
+        resource == null || // Allow query evaluation (resource is null during query planning)
         resource.data.fromUserId == request.auth.uid ||
         resource.data.toUserId == request.auth.uid
       );

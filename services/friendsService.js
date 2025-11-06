@@ -685,10 +685,10 @@ export const getBlockedUsers = async (userId) => {
  * Send a friend request
  * Creates a friend request document in friendRequests collection using addDoc
  * Requires auth.currentUser.uid - rejects self-requests
- * @param {string} targetUid - User receiving the request
+ * @param {string} targetId - User receiving the request (can be UID or username)
  * @returns {Promise<{ success: boolean, error: string|null }>}
  */
-export const sendFriendRequest = async (targetUid) => {
+export const sendFriendRequest = async (targetId) => {
   try {
     // Require auth.currentUser.uid
     if (!auth || !auth.currentUser || !auth.currentUser.uid) {
@@ -696,7 +696,18 @@ export const sendFriendRequest = async (targetUid) => {
     }
 
     const fromUserId = auth.currentUser.uid;
-    const toUserId = targetUid;
+    
+    // Convert targetId to UID if it's a username
+    // UIDs are typically 28 characters, usernames are shorter
+    let toUserId = targetId;
+    if (targetId && targetId.length < 20) {
+      // Likely a username, convert to UID
+      const authUid = await getAuthUidFromUsername(targetId);
+      if (!authUid) {
+        return { success: false, error: 'User not found' };
+      }
+      toUserId = authUid;
+    }
 
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
       return { success: false, error: 'Firestore not configured' };
