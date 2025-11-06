@@ -3,7 +3,7 @@ import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedb
 import { Appbar, FAB, Text, Button, Avatar, Checkbox } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import MapView, { Marker } from 'react-native-maps';
 import { GiftedChat } from 'react-native-gifted-chat';
 import * as ImagePicker from 'expo-image-picker';
@@ -461,20 +461,65 @@ function ChatTab({ groupId }) {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [keyboardHeight, setKeyboardHeight] = React.useState(0);
   
+  // Reset keyboard height when camera modal closes
+  React.useEffect(() => {
+    if (!showCamera) {
+      // Reset keyboard height when camera closes to fix input bar positioning
+      // Use a delay to ensure state updates properly after modal animation completes
+      Keyboard.dismiss();
+      const timer = setTimeout(() => {
+        setKeyboardHeight(0);
+        Keyboard.dismiss(); // Dismiss again to be sure
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [showCamera]);
+
+  // Reset keyboard height when media picker closes
+  React.useEffect(() => {
+    if (!showMediaPicker) {
+      // Reset keyboard height when media picker closes to fix input bar positioning
+      // Use a delay to ensure state updates properly after modal animation completes
+      Keyboard.dismiss();
+      const timer = setTimeout(() => {
+        setKeyboardHeight(0);
+        Keyboard.dismiss(); // Dismiss again to be sure
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [showMediaPicker]);
+  
   // Listen to keyboard events
   React.useEffect(() => {
     const showSubscription = Keyboard.addListener('keyboardDidShow', (e) => {
       setKeyboardHeight(e.endCoordinates.height);
     });
     const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      // Explicitly reset keyboard height when keyboard closes
       setKeyboardHeight(0);
     });
 
     return () => {
       showSubscription.remove();
       hideSubscription.remove();
+      // Ensure keyboard height is reset on unmount
+      setKeyboardHeight(0);
     };
   }, []);
+
+  // Reset keyboard offset when the screen refocuses
+  useFocusEffect(
+    React.useCallback(() => {
+      // When screen is focused again, ensure no ghost keyboard offset
+      Keyboard.dismiss();
+      setKeyboardHeight(0);
+      return () => {
+        // Also dismiss on blur
+        Keyboard.dismiss();
+        setKeyboardHeight(0);
+      };
+    }, [])
+  );
   
   // PanResponder for swipe-to-dismiss on image viewer
   const panResponder = React.useRef(
@@ -1124,6 +1169,9 @@ function ChatTab({ groupId }) {
         
         // Close camera modal
         setShowCamera(false);
+        // Reset keyboard state when closing camera
+        setKeyboardHeight(0);
+        Keyboard.dismiss();
         setSending(false);
       } else {
         Alert.alert('Error', 'No photo data received. Please try again.');
@@ -1138,6 +1186,9 @@ function ChatTab({ groupId }) {
 
   // Handle take photo from camera modal
   const handleSelectTakePhoto = React.useCallback(async () => {
+    // Force keyboard dismissal before opening camera to prevent ghost keyboard offset
+    Keyboard.dismiss();
+    setKeyboardHeight(0);
     setShowMediaPicker(false);
     if (!cameraPermission) {
       // Still loading permission status
@@ -1156,6 +1207,10 @@ function ChatTab({ groupId }) {
   // Handle image picker
   const handleImagePicker = React.useCallback(async () => {
     if (!groupId || !user?.uid || !userData || sending) return;
+
+    // Force keyboard dismissal before opening picker to prevent ghost keyboard offset
+    Keyboard.dismiss();
+    setKeyboardHeight(0);
 
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1194,6 +1249,10 @@ function ChatTab({ groupId }) {
   const handleVideoPicker = React.useCallback(async () => {
     if (!groupId || !user?.uid || !userData || sending) return;
 
+    // Force keyboard dismissal before opening picker to prevent ghost keyboard offset
+    Keyboard.dismiss();
+    setKeyboardHeight(0);
+
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -1229,18 +1288,27 @@ function ChatTab({ groupId }) {
 
   // Handle media picker button press
   const handleMediaPickerPress = React.useCallback(() => {
+    // Force keyboard dismissal before opening picker to prevent ghost keyboard offset
+    Keyboard.dismiss();
+    setKeyboardHeight(0);
     setShowMediaPicker(true);
   }, []);
 
   // Handle image selection from picker
   const handleSelectImage = React.useCallback(async () => {
     setShowMediaPicker(false);
+    // Reset keyboard state when closing picker
+    setKeyboardHeight(0);
+    Keyboard.dismiss();
     await handleImagePicker();
   }, [handleImagePicker]);
 
   // Handle video selection from picker
   const handleSelectVideo = React.useCallback(async () => {
     setShowMediaPicker(false);
+    // Reset keyboard state when closing picker
+    setKeyboardHeight(0);
+    Keyboard.dismiss();
     await handleVideoPicker();
   }, [handleVideoPicker]);
 
@@ -1364,8 +1432,8 @@ function ChatTab({ groupId }) {
                 borderTopColor: 'transparent',
                 paddingHorizontal: 8,
                 paddingTop: 4,
-                paddingBottom: keyboardHeight > 0 ? 0 : 12,
-                marginBottom: keyboardHeight > 0 ? -80 : 0,
+                paddingBottom: keyboardHeight > 0 ? 0 : insets.bottom,
+                marginBottom: 0,
               }}
             >
               {/* Input row with plus button on left */}
@@ -1511,9 +1579,29 @@ function ChatTab({ groupId }) {
         visible={showMediaPicker}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setShowMediaPicker(false)}
+        onRequestClose={() => {
+          // Dismiss keyboard immediately and reset state
+          Keyboard.dismiss();
+          setKeyboardHeight(0);
+          setShowMediaPicker(false);
+          // Ensure keyboard is reset after modal closes
+          setTimeout(() => {
+            Keyboard.dismiss();
+            setKeyboardHeight(0);
+          }, 150);
+        }}
       >
-        <TouchableWithoutFeedback onPress={() => setShowMediaPicker(false)}>
+        <TouchableWithoutFeedback onPress={() => {
+          // Dismiss keyboard immediately and reset state
+          Keyboard.dismiss();
+          setKeyboardHeight(0);
+          setShowMediaPicker(false);
+          // Ensure keyboard is reset after modal closes
+          setTimeout(() => {
+            Keyboard.dismiss();
+            setKeyboardHeight(0);
+          }, 150);
+        }}>
           <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' }}>
             <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
               <View
@@ -1598,7 +1686,17 @@ function ChatTab({ groupId }) {
                 
                 {/* Cancel Button */}
                 <TouchableOpacity
-                  onPress={() => setShowMediaPicker(false)}
+                  onPress={() => {
+                    // Dismiss keyboard immediately and reset state
+                    Keyboard.dismiss();
+                    setKeyboardHeight(0);
+                    setShowMediaPicker(false);
+                    // Ensure keyboard is reset after modal closes
+                    setTimeout(() => {
+                      Keyboard.dismiss();
+                      setKeyboardHeight(0);
+                    }, 150);
+                  }}
                   style={{
                     marginTop: 20,
                     padding: 16,
@@ -1619,7 +1717,17 @@ function ChatTab({ groupId }) {
       <Modal
         visible={showCamera}
         animationType="slide"
-        onRequestClose={() => setShowCamera(false)}
+        onRequestClose={() => {
+          // Dismiss keyboard immediately and reset state
+          Keyboard.dismiss();
+          setKeyboardHeight(0);
+          setShowCamera(false);
+          // Ensure keyboard is reset after modal closes
+          setTimeout(() => {
+            Keyboard.dismiss();
+            setKeyboardHeight(0);
+          }, 150);
+        }}
       >
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           {!cameraPermission ? (
@@ -1646,29 +1754,96 @@ function ChatTab({ groupId }) {
               flash={flash}
               onCameraReady={handleCameraReady}
             >
-              {/* Mode Toggle - Photo only for chat */}
-              <SafeAreaView style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }} edges={['top']}>
-                <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingTop: 10, paddingBottom: 10, paddingHorizontal: 16, position: 'relative' }}>
+              {/* Top buttons container - all aligned */}
+              <View
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  zIndex: 10,
+                  paddingTop: Platform.OS === 'ios' ? 50 : 30,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    paddingTop: 30,
+                    paddingBottom: 20,
+                    paddingHorizontal: 20,
+                    minHeight: 44,
+                    position: 'relative',
+                  }}
+                >
+                  {/* Close button on the left - absolutely positioned */}
                   <TouchableOpacity
-                    style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: IU_CRIMSON, minHeight: 44, minWidth: 100 }}
+                    style={{
+                      position: 'absolute',
+                      left: 20,
+                      width: 44,
+                      height: 44,
+                      borderRadius: 22,
+                      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                    onPress={() => {
+                      // Dismiss keyboard immediately and reset state
+                      Keyboard.dismiss();
+                      setKeyboardHeight(0);
+                      setShowCamera(false);
+                      // Ensure keyboard is reset after modal closes
+                      setTimeout(() => {
+                        Keyboard.dismiss();
+                        setKeyboardHeight(0);
+                      }, 150);
+                    }}
+                  >
+                    <MaterialCommunityIcons name="close" size={24} color="#FFFFFF" />
+                  </TouchableOpacity>
+                  
+                  {/* Photo button centered */}
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingHorizontal: 16,
+                      paddingVertical: 10,
+                      borderRadius: 20,
+                      backgroundColor: IU_CRIMSON,
+                      minHeight: 44,
+                      minWidth: 100,
+                    }}
                     activeOpacity={0.7}
                   >
                     <MaterialCommunityIcons name="camera" size={24} color="#FFFFFF" />
                     <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600', marginLeft: 8 }}>Photo</Text>
                   </TouchableOpacity>
                   
-                  {/* Flash toggle button */}
-                  <View style={{ position: 'absolute', right: 16, top: 10, bottom: 10, justifyContent: 'center', alignItems: 'center' }}>
-                    <TouchableOpacity style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'center', alignItems: 'center' }} onPress={toggleFlash}>
-                      <MaterialCommunityIcons 
-                        name={flash === 'on' ? 'flash' : flash === 'auto' ? 'flash-auto' : 'flash-off'} 
-                        size={24} 
-                        color={flash === 'off' ? '#8A90A6' : '#FFFFFF'} 
-                      />
-                    </TouchableOpacity>
-                  </View>
+                  {/* Flash toggle button on the right - absolutely positioned */}
+                  <TouchableOpacity
+                    style={{
+                      position: 'absolute',
+                      right: 20,
+                      width: 44,
+                      height: 44,
+                      borderRadius: 22,
+                      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                    onPress={toggleFlash}
+                  >
+                    <MaterialCommunityIcons
+                      name={flash === 'on' ? 'flash' : flash === 'auto' ? 'flash-auto' : 'flash-off'}
+                      size={24}
+                      color={flash === 'off' ? '#8A90A6' : '#FFFFFF'}
+                    />
+                  </TouchableOpacity>
                 </View>
-              </SafeAreaView>
+              </View>
 
               {/* 3:4 aspect ratio viewfinder overlay */}
               <Pressable 
@@ -1716,51 +1891,63 @@ function ChatTab({ groupId }) {
                 <View style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)', flex: 1, width: '100%' }} pointerEvents="none" />
               </Pressable>
 
-              <View style={{ flex: 1, flexDirection: 'row', backgroundColor: 'transparent', margin: 20, justifyContent: 'space-between', alignItems: 'flex-end', paddingBottom: 20, paddingHorizontal: 0, position: 'relative' }}>
-                {/* Flip button */}
-                <TouchableOpacity 
-                  style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', alignItems: 'center', marginLeft: 20, marginBottom: 0 }} 
-                  onPress={toggleCameraFacing}
-                >
-                  <MaterialCommunityIcons name="camera-flip" size={32} color="#FFFFFF" />
-                </TouchableOpacity>
-                
-                {/* Shutter button centered */}
-                <TouchableOpacity 
-                  style={{ 
-                    width: 70, 
-                    height: 70, 
-                    borderRadius: 35, 
-                    backgroundColor: '#FFFFFF', 
-                    borderWidth: 5, 
-                    borderColor: IU_CRIMSON, 
-                    justifyContent: 'center', 
-                    alignItems: 'center', 
-                    position: 'absolute', 
-                    left: '50%', 
-                    bottom: 20, 
-                    transform: [{ translateX: -35 }],
-                    opacity: (!cameraReady || sending) ? 0.5 : 1,
-                  }} 
-                  onPress={takePicture}
-                  disabled={!cameraReady || sending}
-                >
-                  <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: IU_CRIMSON }} />
-                </TouchableOpacity>
-                
-                {/* Spacer to balance the flip button */}
-                <View style={{ width: 50, marginRight: 20 }} />
+              <View
+                style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  zIndex: 10,
+                  paddingBottom: Platform.OS === 'ios' ? 34 : 30,
+                }}
+              >
+                <View style={{ 
+                  flexDirection: 'row', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  paddingBottom: 30, 
+                  paddingHorizontal: 20,
+                  paddingTop: 20
+                }}>
+                  {/* Flip button */}
+                  <TouchableOpacity 
+                    style={{ 
+                      width: 50, 
+                      height: 50, 
+                      borderRadius: 25, 
+                      backgroundColor: 'rgba(0, 0, 0, 0.5)', 
+                      justifyContent: 'center', 
+                      alignItems: 'center'
+                    }} 
+                    onPress={toggleCameraFacing}
+                  >
+                    <MaterialCommunityIcons name="camera-flip" size={32} color="#FFFFFF" />
+                  </TouchableOpacity>
+                  
+                  {/* Shutter button centered */}
+                  <TouchableOpacity 
+                    style={{ 
+                      width: 70, 
+                      height: 70, 
+                      borderRadius: 35, 
+                      backgroundColor: '#FFFFFF', 
+                      borderWidth: 5, 
+                      borderColor: IU_CRIMSON, 
+                      justifyContent: 'center', 
+                      alignItems: 'center',
+                      opacity: (!cameraReady || sending) ? 0.5 : 1,
+                    }} 
+                    onPress={takePicture}
+                    disabled={!cameraReady || sending}
+                  >
+                    <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: IU_CRIMSON }} />
+                  </TouchableOpacity>
+                  
+                  {/* Spacer to balance the flip button */}
+                  <View style={{ width: 50, height: 50 }} />
+                </View>
               </View>
 
-              {/* Close button */}
-              <SafeAreaView style={{ position: 'absolute', top: 0, left: 0, right: 0 }} edges={['top']}>
-                <TouchableOpacity
-                  style={{ position: 'absolute', top: 10, left: 16, zIndex: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'center', alignItems: 'center' }}
-                  onPress={() => setShowCamera(false)}
-                >
-                  <MaterialCommunityIcons name="close" size={24} color="#FFFFFF" />
-                </TouchableOpacity>
-              </SafeAreaView>
             </CameraView>
           )}
         </View>
