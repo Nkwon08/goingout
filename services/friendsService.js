@@ -99,16 +99,32 @@ export const addFriend = async (currentUserId, friendUserId) => {
         throw new Error('Already friends');
       }
 
-      // Add each other atomically
-      transaction.update(currentUserRef, {
-        friends: arrayUnion(friendUserId),
-        updatedAt: serverTimestamp(),
-      });
+      // Check if either user has blocked the other
+      const currentUserBlocked = currentUserData.blocked || [];
+      const friendBlocked = friendData.blocked || [];
+      
+      if (currentUserBlocked.includes(friendUserId) || friendBlocked.includes(currentUserId)) {
+        throw new Error('Cannot add friend: User is blocked');
+      }
 
-      transaction.update(friendRef, {
-        friends: arrayUnion(currentUserId),
-        updatedAt: serverTimestamp(),
-      });
+      // Ensure friends array exists (initialize if needed)
+      const currentUserFriends = currentUserData.friends || [];
+      const friendFriends = friendData.friends || [];
+
+      // Add each other atomically (only if not already friends)
+      if (!currentUserFriends.includes(friendUserId)) {
+        transaction.update(currentUserRef, {
+          friends: arrayUnion(friendUserId),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      if (!friendFriends.includes(currentUserId)) {
+        transaction.update(friendRef, {
+          friends: arrayUnion(currentUserId),
+          updatedAt: serverTimestamp(),
+        });
+      }
     });
 
     return { success: true, error: null };
@@ -265,9 +281,13 @@ export const getFriends = async (userId) => {
 
     const userData = userDoc.data();
     const friends = userData.friends || [];
+    const blocked = userData.blocked || [];
 
-    console.log('✅ Found', friends.length, 'friends');
-    return { friends, error: null };
+    // Filter out blocked users from friends list
+    const filteredFriends = friends.filter((friendId) => !blocked.includes(friendId));
+
+    console.log('✅ Found', filteredFriends.length, 'friends (filtered from', friends.length, 'total)');
+    return { friends: filteredFriends, error: null };
   } catch (error) {
     console.error('❌ Error getting friends:', error);
     console.error('❌ Error code:', error.code);
@@ -345,8 +365,12 @@ export const subscribeToFriends = (userId, callback) => {
 
         const userData = snapshot.data();
         const friends = userData.friends || [];
+        const blocked = userData.blocked || [];
         
-        callback({ friends, error: null });
+        // Filter out blocked users from friends list
+        const filteredFriends = friends.filter((friendId) => !blocked.includes(friendId));
+        
+        callback({ friends: filteredFriends, error: null });
       },
       (error) => {
         if (!isMounted) return;
@@ -385,6 +409,180 @@ export const subscribeToFriends = (userId, callback) => {
     console.error('❌ Error setting up friends subscription:', error);
     callback({ friends: [], error: error.message });
     return () => {};
+  }
+};
+
+// ============================================================================
+// Blocking Functions
+// ============================================================================
+
+/**
+ * Block a user
+ * Adds user to blocked array and removes them from friends array if they were friends
+ * @param {string} currentUserId - User doing the blocking
+ * @param {string} blockedUserId - User being blocked
+ * @returns {Promise<{ success: boolean, error: string|null }>}
+ */
+export const blockUser = async (currentUserId, blockedUserId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { success: false, error: 'Firestore not configured' };
+    }
+
+    if (!currentUserId || !blockedUserId || currentUserId === blockedUserId) {
+      return { success: false, error: 'Invalid user IDs' };
+    }
+
+    const currentUserRef = doc(db, 'users', currentUserId);
+    const blockedUserRef = doc(db, 'users', blockedUserId);
+
+    // Use transaction to ensure atomic updates
+    await runTransaction(db, async (transaction) => {
+      // Read both documents
+      const [currentUserDoc, blockedUserDoc] = await Promise.all([
+        transaction.get(currentUserRef),
+        transaction.get(blockedUserRef),
+      ]);
+
+      if (!currentUserDoc.exists() || !blockedUserDoc.exists()) {
+        throw new Error('User not found');
+      }
+
+      const currentUserData = currentUserDoc.data();
+      const blockedUserData = blockedUserDoc.data();
+
+      // Check if already blocked
+      if ((currentUserData.blocked || []).includes(blockedUserId)) {
+        throw new Error('User already blocked');
+      }
+
+      // Add to blocked array
+      transaction.update(currentUserRef, {
+        blocked: arrayUnion(blockedUserId),
+        // Remove from friends if they were friends
+        friends: arrayRemove(blockedUserId),
+        updatedAt: serverTimestamp(),
+      });
+
+      // Remove current user from blocked user's friends array (if they were friends)
+      transaction.update(blockedUserRef, {
+        friends: arrayRemove(currentUserId),
+        updatedAt: serverTimestamp(),
+      });
+    });
+
+    console.log('✅ User blocked successfully:', currentUserId, '→', blockedUserId);
+    return { success: true, error: null };
+  } catch (error) {
+    console.error('❌ Error blocking user:', error);
+    return { success: false, error: error.message || 'Failed to block user' };
+  }
+};
+
+/**
+ * Unblock a user
+ * Removes user from blocked array
+ * @param {string} currentUserId - User doing the unblocking
+ * @param {string} blockedUserId - User being unblocked
+ * @returns {Promise<{ success: boolean, error: string|null }>}
+ */
+export const unblockUser = async (currentUserId, blockedUserId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { success: false, error: 'Firestore not configured' };
+    }
+
+    if (!currentUserId || !blockedUserId || currentUserId === blockedUserId) {
+      return { success: false, error: 'Invalid user IDs' };
+    }
+
+    const currentUserRef = doc(db, 'users', currentUserId);
+
+    // Use transaction to ensure atomic updates
+    await runTransaction(db, async (transaction) => {
+      // Read document
+      const currentUserDoc = await transaction.get(currentUserRef);
+
+      if (!currentUserDoc.exists()) {
+        throw new Error('User not found');
+      }
+
+      const currentUserData = currentUserDoc.data();
+
+      // Check if user is blocked
+      if (!(currentUserData.blocked || []).includes(blockedUserId)) {
+        throw new Error('User is not blocked');
+      }
+
+      // Remove from blocked array
+      transaction.update(currentUserRef, {
+        blocked: arrayRemove(blockedUserId),
+        updatedAt: serverTimestamp(),
+      });
+    });
+
+    console.log('✅ User unblocked successfully:', currentUserId, '→', blockedUserId);
+    return { success: true, error: null };
+  } catch (error) {
+    console.error('❌ Error unblocking user:', error);
+    return { success: false, error: error.message || 'Failed to unblock user' };
+  }
+};
+
+/**
+ * Check if a user is blocked
+ * @param {string} currentUserId - User checking
+ * @param {string} targetUserId - User to check
+ * @returns {Promise<boolean>}
+ */
+export const isUserBlocked = async (currentUserId, targetUserId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return false;
+    }
+
+    const userRef = doc(db, 'users', currentUserId);
+    const userDoc = await getDoc(userRef);
+
+    if (!userDoc.exists()) {
+      return false;
+    }
+
+    const userData = userDoc.data();
+    const blocked = userData.blocked || [];
+    
+    return blocked.includes(targetUserId);
+  } catch (error) {
+    console.error('❌ Error checking if user is blocked:', error);
+    return false;
+  }
+};
+
+/**
+ * Get blocked users list
+ * @param {string} userId - User ID
+ * @returns {Promise<{ blocked: Array, error: string|null }>}
+ */
+export const getBlockedUsers = async (userId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { blocked: [], error: 'Firestore not configured' };
+    }
+
+    const userRef = doc(db, 'users', userId);
+    const userDoc = await getDoc(userRef);
+
+    if (!userDoc.exists()) {
+      return { blocked: [], error: 'User not found' };
+    }
+
+    const userData = userDoc.data();
+    const blocked = userData.blocked || [];
+
+    return { blocked, error: null };
+  } catch (error) {
+    console.error('❌ Error getting blocked users:', error);
+    return { blocked: [], error: error.message || 'Failed to get blocked users' };
   }
 };
 
@@ -506,16 +704,32 @@ export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
         return;
       }
 
-      // Add each other to friends arrays
-      transaction.update(fromUserRef, {
-        friends: arrayUnion(toUserId),
-        updatedAt: serverTimestamp(),
-      });
+      // Check if either user has blocked the other
+      const fromUserBlocked = fromUserData.blocked || [];
+      const toUserBlocked = toUserData.blocked || [];
+      
+      if (fromUserBlocked.includes(toUserId) || toUserBlocked.includes(fromUserId)) {
+        throw new Error('Cannot accept friend request: User is blocked');
+      }
 
-      transaction.update(toUserRef, {
-        friends: arrayUnion(fromUserId),
-        updatedAt: serverTimestamp(),
-      });
+      // Ensure friends array exists (initialize if needed)
+      const fromUserFriends = fromUserData.friends || [];
+      const toUserFriends = toUserData.friends || [];
+
+      // Add each other to friends arrays (only if not already friends)
+      if (!fromUserFriends.includes(toUserId)) {
+        transaction.update(fromUserRef, {
+          friends: arrayUnion(toUserId),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      if (!toUserFriends.includes(fromUserId)) {
+        transaction.update(toUserRef, {
+          friends: arrayUnion(fromUserId),
+          updatedAt: serverTimestamp(),
+        });
+      }
 
       // Delete the request
       transaction.delete(requestRef);

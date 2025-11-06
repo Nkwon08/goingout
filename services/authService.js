@@ -249,7 +249,25 @@ export const upsertUserProfile = async (uid, payload = {}) => {
     }
     const username_lowercase = username.toLowerCase().replace(/\s+/g, '');
     
+    // Read existing document first to preserve friends and blocked arrays if not provided
+    const userRef = doc(db, 'users', uid);
+    let existingFriends = [];
+    let existingBlocked = [];
+    
+    try {
+      const existingDoc = await getDoc(userRef);
+      if (existingDoc.exists()) {
+        const existingData = existingDoc.data();
+        existingFriends = existingData.friends || [];
+        existingBlocked = existingData.blocked || [];
+      }
+    } catch (readError) {
+      // Document doesn't exist yet - that's okay, use empty arrays
+      console.log('[upsertUserProfile] Document does not exist yet, will create new');
+    }
+    
     // Build write payload (clean removes undefined values)
+    // Only include friends/blocked if explicitly provided, otherwise preserve existing
     const write = clean({
       uid,
       email,
@@ -261,15 +279,15 @@ export const upsertUserProfile = async (uid, payload = {}) => {
       gender: payload.gender,
       location: payload.location,
       photoURL,
-      friends: payload.friends ?? [],
-      isDiscoverable: payload.isDiscoverable ?? true,
+      // Only set friends/blocked if provided in payload, otherwise preserve existing
+      friends: payload.friends !== undefined ? payload.friends : existingFriends,
+      blocked: payload.blocked !== undefined ? payload.blocked : existingBlocked,
+      isDiscoverable: payload.isDiscoverable !== undefined ? payload.isDiscoverable : true,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
     
     // Write to Firestore with merge:true (idempotent)
-    const userRef = doc(db, 'users', uid);
-    
     try {
       await setDoc(userRef, write, { merge: true });
       console.log('[upsertUserProfile] write', { uid, username, hasPhoto: !!photoURL, photoURL });
