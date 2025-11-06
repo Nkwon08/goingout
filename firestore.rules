@@ -125,6 +125,16 @@ service cloud.firestore {
         allow delete: if request.auth != null && 
           resource.data.userId == request.auth.uid; // Users can stop sharing their location
       }
+      
+      // Polls subcollection - group members can create and vote on polls
+      match /polls/{pollId} {
+        allow read: if request.auth != null; // All group members can read polls
+        allow create: if request.auth != null && 
+          request.resource.data.creatorId == request.auth.uid; // Users can only create polls as themselves
+        allow update: if request.auth != null; // All group members can vote (update polls)
+        allow delete: if request.auth != null && 
+          resource.data.creatorId == request.auth.uid; // Only poll creator can delete
+      }
     }
     
     // Votes collection - location-based public voting for "tonight" polls

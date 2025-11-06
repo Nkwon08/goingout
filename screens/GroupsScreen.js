@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard } from 'react-native';
+import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native';
 import { Appbar, FAB, Text, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
@@ -11,7 +11,6 @@ import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GroupCard from '../components/GroupCard';
 import PollCard from '../components/PollCard';
-import { polls } from '../data/mock';
 import { useGroupPhotos } from '../context/GroupPhotosContext';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useTheme } from '../context/ThemeContext';
@@ -19,6 +18,7 @@ import { useAuth } from '../context/AuthContext';
 import { subscribeToUserGroups, deleteGroup } from '../services/groupsService';
 import { shareLocationInGroup, stopSharingLocationInGroup, subscribeToGroupLocations } from '../services/groupLocationService';
 import { getCurrentLocation } from '../services/locationService';
+import { createGroupPoll, voteOnGroupPoll, subscribeToGroupPolls } from '../services/groupPollsService';
 
 const TopTab = createMaterialTopTabNavigator();
 
@@ -439,10 +439,59 @@ function ChatTab({ groupId }) {
   const [messages, setMessages] = React.useState([]);
   const [sending, setSending] = React.useState(false);
   const [showMediaPicker, setShowMediaPicker] = React.useState(false);
+  const [polls, setPolls] = React.useState([]);
+  const [votingPoll, setVotingPoll] = React.useState(null);
   const inputRef = React.useRef(null);
   
   const groupChatService = require('../services/groupChatService');
   const { sendMessage, sendImageMessage, sendVideoMessage, subscribeToMessages } = groupChatService;
+  
+  // Subscribe to polls to get latest vote counts
+  React.useEffect(() => {
+    if (!groupId) {
+      setPolls([]);
+      return;
+    }
+
+    const { subscribeToGroupPolls } = require('../services/groupPollsService');
+    const unsubscribe = subscribeToGroupPolls(groupId, ({ polls: newPolls, error }) => {
+      if (error) {
+        console.error('Error loading polls:', error);
+        return;
+      }
+      setPolls(newPolls || []);
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [groupId]);
+  
+  // Handle voting on poll from chat
+  const handlePollVote = React.useCallback(async (pollId, optionId) => {
+    if (!groupId || !user?.uid) {
+      Alert.alert('Error', 'Unable to vote. Please try again.');
+      return;
+    }
+    
+    if (votingPoll) {
+      return;
+    }
+    
+    setVotingPoll(pollId);
+    try {
+      const { voteOnGroupPoll } = require('../services/groupPollsService');
+      const result = await voteOnGroupPoll(groupId, pollId, optionId, user.uid);
+      if (result.error) {
+        Alert.alert('Error', result.error);
+      }
+    } catch (error) {
+      console.error('Error voting:', error);
+      Alert.alert('Error', 'Failed to vote. Please try again.');
+    } finally {
+      setVotingPoll(null);
+    }
+  }, [groupId, user?.uid, votingPoll]);
   
   // Determine chat colors based on dark mode
   const chatBackground = isDarkMode ? '#000000' : '#F5F5F5';
@@ -453,6 +502,283 @@ function ChatTab({ groupId }) {
   const textOwn = '#FFFFFF';
   const textOther = isDarkMode ? '#FFFFFF' : '#000000';
   const textSecondary = isDarkMode ? '#8E8E93' : '#8E8E93';
+  
+  // Create renderBubble function that updates when polls change
+  const renderBubble = React.useCallback((props) => {
+    // Use GiftedChat's position prop to determine if message is from current user
+    // position === 'left' means other user, position === 'right' means current user
+    const isOwnMessage = props.position === 'right';
+    
+    // Handle poll messages
+    if (props.currentMessage.type === 'poll' && props.currentMessage.pollId) {
+      // Find the poll with matching ID - use the latest poll data from subscription
+      const poll = polls.find(p => p.id === props.currentMessage.pollId);
+      
+      // If poll not found in subscription yet, use message data as fallback
+      if (!poll) {
+        const fallbackPoll = {
+          id: props.currentMessage.pollId,
+          question: props.currentMessage.pollQuestion || 'Poll',
+          options: (props.currentMessage.pollOptions || []).map((opt, idx) => ({
+            id: opt.id || `option_${idx}`,
+            label: opt.label || opt,
+            votes: 0,
+            voters: [],
+          })),
+        };
+        
+        return (
+          <View
+            style={{
+              backgroundColor: isOwnMessage ? bubbleOwn : bubbleOther,
+              borderRadius: 20,
+              padding: 14,
+              borderTopLeftRadius: isOwnMessage ? 20 : 4,
+              borderTopRightRadius: isOwnMessage ? 4 : 20,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.15,
+              shadowRadius: 4,
+              elevation: 4,
+              minWidth: '80%',
+              maxWidth: '85%',
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
+              <Text style={{ fontSize: 20, marginRight: 8 }}>📊</Text>
+              <Text
+                style={{
+                  color: isOwnMessage ? textOwn : textOther,
+                  fontSize: 17,
+                  fontWeight: '700',
+                  flex: 1,
+                }}
+              >
+                {fallbackPoll.question}
+              </Text>
+            </View>
+            <Text style={{ color: isOwnMessage ? textOwn : textOther, fontSize: 14, opacity: 0.7, textAlign: 'center', padding: 8 }}>
+              Loading poll data...
+            </Text>
+          </View>
+        );
+      }
+      
+      // Use the poll data from subscription (has latest vote counts)
+      const pollData = poll;
+      const totalVotes = pollData.options.reduce((sum, o) => sum + (o.votes || 0), 0);
+      
+      return (
+        <View
+          style={{
+            backgroundColor: isOwnMessage ? bubbleOwn : bubbleOther,
+            borderRadius: 20,
+            padding: 14,
+            borderTopLeftRadius: isOwnMessage ? 20 : 4,
+            borderTopRightRadius: isOwnMessage ? 4 : 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.15,
+            shadowRadius: 4,
+            elevation: 4,
+            minWidth: '80%',
+            maxWidth: '85%',
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
+            <Text style={{ fontSize: 20, marginRight: 8 }}>📊</Text>
+            <Text
+              style={{
+                color: isOwnMessage ? textOwn : textOther,
+                fontSize: 17,
+                fontWeight: '700',
+                flex: 1,
+              }}
+            >
+              {pollData.question}
+            </Text>
+          </View>
+          
+          {(pollData.options || []).map((opt, idx) => {
+            const ratio = totalVotes > 0 ? (opt.votes || 0) / totalVotes : 0;
+            const isVoted = opt.voters && opt.voters.includes(user?.uid);
+            const percentage = totalVotes > 0 ? Math.round(ratio * 100) : 0;
+            const optionId = opt.id || `option_${idx}`;
+            
+            return (
+              <TouchableOpacity
+                key={optionId}
+                onPress={() => handlePollVote(pollData.id, optionId)}
+                disabled={votingPoll === pollData.id}
+                activeOpacity={0.7}
+                style={{
+                  marginBottom: 10,
+                  padding: 12,
+                  borderRadius: 10,
+                  backgroundColor: isVoted 
+                    ? (isOwnMessage ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.15)') 
+                    : (isOwnMessage ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'),
+                  borderWidth: isVoted ? 2 : 1,
+                  borderColor: isVoted 
+                    ? IU_CRIMSON 
+                    : (isOwnMessage ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'),
+                }}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <Text
+                    style={{
+                      color: isOwnMessage ? textOwn : textOther,
+                      fontSize: 15,
+                      fontWeight: isVoted ? '600' : '400',
+                      flex: 1,
+                      marginRight: 10,
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {isVoted && (
+                      <Text
+                        style={{
+                          color: IU_CRIMSON,
+                          fontSize: 14,
+                          fontWeight: '700',
+                          marginRight: 6,
+                        }}
+                      >
+                        ✓
+                      </Text>
+                    )}
+                    <Text
+                      style={{
+                        color: isOwnMessage ? textOwn : textOther,
+                        fontSize: 14,
+                        fontWeight: '600',
+                        minWidth: 45,
+                        textAlign: 'right',
+                      }}
+                    >
+                      {opt.votes || 0} {opt.votes === 1 ? 'vote' : 'votes'}
+                    </Text>
+                    {totalVotes > 0 && (
+                      <Text
+                        style={{
+                          color: isOwnMessage ? textOwn : textOther,
+                          fontSize: 12,
+                          opacity: 0.7,
+                          marginLeft: 6,
+                          minWidth: 35,
+                          textAlign: 'right',
+                        }}
+                      >
+                        {percentage}%
+                      </Text>
+                    )}
+                  </View>
+                </View>
+                <View
+                  style={{
+                    height: 5,
+                    borderRadius: 3,
+                    backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <View
+                    style={{
+                      height: '100%',
+                      width: `${ratio * 100}%`,
+                      backgroundColor: IU_CRIMSON,
+                      borderRadius: 3,
+                    }}
+                  />
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+          
+          {totalVotes > 0 && (
+            <Text
+              style={{
+                color: isOwnMessage ? textOwn : textOther,
+                fontSize: 11,
+                opacity: 0.7,
+                marginTop: 6,
+                textAlign: 'center',
+              }}
+            >
+              {totalVotes} total {totalVotes === 1 ? 'vote' : 'votes'}
+            </Text>
+          )}
+        </View>
+      );
+    }
+    
+    // Regular message bubble
+    return (
+      <View
+        style={{
+          backgroundColor: isOwnMessage ? bubbleOwn : bubbleOther,
+          borderRadius: 18,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          borderTopLeftRadius: isOwnMessage ? 18 : 4,
+          borderTopRightRadius: isOwnMessage ? 4 : 18,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.1,
+          shadowRadius: 2,
+          elevation: 2,
+          maxWidth: '75%',
+        }}
+      >
+        {props.currentMessage.image && (
+          <Image
+            source={{ uri: props.currentMessage.image }}
+            style={{
+              width: 200,
+              height: 200,
+              borderRadius: 12,
+              marginBottom: props.currentMessage.text ? 8 : 0,
+            }}
+            resizeMode="cover"
+          />
+        )}
+        {props.currentMessage.video && (
+          <View
+            style={{
+              width: 200,
+              height: 200,
+              borderRadius: 12,
+              marginBottom: props.currentMessage.text ? 8 : 0,
+              backgroundColor: '#000',
+              justifyContent: 'center',
+              alignItems: 'center',
+              overflow: 'hidden',
+            }}
+          >
+            <Video
+              source={{ uri: props.currentMessage.video }}
+              style={{ width: 200, height: 200 }}
+              useNativeControls
+              resizeMode="contain"
+            />
+          </View>
+        )}
+        {props.currentMessage.text && (
+          <Text
+            style={{
+              color: isOwnMessage ? textOwn : textOther,
+              fontSize: 16,
+              lineHeight: 20,
+            }}
+          >
+            {props.currentMessage.text}
+          </Text>
+        )}
+      </View>
+    );
+  }, [polls, user?.uid, handlePollVote, votingPoll, bubbleOwn, bubbleOther, textOwn, textOther]);
   
   // Subscribe to messages when groupId changes
   React.useEffect(() => {
@@ -479,6 +805,10 @@ function ChatTab({ groupId }) {
         },
         image: msg.image || undefined,
         video: msg.video || undefined,
+        type: msg.type || 'text',
+        pollId: msg.pollId || null,
+        pollQuestion: msg.pollQuestion || null,
+        pollOptions: msg.pollOptions || null,
       })).reverse();
       setMessages(giftedChatMessages);
     });
@@ -643,6 +973,7 @@ function ChatTab({ groupId }) {
         isTyping={sending}
         placeholder="Message"
         showUserAvatar={true}
+        key={`chat-${groupId}-${polls.length}-${polls.reduce((sum, p) => sum + (p.totalVotes || 0), 0)}`}
         textInputProps={{
           style: {
             fontSize: 16,
@@ -667,74 +998,7 @@ function ChatTab({ groupId }) {
             </View>
           );
         }}
-        renderBubble={(props) => {
-          // Use GiftedChat's position prop to determine if message is from current user
-          // position === 'left' means other user, position === 'right' means current user
-          const isOwnMessage = props.position === 'right';
-          return (
-            <View
-              style={{
-                backgroundColor: isOwnMessage ? bubbleOwn : bubbleOther,
-                borderRadius: 18,
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                borderTopLeftRadius: isOwnMessage ? 18 : 4,
-                borderTopRightRadius: isOwnMessage ? 4 : 18,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.1,
-                shadowRadius: 2,
-                elevation: 2,
-                maxWidth: '75%',
-              }}
-            >
-              {props.currentMessage.image && (
-                <Image
-                  source={{ uri: props.currentMessage.image }}
-                  style={{
-                    width: 200,
-                    height: 200,
-                    borderRadius: 12,
-                    marginBottom: props.currentMessage.text ? 8 : 0,
-                  }}
-                  resizeMode="cover"
-                />
-              )}
-              {props.currentMessage.video && (
-                <View
-                  style={{
-                    width: 200,
-                    height: 200,
-                    borderRadius: 12,
-                    marginBottom: props.currentMessage.text ? 8 : 0,
-                    backgroundColor: '#000',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <Video
-                    source={{ uri: props.currentMessage.video }}
-                    style={{ width: 200, height: 200 }}
-                    useNativeControls
-                    resizeMode="contain"
-                  />
-                </View>
-              )}
-              {props.currentMessage.text && (
-                <Text
-                  style={{
-                    color: isOwnMessage ? textOwn : textOther,
-                    fontSize: 16,
-                    lineHeight: 20,
-                  }}
-                >
-                  {props.currentMessage.text}
-                </Text>
-              )}
-            </View>
-          );
-        }}
+        renderBubble={renderBubble}
         renderTime={(props) => {
           return (
             <Text
@@ -1056,19 +1320,254 @@ function AlbumTab() {
   );
 }
 
-function PollsTab() {
-  const { background, subText } = useThemeColors();
+function PollsTab({ groupId }) {
+  const { background, subText, text, surface } = useThemeColors();
+  const { user, userData } = useAuth();
+  const [polls, setPolls] = React.useState([]);
+  const [showCreatePoll, setShowCreatePoll] = React.useState(false);
+  const [creatingPoll, setCreatingPoll] = React.useState(false);
+  const [voting, setVoting] = React.useState(null);
+  
+  // Create poll form state
+  const [pollQuestion, setPollQuestion] = React.useState('');
+  const [pollOptions, setPollOptions] = React.useState(['', '']);
+  
+  // Subscribe to polls
+  React.useEffect(() => {
+    if (!groupId) {
+      setPolls([]);
+      return;
+    }
+
+    const unsubscribe = subscribeToGroupPolls(groupId, ({ polls: newPolls, error }) => {
+      if (error) {
+        console.error('Error loading polls:', error);
+        return;
+      }
+      setPolls(newPolls || []);
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [groupId]);
+  
+  // Handle voting
+  const handleVote = React.useCallback(async (pollId, optionId) => {
+    if (!groupId || !user?.uid || voting) return;
+    
+    setVoting(pollId);
+    try {
+      const result = await voteOnGroupPoll(groupId, pollId, optionId, user.uid);
+      if (result.error) {
+        Alert.alert('Error', result.error);
+      }
+    } catch (error) {
+      console.error('Error voting:', error);
+      Alert.alert('Error', 'Failed to vote. Please try again.');
+    } finally {
+      setVoting(null);
+    }
+  }, [groupId, user?.uid, voting]);
+  
+  // Handle creating poll
+  const handleCreatePoll = React.useCallback(async () => {
+    if (!groupId || !user?.uid || creatingPoll) return;
+    
+    const trimmedQuestion = pollQuestion.trim();
+    const trimmedOptions = pollOptions.map(opt => opt.trim()).filter(opt => opt.length > 0);
+    
+    if (!trimmedQuestion) {
+      Alert.alert('Error', 'Please enter a question');
+      return;
+    }
+    
+    if (trimmedOptions.length < 2) {
+      Alert.alert('Error', 'Please enter at least 2 options');
+      return;
+    }
+    
+    setCreatingPoll(true);
+    try {
+      const result = await createGroupPoll(
+        groupId,
+        user.uid,
+        trimmedQuestion,
+        trimmedOptions,
+        {
+          name: userData?.name || 'User',
+          photoURL: userData?.photoURL || userData?.avatar || null,
+          avatar: userData?.avatar || userData?.photoURL || null,
+        }
+      );
+      
+      if (result.error) {
+        Alert.alert('Error', result.error);
+      } else {
+        // Reset form
+        setPollQuestion('');
+        setPollOptions(['', '']);
+        setShowCreatePoll(false);
+      }
+    } catch (error) {
+      console.error('Error creating poll:', error);
+      Alert.alert('Error', 'Failed to create poll. Please try again.');
+    } finally {
+      setCreatingPoll(false);
+    }
+  }, [groupId, user?.uid, userData, pollQuestion, pollOptions, creatingPoll]);
+  
+  const addOption = () => {
+    setPollOptions([...pollOptions, '']);
+  };
+  
+  const removeOption = (index) => {
+    if (pollOptions.length > 2) {
+      setPollOptions(pollOptions.filter((_, i) => i !== index));
+    }
+  };
+  
+  const updateOption = (index, value) => {
+    const newOptions = [...pollOptions];
+    newOptions[index] = value;
+    setPollOptions(newOptions);
+  };
   
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: background }} contentContainerStyle={{ padding: 12 }}>
-      {polls.length > 0 ? (
-        polls.map((p) => (
-          <PollCard key={p.id} poll={p} onVote={() => {}} />
-        ))
-      ) : (
-        <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>Empty</Text>
-      )}
-    </ScrollView>
+    <View style={{ flex: 1, backgroundColor: background }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12 }}>
+        {polls.length > 0 ? (
+          polls.map((p) => (
+            <PollCard 
+              key={p.id} 
+              poll={p} 
+              onVote={handleVote}
+              currentUserId={user?.uid}
+              showVoteButton={!voting || voting !== p.id}
+            />
+          ))
+        ) : (
+          <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>
+            No polls yet. Create one to get started!
+          </Text>
+        )}
+      </ScrollView>
+      
+      {/* Create Poll FAB */}
+      <FAB
+        icon="plus"
+        style={{
+          position: 'absolute',
+          margin: 16,
+          right: 0,
+          bottom: 0,
+          backgroundColor: IU_CRIMSON,
+        }}
+        onPress={() => setShowCreatePoll(true)}
+        color="#FFFFFF"
+      />
+      
+      {/* Create Poll Modal */}
+      <Modal
+        visible={showCreatePoll}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowCreatePoll(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <TouchableWithoutFeedback onPress={() => setShowCreatePoll(false)}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' }}>
+              <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+                <View style={{ backgroundColor: background, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '90%' }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                    <Text style={{ color: text, fontSize: 20, fontWeight: 'bold' }}>Create Poll</Text>
+                    <TouchableOpacity onPress={() => setShowCreatePoll(false)}>
+                      <MaterialCommunityIcons name="close" size={24} color={text} />
+                    </TouchableOpacity>
+                  </View>
+                  
+                  <ScrollView 
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={true}
+                    contentContainerStyle={{ paddingBottom: 20 }}
+                  >
+                    <Text style={{ color: text, fontSize: 16, marginBottom: 8 }}>Question</Text>
+                    <TextInput
+                      style={{
+                        backgroundColor: surface,
+                        borderRadius: 8,
+                        padding: 12,
+                        color: text,
+                        marginBottom: 20,
+                        fontSize: 16,
+                        minHeight: 60,
+                      }}
+                      placeholder="What do you want to ask?"
+                      placeholderTextColor={subText}
+                      value={pollQuestion}
+                      onChangeText={setPollQuestion}
+                      multiline
+                      textAlignVertical="top"
+                    />
+                    
+                    <Text style={{ color: text, fontSize: 16, marginBottom: 8 }}>Options</Text>
+                    {pollOptions.map((option, index) => (
+                      <View key={index} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                        <TextInput
+                          style={{
+                            flex: 1,
+                            backgroundColor: surface,
+                            borderRadius: 8,
+                            padding: 12,
+                            color: text,
+                            fontSize: 16,
+                          }}
+                          placeholder={`Option ${index + 1}`}
+                          placeholderTextColor={subText}
+                          value={option}
+                          onChangeText={(value) => updateOption(index, value)}
+                        />
+                        {pollOptions.length > 2 && (
+                          <TouchableOpacity
+                            onPress={() => removeOption(index)}
+                            style={{ marginLeft: 8, padding: 8 }}
+                          >
+                            <MaterialCommunityIcons name="close-circle" size={24} color={IU_CRIMSON} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ))}
+                    
+                    <Button
+                      mode="text"
+                      onPress={addOption}
+                      textColor={IU_CRIMSON}
+                      style={{ marginBottom: 20 }}
+                    >
+                      + Add Option
+                    </Button>
+                    
+                    <Button
+                      mode="contained"
+                      buttonColor={IU_CRIMSON}
+                      textColor="#FFFFFF"
+                      onPress={handleCreatePoll}
+                      disabled={creatingPoll}
+                      loading={creatingPoll}
+                    >
+                      Create Poll
+                    </Button>
+                  </ScrollView>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+      </Modal>
+    </View>
   );
 }
 
@@ -1165,7 +1664,9 @@ function GroupDetail({ group, onBack }) {
         <TopTab.Screen name="Map">
           {(props) => <MapTab {...props} groupId={group?.id} />}
         </TopTab.Screen>
-        <TopTab.Screen name="Polls" component={PollsTab} />
+        <TopTab.Screen name="Polls">
+          {(props) => <PollsTab {...props} groupId={group?.id} />}
+        </TopTab.Screen>
         <TopTab.Screen name="Album" component={AlbumTab} />
       </TopTab.Navigator>
       

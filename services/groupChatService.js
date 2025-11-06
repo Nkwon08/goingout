@@ -149,6 +149,51 @@ export const sendVideoMessage = async (groupId, userId, videoUri, text, userData
 };
 
 /**
+ * Send a poll message to a group chat
+ * @param {string} groupId - The group ID
+ * @param {string} userId - The user ID sending the message
+ * @param {string} pollId - The poll ID
+ * @param {string} question - The poll question
+ * @param {Array} options - Array of poll options
+ * @param {Object} userData - User data (name, username, avatar)
+ * @returns {Promise<{ messageId: string|null, error: string|null }>}
+ */
+export const sendPollMessage = async (groupId, userId, pollId, question, options, userData) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { messageId: null, error: 'Firestore not configured' };
+    }
+
+    if (!groupId || !userId || !pollId || !question) {
+      return { messageId: null, error: 'Group ID, user ID, poll ID, and question are required' };
+    }
+
+    const messageData = {
+      userId,
+      userName: userData.name || 'User',
+      userUsername: userData.username || 'user',
+      userAvatar: userData.photoURL || userData.avatar || null,
+      text: `📊 ${question}`,
+      type: 'poll',
+      pollId,
+      pollQuestion: question,
+      pollOptions: options,
+      image: null,
+      video: null,
+      createdAt: serverTimestamp(),
+    };
+
+    const messagesRef = collection(db, 'groups', groupId, 'messages');
+    const messageRef = await addDoc(messagesRef, messageData);
+
+    return { messageId: messageRef.id, error: null };
+  } catch (error) {
+    console.error('❌ Error sending poll message:', error);
+    return { messageId: null, error: error.message };
+  }
+};
+
+/**
  * Subscribe to messages for a group chat
  * @param {string} groupId - The group ID
  * @param {Function} callback - Callback function that receives messages array
@@ -186,6 +231,9 @@ export const subscribeToMessages = (groupId, callback) => {
             image: data.image || null,
             video: data.video || null,
             type: data.type || 'text',
+            pollId: data.pollId || null,
+            pollQuestion: data.pollQuestion || null,
+            pollOptions: data.pollOptions || null,
           };
         });
 
