@@ -78,24 +78,33 @@ export const registerForPushNotifications = async () => {
 export const createNotification = async (userId, notificationData) => {
   try {
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      console.error('❌ Firestore not configured in createNotification');
       return { success: false, error: 'Firestore not configured' };
     }
+
+    console.log(`📨 Creating notification for userId: ${userId}, type: ${notificationData.type}`);
 
     // Get username from authUid (document IDs are usernames, not authUids)
     const { getUsernameFromAuthUid } = await import('./friendsService');
     const username = await getUsernameFromAuthUid(userId);
     
     if (!username) {
+      console.error(`❌ User not found for userId: ${userId}`);
       return { success: false, error: 'User not found' };
     }
+
+    console.log(`✅ Found username: ${username} for userId: ${userId}`);
 
     // Get user data for notification
     const { getUserById } = await import('./usersService');
     const { userData: fromUserData } = await getUserById(notificationData.fromUserId);
     
     if (!fromUserData) {
+      console.error(`❌ From user not found for userId: ${notificationData.fromUserId}`);
       return { success: false, error: 'User not found' };
     }
+
+    console.log(`✅ Found from user: ${fromUserData.name || fromUserData.username}`);
 
     // Create notification document
     const notificationsRef = collection(db, 'users', username, 'notifications');
@@ -113,23 +122,32 @@ export const createNotification = async (userId, notificationData) => {
       createdAt: serverTimestamp(),
     };
 
-    await addDoc(notificationsRef, notificationDoc);
+    console.log(`📝 Adding notification document to: users/${username}/notifications`);
+    const docRef = await addDoc(notificationsRef, notificationDoc);
+    console.log(`✅ Notification document created with ID: ${docRef.id}`);
 
     // Send push notification
-    await sendPushNotification(userId, {
-      title: fromUserData.name || 'Someone',
-      body: `${fromUserData.name || 'Someone'} ${notificationData.message || 'interacted with your post'}`,
-      data: {
-        type: notificationData.type,
-        postId: notificationData.postId,
-        groupId: notificationData.groupId,
-        fromUserId: notificationData.fromUserId,
-      },
-    });
+    try {
+      await sendPushNotification(userId, {
+        title: fromUserData.name || 'Someone',
+        body: `${fromUserData.name || 'Someone'} ${notificationData.message || 'interacted with your post'}`,
+        data: {
+          type: notificationData.type,
+          postId: notificationData.postId,
+          groupId: notificationData.groupId,
+          fromUserId: notificationData.fromUserId,
+        },
+      });
+      console.log(`✅ Push notification sent to userId: ${userId}`);
+    } catch (pushError) {
+      console.error('⚠️ Error sending push notification (non-fatal):', pushError);
+      // Don't fail if push notification fails
+    }
 
     return { success: true, error: null };
   } catch (error) {
-    console.error('Error creating notification:', error);
+    console.error('❌ Error creating notification:', error);
+    console.error('❌ Error stack:', error.stack);
     return { success: false, error: error.message };
   }
 };

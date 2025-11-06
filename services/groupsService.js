@@ -71,21 +71,49 @@ export const createGroup = async (groupData) => {
     if (invitedMembers.length > 0) {
       try {
         const { createNotification } = await import('./notificationsService');
+        const { getAuthUidFromUsername } = await import('./friendsService');
         
-        // Send notifications to all invited members
-        const notificationPromises = invitedMembers.map(async (invitedUserId) => {
-          return createNotification(invitedUserId, {
+        // Convert usernames to userIds (authUids) before sending notifications
+        const notificationPromises = invitedMembers.map(async (memberIdentifier) => {
+          // Friends list contains usernames (document IDs), so convert to authUid
+          console.log(`🔄 Converting username "${memberIdentifier}" to userId...`);
+          const authUid = await getAuthUidFromUsername(memberIdentifier);
+          
+          if (!authUid) {
+            console.error(`❌ Could not find userId for username: ${memberIdentifier}`);
+            return { success: false, error: `User not found: ${memberIdentifier}` };
+          }
+          
+          console.log(`✅ Converted username "${memberIdentifier}" to userId: ${authUid}`);
+          console.log(`📨 Sending group invitation to userId: ${authUid}`);
+          
+          const result = await createNotification(authUid, {
             type: 'group_invitation',
             groupId: groupId,
             fromUserId: creator,
             message: `invited you to join "${groupToCreate.name}"`,
           });
+          
+          if (result.error) {
+            console.error(`❌ Failed to send notification to ${authUid}:`, result.error);
+          } else {
+            console.log(`✅ Successfully sent notification to ${authUid}`);
+          }
+          
+          return result;
         });
         
-        await Promise.all(notificationPromises);
-        console.log(`📨 Sent ${invitedMembers.length} group invitation notifications`);
+        const results = await Promise.all(notificationPromises);
+        const successCount = results.filter(r => r.success && !r.error).length;
+        const errorCount = results.filter(r => r.error).length;
+        
+        console.log(`📨 Sent ${successCount}/${invitedMembers.length} group invitation notifications`);
+        if (errorCount > 0) {
+          console.error(`❌ Failed to send ${errorCount} notification(s)`);
+        }
       } catch (error) {
         console.error('❌ Error sending group invitations:', error);
+        console.error('❌ Error stack:', error.stack);
         // Don't fail group creation if notifications fail
       }
     }
@@ -314,7 +342,7 @@ export const acceptGroupInvitation = async (groupId, userId, notificationId) => 
     if (currentMembers.includes(userId)) {
       // Already a member, just delete the notification
       if (notificationId) {
-        const { getUsernameFromAuthUid } = await import('./usersService');
+        const { getUsernameFromAuthUid } = await import('./friendsService');
         const username = await getUsernameFromAuthUid(userId);
         if (username) {
           const notificationRef = doc(db, 'users', username, 'notifications', notificationId);
@@ -333,7 +361,7 @@ export const acceptGroupInvitation = async (groupId, userId, notificationId) => 
 
     // Delete the notification
     if (notificationId) {
-      const { getUsernameFromAuthUid } = await import('./usersService');
+      const { getUsernameFromAuthUid } = await import('./friendsService');
       const username = await getUsernameFromAuthUid(userId);
       if (username) {
         const notificationRef = doc(db, 'users', username, 'notifications', notificationId);
@@ -356,7 +384,7 @@ export const declineGroupInvitation = async (notificationId, userId) => {
     }
 
     // Get user's username (document ID is username, not authUid)
-    const { getUsernameFromAuthUid } = await import('./usersService');
+    const { getUsernameFromAuthUid } = await import('./friendsService');
     const username = await getUsernameFromAuthUid(userId);
     
     if (!username) {
