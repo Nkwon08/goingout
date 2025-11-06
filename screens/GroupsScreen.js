@@ -1,17 +1,19 @@
 import * as React from 'react';
-import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator } from 'react-native';
+import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard } from 'react-native';
 import { Appbar, FAB, Text, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import MapView, { Marker } from 'react-native-maps';
 import { GiftedChat } from 'react-native-gifted-chat';
 import * as ImagePicker from 'expo-image-picker';
+import { Video } from 'expo-av';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GroupCard from '../components/GroupCard';
 import PollCard from '../components/PollCard';
 import { polls } from '../data/mock';
 import { useGroupPhotos } from '../context/GroupPhotosContext';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToUserGroups } from '../services/groupsService';
 
@@ -39,22 +41,569 @@ function MapTab() {
   );
 }
 
-function ChatTab() {
-  const { background, subText } = useThemeColors();
-  const [messages, setMessages] = React.useState([]); // Empty - will come from Firebase
-  const onSend = React.useCallback((newMessages = []) => {
+function ChatTab({ groupId }) {
+  const { background, subText, surface, text } = useThemeColors();
+  const { isDarkMode } = useTheme();
+  const { user, userData } = useAuth();
+  const [messages, setMessages] = React.useState([]);
+  const [sending, setSending] = React.useState(false);
+  const [showMediaPicker, setShowMediaPicker] = React.useState(false);
+  const inputRef = React.useRef(null);
+  
+  const groupChatService = require('../services/groupChatService');
+  const { sendMessage, sendImageMessage, sendVideoMessage, subscribeToMessages } = groupChatService;
+  
+  // Determine chat colors based on dark mode
+  const chatBackground = isDarkMode ? '#000000' : '#F5F5F5';
+  const inputBackground = isDarkMode ? '#1C1C1E' : '#F2F2F7';
+  const inputBorder = isDarkMode ? '#38383A' : '#E5E5EA';
+  const bubbleOwn = isDarkMode ? '#0A84FF' : '#007AFF'; // iOS blue
+  const bubbleOther = isDarkMode ? '#2C2C2E' : '#E5E5EA';
+  const textOwn = '#FFFFFF';
+  const textOther = isDarkMode ? '#FFFFFF' : '#000000';
+  const textSecondary = isDarkMode ? '#8E8E93' : '#8E8E93';
+  
+  // Subscribe to messages when groupId changes
+  React.useEffect(() => {
+    if (!groupId || !user?.uid) {
+      setMessages([]);
+      return;
+    }
+
+    const unsubscribe = subscribeToMessages(groupId, ({ messages: newMessages, error }) => {
+      if (error) {
+        console.error('Error loading messages:', error);
+        return;
+      }
+      // Convert to GiftedChat format
+      // GiftedChat expects messages sorted by createdAt DESCENDING (newest first in array)
+      // Service returns ascending (oldest first), so we reverse it
+      const giftedChatMessages = newMessages.map((msg) => ({
+        _id: msg._id,
+        text: msg.text || '',
+        createdAt: msg.createdAt,
+        user: {
+          ...msg.user,
+          _id: String(msg.user._id), // Ensure user ID is a string for consistent comparison
+        },
+        image: msg.image || undefined,
+        video: msg.video || undefined,
+      })).reverse();
+      setMessages(giftedChatMessages);
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [groupId, user?.uid]);
+
+  // Handle sending text messages
+  const onSend = React.useCallback(async (newMessages = []) => {
+    console.log('🔵 onSend called with messages:', newMessages);
+    console.log('🔵 Current state - groupId:', groupId, 'user:', user?.uid, 'userData:', userData, 'sending:', sending);
+    
+    if (!groupId || !user?.uid || !userData) {
+      console.error('❌ Cannot send: missing groupId, user, or userData');
+      return;
+    }
+    
+    if (sending) {
+      console.log('⚠️ Already sending, ignoring');
+      return;
+    }
+    
+    const message = newMessages[0];
+    if (!message || !message.text || !message.text.trim()) {
+      console.error('❌ Cannot send: no message text');
+      return;
+    }
+
+    console.log('🔵 Sending message:', message.text);
+    setSending(true);
+    try {
+      const { messageId, error } = await sendMessage(groupId, user.uid, message.text, userData);
+      if (error) {
+        console.error('❌ Error sending message:', error);
+        Alert.alert('Error', error);
+        // Still add to local state for optimistic UI
+        setMessages((prev) => GiftedChat.append(prev, newMessages));
+      } else {
+        console.log('✅ Message sent successfully:', messageId);
+        // Message will appear via real-time subscription, no need to add to local state
+      }
+    } catch (error) {
+      console.error('❌ Exception sending message:', error);
+      Alert.alert('Error', error.message || 'Failed to send message');
     setMessages((prev) => GiftedChat.append(prev, newMessages));
+    } finally {
+      setSending(false);
+    }
+  }, [groupId, user?.uid, userData, sending]);
+
+  // Handle image picker
+  const handleImagePicker = React.useCallback(async () => {
+    if (!groupId || !user?.uid || !userData || sending) return;
+
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photo library.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setSending(true);
+        const { error } = await sendImageMessage(
+          groupId,
+          user.uid,
+          result.assets[0].uri,
+          '',
+          userData
+        );
+        if (error) {
+          Alert.alert('Error', error);
+        }
+        setSending(false);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      setSending(false);
+    }
+  }, [groupId, user?.uid, userData, sending]);
+
+  // Handle video picker
+  const handleVideoPicker = React.useCallback(async () => {
+    if (!groupId || !user?.uid || !userData || sending) return;
+
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photo library.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        allowsEditing: true,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setSending(true);
+        const { error } = await sendVideoMessage(
+          groupId,
+          user.uid,
+          result.assets[0].uri,
+          '',
+          userData
+        );
+        if (error) {
+          Alert.alert('Error', error);
+        }
+        setSending(false);
+      }
+    } catch (error) {
+      console.error('Error picking video:', error);
+      setSending(false);
+    }
+  }, [groupId, user?.uid, userData, sending]);
+
+  // Handle media picker button press
+  const handleMediaPickerPress = React.useCallback(() => {
+    setShowMediaPicker(true);
   }, []);
+
+  // Handle image selection from picker
+  const handleSelectImage = React.useCallback(async () => {
+    setShowMediaPicker(false);
+    await handleImagePicker();
+  }, [handleImagePicker]);
+
+  // Handle video selection from picker
+  const handleSelectVideo = React.useCallback(async () => {
+    setShowMediaPicker(false);
+    await handleVideoPicker();
+  }, [handleVideoPicker]);
+
+  if (!groupId || !user?.uid) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: chatBackground }}>
+        <Text style={{ color: textSecondary }}>Select a group to view chat</Text>
+      </View>
+    );
+  }
   
   return (
-    <View style={{ flex: 1, backgroundColor: background }}>
-      {messages.length > 0 ? (
-        <GiftedChat messages={messages} onSend={(msgs) => onSend(msgs)} user={{ _id: 1, name: 'You' }} />
-      ) : (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <Text style={{ color: subText }}>Empty</Text>
-        </View>
-      )}
+    <View style={{ flex: 1, backgroundColor: chatBackground }}>
+      <GiftedChat
+        messages={messages}
+        onSend={onSend}
+        user={{
+          _id: String(user.uid), // Ensure user ID is a string for consistent comparison
+          name: userData?.name || 'You',
+          avatar: userData?.photoURL || userData?.avatar || null,
+        }}
+        isTyping={sending}
+        placeholder="Message"
+        showUserAvatar={true}
+        textInputProps={{
+          style: {
+            fontSize: 16,
+            color: textOther,
+            paddingVertical: 8,
+            paddingHorizontal: 4,
+            maxHeight: 100,
+          },
+          placeholderTextColor: textSecondary,
+        }}
+        renderAvatar={(props) => {
+          // Only show avatar for messages from other users (left position)
+          if (props.position === 'right') {
+            return null; // Don't show avatar for own messages
+          }
+          return (
+            <View style={{ marginRight: 8, marginBottom: 4 }}>
+              <Image
+                source={{ uri: props.currentMessage.user.avatar || 'https://i.pravatar.cc/100?img=12' }}
+                style={{ width: 32, height: 32, borderRadius: 16 }}
+              />
+            </View>
+          );
+        }}
+        renderBubble={(props) => {
+          // Use GiftedChat's position prop to determine if message is from current user
+          // position === 'left' means other user, position === 'right' means current user
+          const isOwnMessage = props.position === 'right';
+          return (
+            <View
+              style={{
+                backgroundColor: isOwnMessage ? bubbleOwn : bubbleOther,
+                borderRadius: 18,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderTopLeftRadius: isOwnMessage ? 18 : 4,
+                borderTopRightRadius: isOwnMessage ? 4 : 18,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.1,
+                shadowRadius: 2,
+                elevation: 2,
+                maxWidth: '75%',
+              }}
+            >
+              {props.currentMessage.image && (
+                <Image
+                  source={{ uri: props.currentMessage.image }}
+                  style={{
+                    width: 200,
+                    height: 200,
+                    borderRadius: 12,
+                    marginBottom: props.currentMessage.text ? 8 : 0,
+                  }}
+                  resizeMode="cover"
+                />
+              )}
+              {props.currentMessage.video && (
+                <View
+                  style={{
+                    width: 200,
+                    height: 200,
+                    borderRadius: 12,
+                    marginBottom: props.currentMessage.text ? 8 : 0,
+                    backgroundColor: '#000',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <Video
+                    source={{ uri: props.currentMessage.video }}
+                    style={{ width: 200, height: 200 }}
+                    useNativeControls
+                    resizeMode="contain"
+                  />
+                </View>
+              )}
+              {props.currentMessage.text && (
+                <Text
+                  style={{
+                    color: isOwnMessage ? textOwn : textOther,
+                    fontSize: 16,
+                    lineHeight: 20,
+                  }}
+                >
+                  {props.currentMessage.text}
+                </Text>
+              )}
+            </View>
+          );
+        }}
+        renderTime={(props) => {
+          return (
+            <Text
+              style={{
+                fontSize: 11,
+                color: textSecondary,
+                marginHorizontal: 8,
+                marginVertical: 4,
+                alignSelf: props.position === 'right' ? 'flex-end' : 'flex-start',
+              }}
+            >
+              {new Date(props.currentMessage.createdAt).toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+              })}
+            </Text>
+          );
+        }}
+        renderMessageContainer={(props) => {
+          // Ensure all messages have consistent full-width container with proper flex layout
+          const isOwnMessage = props.position === 'right';
+          return (
+            <View
+              style={{
+                width: '100%',
+                flexDirection: 'row',
+                justifyContent: isOwnMessage ? 'flex-end' : 'flex-start',
+                marginVertical: 4,
+                paddingHorizontal: 8,
+                alignItems: 'flex-end',
+              }}
+            >
+              {props.children}
+            </View>
+          );
+        }}
+        renderInputToolbar={(props) => {
+          return (
+            <View
+              style={{
+                backgroundColor: isDarkMode ? '#000000' : '#FFFFFF',
+                borderTopWidth: 0.5,
+                borderTopColor: inputBorder,
+                paddingHorizontal: 8,
+                paddingVertical: 8,
+              }}
+            >
+              {/* Input row with plus button on left */}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'flex-end',
+                  backgroundColor: inputBackground,
+                  borderRadius: 20,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderWidth: 0.5,
+                  borderColor: inputBorder,
+                }}
+              >
+                {/* Plus button for media picker */}
+                <TouchableOpacity
+                  onPress={handleMediaPickerPress}
+                  disabled={sending}
+                  style={{
+                    marginRight: 8,
+                    padding: 4,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <MaterialCommunityIcons name="plus-circle" size={28} color={IU_CRIMSON} />
+                </TouchableOpacity>
+                
+                <View style={{ flex: 1 }}>
+                  {props.renderComposer && props.renderComposer(props)}
+                </View>
+                {props.renderSend && (
+                  <View style={{ marginLeft: 8 }}>
+                    {props.renderSend(props)}
+                  </View>
+                )}
+              </View>
+            </View>
+          );
+        }}
+        renderComposer={(props) => {
+          return (
+            <TextInput
+              {...props}
+              value={props.text}
+              onChangeText={props.onTextChanged}
+              style={{
+                ...props.textInputStyle,
+                fontSize: 16,
+                color: textOther,
+                paddingVertical: 8,
+                paddingHorizontal: 4,
+                maxHeight: 100,
+              }}
+              placeholder="Message"
+              placeholderTextColor={textSecondary}
+              multiline
+            />
+          );
+        }}
+        renderSend={(props) => {
+          const hasText = props.text && props.text.trim().length > 0;
+          const isDisabled = sending || !hasText;
+          
+          return (
+            <TouchableOpacity
+              onPress={() => {
+                if (hasText && !sending && onSend) {
+                  // Create message in GiftedChat format
+                  const message = {
+                    _id: Math.random().toString(36).substring(7),
+                    text: props.text.trim(),
+                    createdAt: new Date(),
+                    user: {
+                      _id: String(user.uid), // Ensure user ID is a string for consistent comparison
+                      name: userData?.name || 'You',
+                      avatar: userData?.photoURL || userData?.avatar || null,
+                    },
+                  };
+                  
+                  // Clear the text input and dismiss keyboard
+                  if (props.onTextChanged) {
+                    props.onTextChanged('');
+                  }
+                  Keyboard.dismiss();
+                  
+                  // Call onSend which will send to Firebase
+                  onSend([message]);
+                }
+              }}
+              disabled={isDisabled}
+              style={{
+                backgroundColor: IU_CRIMSON,
+                borderRadius: 16,
+                width: 32,
+                height: 32,
+                justifyContent: 'center',
+                alignItems: 'center',
+                opacity: isDisabled ? 0.5 : 1,
+              }}
+            >
+              {sending ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <MaterialCommunityIcons name="send" size={18} color="#FFFFFF" />
+              )}
+            </TouchableOpacity>
+          );
+        }}
+        scrollToBottom
+        scrollToBottomComponent={() => (
+          <MaterialCommunityIcons name="chevron-down" size={24} color={IU_CRIMSON} />
+        )}
+        messageContainerStyle={{
+          left: { 
+            marginLeft: 0,
+            marginRight: 0,
+          },
+          right: { 
+            marginLeft: 0,
+            marginRight: 0,
+          },
+        }}
+      />
+      
+      {/* Media Picker Modal */}
+      <Modal
+        visible={showMediaPicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowMediaPicker(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowMediaPicker(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' }}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View
+                style={{
+                  backgroundColor: isDarkMode ? '#1C1C1E' : '#FFFFFF',
+                  borderTopLeftRadius: 20,
+                  borderTopRightRadius: 20,
+                  padding: 20,
+                  paddingBottom: 40,
+                }}
+              >
+                <Text
+                  style={{
+                    color: textOther,
+                    fontSize: 18,
+                    fontWeight: '600',
+                    marginBottom: 20,
+                    textAlign: 'center',
+                  }}
+                >
+                  Choose Media
+                </Text>
+                
+                {/* Image Option */}
+                <TouchableOpacity
+                  onPress={handleSelectImage}
+                  disabled={sending}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: 16,
+                    backgroundColor: isDarkMode ? '#2C2C2E' : surface,
+                    borderRadius: 12,
+                    marginBottom: 12,
+                  }}
+                >
+                  <MaterialCommunityIcons name="image" size={24} color={IU_CRIMSON} />
+                  <Text style={{ color: textOther, fontSize: 16, marginLeft: 12, flex: 1 }}>
+                    Choose Photo
+                  </Text>
+                  <MaterialCommunityIcons name="chevron-right" size={20} color={textSecondary} />
+                </TouchableOpacity>
+                
+                {/* Video Option */}
+                <TouchableOpacity
+                  onPress={handleSelectVideo}
+                  disabled={sending}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: 16,
+                    backgroundColor: isDarkMode ? '#2C2C2E' : surface,
+                    borderRadius: 12,
+                  }}
+                >
+                  <MaterialCommunityIcons name="video" size={24} color={IU_CRIMSON} />
+                  <Text style={{ color: textOther, fontSize: 16, marginLeft: 12, flex: 1 }}>
+                    Choose Video
+                  </Text>
+                  <MaterialCommunityIcons name="chevron-right" size={20} color={textSecondary} />
+                </TouchableOpacity>
+                
+                {/* Cancel Button */}
+                <TouchableOpacity
+                  onPress={() => setShowMediaPicker(false)}
+                  style={{
+                    marginTop: 20,
+                    padding: 16,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ color: IU_CRIMSON, fontSize: 16, fontWeight: '600' }}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </View>
   );
 }
@@ -132,15 +681,35 @@ function PollsTab() {
   );
 }
 
-function GroupDetail({ onBack }) {
+function GroupDetail({ group, onBack }) {
   const { background, text, subText } = useThemeColors();
+  
+  // Format time remaining for display
+  const formatTimeRemaining = () => {
+    if (!group?.endTime) return '';
+    const now = new Date();
+    const endTime = group.endTime instanceof Date ? group.endTime : new Date(group.endTime);
+    const diff = endTime.getTime() - now.getTime();
+    
+    if (diff <= 0) return 'Ended';
+    
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
+  };
   
   return (
     <View style={{ flex: 1, backgroundColor: background }}>
       <Appbar.Header mode="small" elevated={false} style={{ backgroundColor: background }}>
         <Appbar.Action icon="arrow-left" onPress={onBack} color={text} />
-        <Appbar.Content title="Group" color={text} />
-        <Button mode="contained" buttonColor={IU_CRIMSON} textColor="#FFFFFF" style={{ marginRight: 12 }}>02:15:47</Button>
+        <Appbar.Content title={group?.name || 'Group'} color={text} />
+        <Button mode="contained" buttonColor={IU_CRIMSON} textColor="#FFFFFF" style={{ marginRight: 12 }}>
+          {formatTimeRemaining()}
+        </Button>
       </Appbar.Header>
       <TopTab.Navigator
         initialRouteName="Chat"
@@ -151,7 +720,9 @@ function GroupDetail({ onBack }) {
           tabBarInactiveTintColor: subText,
         }}
       >
-        <TopTab.Screen name="Chat" component={ChatTab} />
+        <TopTab.Screen name="Chat">
+          {(props) => <ChatTab {...props} groupId={group?.id} />}
+        </TopTab.Screen>
         <TopTab.Screen name="Map" component={MapTab} />
         <TopTab.Screen name="Polls" component={PollsTab} />
         <TopTab.Screen name="Album" component={AlbumTab} />
@@ -207,7 +778,7 @@ export default function GroupsScreen({ navigation }) {
   };
   
   if (selected) {
-    return <GroupDetail onBack={() => setSelected(null)} />;
+    return <GroupDetail group={selected} onBack={() => setSelected(null)} />;
   }
   
   return (
