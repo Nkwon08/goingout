@@ -549,23 +549,25 @@ function ChatTab({ groupId }) {
               shadowOpacity: 0.15,
               shadowRadius: 4,
               elevation: 4,
-              minWidth: '80%',
-              maxWidth: '85%',
-            }}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-              <Text style={{ fontSize: 20, marginRight: 8 }}>📊</Text>
-              <Text
-                style={{
-                  color: isOwnMessage ? textOwn : textOther,
-                  fontSize: 17,
-                  fontWeight: '700',
-                  flex: 1,
-                }}
-              >
-                {fallbackPoll.question}
-              </Text>
-            </View>
+            minWidth: '80%',
+            maxWidth: '85%',
+            marginLeft: 0, // Ensure no left margin
+            marginRight: 0, // Ensure no right margin
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
+            <Text style={{ fontSize: 20, marginRight: 8 }}>📊</Text>
+            <Text
+              style={{
+                color: isOwnMessage ? textOwn : textOther,
+                fontSize: 17,
+                fontWeight: '700',
+                flex: 1,
+              }}
+            >
+              {fallbackPoll.question}
+            </Text>
+          </View>
             <Text style={{ color: isOwnMessage ? textOwn : textOther, fontSize: 14, opacity: 0.7, textAlign: 'center', padding: 8 }}>
               Loading poll data...
             </Text>
@@ -731,8 +733,8 @@ function ChatTab({ groupId }) {
         style={{
           backgroundColor: isOwnMessage ? bubbleOwn : bubbleOther,
           borderRadius: 18,
-          paddingHorizontal: 12,
-          paddingVertical: 8,
+          paddingHorizontal: props.currentMessage.image || props.currentMessage.video ? 8 : 12, // Padding for images
+          paddingVertical: props.currentMessage.image || props.currentMessage.video ? 8 : 8, // Padding for images
           borderTopLeftRadius: isOwnMessage ? 18 : 4,
           borderTopRightRadius: isOwnMessage ? 4 : 18,
           shadowColor: '#000',
@@ -740,23 +742,27 @@ function ChatTab({ groupId }) {
           shadowOpacity: 0.1,
           shadowRadius: 2,
           elevation: 2,
-          maxWidth: '75%',
-          marginLeft: 0, // Ensure no left margin
-          marginRight: 0, // Ensure no right margin
+          maxWidth: props.currentMessage.image || props.currentMessage.video ? '90%' : '50%', // Keep bubble wide enough for images
+          minWidth: 0, // Allow bubble to shrink to content size
+          alignSelf: isOwnMessage ? 'flex-end' : 'flex-start',
+          marginLeft: 0,
+          marginRight: 0,
         }}
       >
         {props.currentMessage.image && (
           <TouchableOpacity
             onPress={() => setSelectedImage(props.currentMessage.image)}
             activeOpacity={0.9}
+            style={{
+              marginBottom: props.currentMessage.text ? 8 : 0,
+            }}
           >
             <Image
               source={{ uri: props.currentMessage.image }}
               style={{
-                width: 200,
+                width: 200, // Smaller photo size
                 height: 200,
-                borderRadius: 12,
-                marginBottom: props.currentMessage.text ? 8 : 0,
+                borderRadius: 8,
               }}
               resizeMode="cover"
             />
@@ -765,9 +771,9 @@ function ChatTab({ groupId }) {
         {props.currentMessage.video && (
           <View
             style={{
-              width: 200,
+              width: 200, // Smaller video size
               height: 200,
-              borderRadius: 12,
+              borderRadius: 8,
               marginBottom: props.currentMessage.text ? 8 : 0,
               backgroundColor: '#000',
               justifyContent: 'center',
@@ -789,6 +795,7 @@ function ChatTab({ groupId }) {
               color: isOwnMessage ? textOwn : textOther,
               fontSize: 16,
               lineHeight: 20,
+              flexShrink: 1, // Allow text to wrap
             }}
           >
             {props.currentMessage.text}
@@ -1096,12 +1103,10 @@ function ChatTab({ groupId }) {
                 flexDirection: 'row',
                 justifyContent: isOwnMessage ? 'flex-end' : 'flex-start',
                 marginVertical: 4,
-                paddingLeft: 0,
-                paddingRight: isOwnMessage ? 8 : 0, // Small right padding for own messages to align to edge
+                paddingHorizontal: 12,
                 alignItems: 'flex-end',
                 marginLeft: 0,
                 marginRight: 0,
-                alignSelf: 'stretch',
               }}
             >
               {/* Only show avatar for other users' messages, and only if not consecutive */}
@@ -1114,7 +1119,6 @@ function ChatTab({ groupId }) {
                 </View>
               )}
               {renderBubble(props)}
-              {/* Timestamp removed for now */}
             </View>
           );
         }}

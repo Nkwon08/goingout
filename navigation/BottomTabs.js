@@ -123,6 +123,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: '100%',
     zIndex: 1,
+    paddingTop: 4, // Move icons and text down slightly to center in oval
   },
 });
 
