@@ -101,6 +101,16 @@ service cloud.firestore {
     match /groups/{groupId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null;
+      
+      // Messages subcollection - all group members can read and write
+      match /messages/{messageId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && 
+          request.resource.data.userId == request.auth.uid;
+        allow update: if false; // Messages cannot be updated
+        allow delete: if request.auth != null && 
+          resource.data.userId == request.auth.uid; // Users can delete their own messages
+      }
     }
     
     // Votes collection - location-based public voting for "tonight" polls
@@ -117,4 +127,3 @@ service cloud.firestore {
     }
   }
 }
-

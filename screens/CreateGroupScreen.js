@@ -23,9 +23,9 @@ export default function CreateGroupScreen({ navigation }) {
   const [loading, setLoading] = React.useState(true);
   const [creating, setCreating] = React.useState(false);
   
-  // Time range state
-  const [startTime, setStartTime] = React.useState(new Date());
-  const [endTime, setEndTime] = React.useState(new Date(Date.now() + 24 * 60 * 60 * 1000)); // Default: 24 hours from now
+  // Time range state - set startTime to 5 minutes in the future to allow validation to pass
+  const [startTime, setStartTime] = React.useState(() => new Date(Date.now() + 5 * 60 * 1000)); // Default: 5 minutes from now
+  const [endTime, setEndTime] = React.useState(() => new Date(Date.now() + 24 * 60 * 60 * 1000)); // Default: 24 hours from now
   const [showStartPicker, setShowStartPicker] = React.useState(false);
   const [showEndPicker, setShowEndPicker] = React.useState(false);
 
@@ -93,6 +93,13 @@ export default function CreateGroupScreen({ navigation }) {
   };
 
   const handleCreateGroup = async () => {
+    console.log('🔵 Create Group button pressed');
+    console.log('🔵 Group Name:', groupName);
+    console.log('🔵 Selected Friends:', selectedFriends.size);
+    console.log('🔵 Start Time:', startTime);
+    console.log('🔵 End Time:', endTime);
+    console.log('🔵 User:', user?.uid);
+
     if (!groupName.trim()) {
       Alert.alert('Error', 'Please enter a group name', [{ text: 'OK' }]);
       return;
@@ -103,9 +110,16 @@ export default function CreateGroupScreen({ navigation }) {
       return;
     }
 
+    if (!user || !user.uid) {
+      Alert.alert('Error', 'You must be logged in to create a group', [{ text: 'OK' }]);
+      return;
+    }
+
     const now = new Date();
-    if (startTime < now) {
-      Alert.alert('Error', 'Start time must be in the future', [{ text: 'OK' }]);
+    // Allow startTime to be at least 30 seconds in the future (give some buffer)
+    const minStartTime = new Date(now.getTime() + 30 * 1000); // 30 seconds from now
+    if (startTime < minStartTime) {
+      Alert.alert('Error', 'Start time must be at least 30 seconds in the future', [{ text: 'OK' }]);
       return;
     }
 
@@ -121,6 +135,7 @@ export default function CreateGroupScreen({ navigation }) {
 
     setCreating(true);
     try {
+      console.log('🔵 Calling createGroup service...');
       // Create group in Firestore
       const { groupId, error } = await createGroup({
         name: groupName.trim(),
@@ -132,12 +147,16 @@ export default function CreateGroupScreen({ navigation }) {
       });
 
       if (error) {
+        console.error('❌ Error from createGroup:', error);
         Alert.alert('Error', error, [{ text: 'OK' }]);
+        setCreating(false);
         return;
       }
 
       if (!groupId) {
+        console.error('❌ No groupId returned from createGroup');
         Alert.alert('Error', 'Failed to create group', [{ text: 'OK' }]);
+        setCreating(false);
         return;
       }
 
@@ -156,7 +175,8 @@ export default function CreateGroupScreen({ navigation }) {
         ]
       );
     } catch (error) {
-      console.error('Error creating group:', error);
+      console.error('❌ Error creating group:', error);
+      console.error('❌ Error stack:', error.stack);
       Alert.alert('Error', error.message || 'Failed to create group', [{ text: 'OK' }]);
     } finally {
       setCreating(false);
@@ -215,17 +235,21 @@ export default function CreateGroupScreen({ navigation }) {
             creating ||
             !groupName.trim() ||
             selectedFriends.size === 0 ||
-            startTime < new Date() ||
+            !user ||
+            !user.uid ||
+            startTime.getTime() < Date.now() + 30 * 1000 || // At least 30 seconds in future
             endTime <= startTime ||
-            endTime <= new Date()
+            endTime.getTime() <= Date.now()
           }
           color={
             creating ||
             !groupName.trim() ||
             selectedFriends.size === 0 ||
-            startTime < new Date() ||
+            !user ||
+            !user.uid ||
+            startTime.getTime() < Date.now() + 30 * 1000 || // At least 30 seconds in future
             endTime <= startTime ||
-            endTime <= new Date()
+            endTime.getTime() <= Date.now()
               ? subText
               : IU_CRIMSON
           }
@@ -364,7 +388,7 @@ export default function CreateGroupScreen({ navigation }) {
                   mode="datetime"
                   display="spinner"
                   onChange={handleStartTimeChange}
-                  minimumDate={new Date()}
+                  minimumDate={new Date(Date.now() + 30 * 1000)} // At least 30 seconds in future
                   maximumDate={endTime}
                   textColor={text}
                 />
@@ -375,7 +399,7 @@ export default function CreateGroupScreen({ navigation }) {
                 mode="datetime"
                 display="default"
                 onChange={handleStartTimeChange}
-                minimumDate={new Date()}
+                minimumDate={new Date(Date.now() + 30 * 1000)} // At least 30 seconds in future
                 maximumDate={endTime}
               />
             )}
@@ -493,9 +517,11 @@ export default function CreateGroupScreen({ navigation }) {
             creating ||
             !groupName.trim() ||
             selectedFriends.size === 0 ||
-            startTime < new Date() ||
+            !user ||
+            !user.uid ||
+            startTime.getTime() < Date.now() + 30 * 1000 || // At least 30 seconds in future
             endTime <= startTime ||
-            endTime <= new Date()
+            endTime.getTime() <= Date.now()
           }
           loading={creating}
           style={{ marginTop: 24, marginBottom: 16 }}
