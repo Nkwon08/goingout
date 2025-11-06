@@ -19,9 +19,10 @@ import { addPhotoToAlbum, addVideoToAlbum } from './groupPhotosService';
  * @param {string} userId - The user ID sending the message
  * @param {string} text - The message text
  * @param {Object} userData - User data (name, username, avatar)
+ * @param {boolean} isPost - Whether this message is from a post
  * @returns {Promise<{ messageId: string|null, error: string|null }>}
  */
-export const sendMessage = async (groupId, userId, text, userData) => {
+export const sendMessage = async (groupId, userId, text, userData, isPost = false) => {
   try {
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
       return { messageId: null, error: 'Firestore not configured' };
@@ -37,7 +38,7 @@ export const sendMessage = async (groupId, userId, text, userData) => {
       userUsername: userData.username || 'user',
       userAvatar: userData.photoURL || userData.avatar || null,
       text: text.trim(),
-      type: 'text',
+      type: isPost ? 'post' : 'text',
       image: null,
       video: null,
       createdAt: serverTimestamp(),
@@ -60,9 +61,10 @@ export const sendMessage = async (groupId, userId, text, userData) => {
  * @param {string} imageUri - The local image URI
  * @param {string} text - Optional caption text
  * @param {Object} userData - User data (name, username, avatar)
+ * @param {boolean} isPost - Whether this message is from a post
  * @returns {Promise<{ messageId: string|null, error: string|null }>}
  */
-export const sendImageMessage = async (groupId, userId, imageUri, text, userData) => {
+export const sendImageMessage = async (groupId, userId, imageUri, text, userData, isPost = false) => {
   try {
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
       return { messageId: null, error: 'Firestore not configured' };
@@ -85,7 +87,7 @@ export const sendImageMessage = async (groupId, userId, imageUri, text, userData
       userUsername: userData.username || 'user',
       userAvatar: userData.photoURL || userData.avatar || null,
       text: text ? text.trim() : '',
-      type: 'image',
+      type: isPost ? 'post' : 'image',
       image: url,
       video: null,
       createdAt: serverTimestamp(),
@@ -100,6 +102,52 @@ export const sendImageMessage = async (groupId, userId, imageUri, text, userData
     return { messageId: messageRef.id, error: null };
   } catch (error) {
     console.error('❌ Error sending image message:', error);
+    return { messageId: null, error: error.message };
+  }
+};
+
+/**
+ * Send an image message to a group chat using an existing Firebase Storage URL
+ * This is used when the image is already in Firebase Storage (e.g., from a post)
+ * @param {string} groupId - The group ID
+ * @param {string} userId - The user ID sending the message
+ * @param {string} imageUrl - The Firebase Storage URL
+ * @param {string} text - Optional caption text
+ * @param {Object} userData - User data (name, username, avatar)
+ * @param {boolean} isPost - Whether this message is from a post
+ * @returns {Promise<{ messageId: string|null, error: string|null }>}
+ */
+export const sendImageMessageWithUrl = async (groupId, userId, imageUrl, text, userData, isPost = false) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { messageId: null, error: 'Firestore not configured' };
+    }
+
+    if (!groupId || !userId || !imageUrl) {
+      return { messageId: null, error: 'Group ID, user ID, and image URL are required' };
+    }
+
+    const messageData = {
+      userId,
+      userName: userData.name || 'User',
+      userUsername: userData.username || 'user',
+      userAvatar: userData.photoURL || userData.avatar || null,
+      text: text ? text.trim() : '',
+      type: isPost ? 'post' : 'image',
+      image: imageUrl,
+      video: null,
+      createdAt: serverTimestamp(),
+    };
+
+    const messagesRef = collection(db, 'groups', groupId, 'messages');
+    const messageRef = await addDoc(messagesRef, messageData);
+
+    // Also add photo to group album
+    await addPhotoToAlbum(groupId, userId, imageUrl, userData);
+
+    return { messageId: messageRef.id, error: null };
+  } catch (error) {
+    console.error('❌ Error sending image message with URL:', error);
     return { messageId: null, error: error.message };
   }
 };
@@ -234,6 +282,7 @@ export const subscribeToMessages = (groupId, callback) => {
               _id: data.userId,
               name: data.userName || 'User',
               avatar: data.userAvatar || null,
+              username: data.userUsername || 'user',
             },
             image: data.image || null,
             video: data.video || null,

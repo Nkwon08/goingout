@@ -11,6 +11,7 @@ import { events, feedPosts } from '../data/mock';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
 import { createEvent, subscribeToUpcomingEvents, joinEvent, updateEvent, deleteEvent } from '../services/eventsService';
+import { checkFriendship } from '../services/friendsService';
 
 const SectionHeader = ({ title, textColor }) => (
   <Text variant="titleLarge" style={{ color: textColor, marginBottom: 12 }}>{title}</Text>
@@ -35,20 +36,46 @@ export default function ActivityMain() {
     }
 
     // Subscribe to real-time events from Firebase
-    const unsubscribe = subscribeToUpcomingEvents(({ events: firebaseEvents, error }) => {
+    const unsubscribe = subscribeToUpcomingEvents(async ({ events: firebaseEvents, error }) => {
       if (error) {
         console.error('Error loading events:', error);
         // Fallback to mock events if Firebase fails
         setLocalEvents(events);
-      } else {
-        // Combine Firebase events with mock events (for backward compatibility)
-        // Filter out duplicates based on ID
-        const allEvents = [...firebaseEvents, ...events];
-        const uniqueEvents = allEvents.filter((event, index, self) =>
-          index === self.findIndex((e) => e.id === event.id)
-        );
-        setLocalEvents(uniqueEvents);
+        setLoadingEvents(false);
+        return;
       }
+
+      // Filter events based on friendsOnly setting
+      const filteredEvents = [];
+      const friendsList = userData?.friends || []; // Array of usernames
+      
+      for (const event of firebaseEvents) {
+        // If event is friendsOnly, check if current user is a friend of the creator
+        if (event.friendsOnly) {
+          // Check if current user is the creator (always show own events)
+          if (event.userId === user.uid) {
+            filteredEvents.push(event);
+          } else {
+            // Check if creator's username is in friends list
+            const creatorUsername = event.creatorUsername;
+            const isFriend = creatorUsername && friendsList.includes(creatorUsername);
+            if (isFriend) {
+              filteredEvents.push(event);
+            }
+          }
+        } else {
+          // Public events - show to everyone
+          filteredEvents.push(event);
+        }
+      }
+
+      // Combine Firebase events with mock events (for backward compatibility)
+      // Filter out duplicates based on ID
+      const allEvents = [...filteredEvents, ...events];
+      const uniqueEvents = allEvents.filter((event, index, self) =>
+        index === self.findIndex((e) => e.id === event.id)
+      );
+      setLocalEvents(uniqueEvents);
       setLoadingEvents(false);
     });
 
@@ -56,17 +83,19 @@ export default function ActivityMain() {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [user?.uid]);
+  }, [user?.uid, userData?.friends]);
 
   // Filter events to only show upcoming events (not past their end time)
   const upcomingEvents = React.useMemo(() => {
     const now = new Date();
     
     return localEvents.filter((event) => {
-      // If event has endTime and date fields (new format)
-      if (event.endTime && event.date) {
+      // If event has endTime and endDate/startDate/date fields
+      if (event.endTime && (event.endDate || event.startDate || event.date)) {
+        // Use endDate if available, otherwise fall back to startDate or date for backward compatibility
+        const eventEndDate = event.endDate || event.startDate || event.date;
         // Combine date and endTime to create full end datetime
-        const endDateTime = new Date(event.date);
+        const endDateTime = new Date(eventEndDate);
         // Extract time components from endTime (which is a Date object)
         endDateTime.setHours(event.endTime.getHours());
         endDateTime.setMinutes(event.endTime.getMinutes());
@@ -179,7 +208,17 @@ export default function ActivityMain() {
               return;
             }
 
-            const result = await updateEvent(editEvent.id, user.uid, eventData);
+            const result = await updateEvent(editEvent.id, user.uid, {
+              name: eventData.name,
+              description: eventData.description,
+              location: eventData.location,
+              host: eventData.host,
+              photo: eventData.photo,
+              date: eventData.date,
+              startTime: eventData.startTime,
+              endTime: eventData.endTime,
+              friendsOnly: eventData.friendsOnly || false,
+            });
             
             if (result.error) {
               Alert.alert('Error', `Failed to update event: ${result.error}`);

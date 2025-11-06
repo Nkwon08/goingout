@@ -64,7 +64,7 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
 
           {/* Group Selection */}
           <View style={styles.groupSelection}>
-            <Text style={styles.groupSelectionTitle}>Select Group:</Text>
+            <Text style={[styles.groupSelectionTitle, { color: IU_CRIMSON }]}>Select Group:</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.groupList}>
               {groups && groups.length > 0 ? (
                 groups.map((group) => (
@@ -93,7 +93,7 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
           </View>
 
           <View style={styles.footer}>
-            <Button mode="outlined" textColor="#FFFFFF" onPress={onCancel}>
+            <Button mode="outlined" textColor="#000000" onPress={onCancel}>
               Cancel
             </Button>
           </View>
@@ -178,7 +178,6 @@ const styles = StyleSheet.create({
     borderBottomColor: '#23283B',
   },
   groupSelectionTitle: {
-    color: '#E6E8F0',
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 12,

@@ -169,9 +169,10 @@ export default function EditProfileScreen({ navigation }) {
       });
       
       // Use upsertUserProfile (handles username reservation, avatar upload, etc.)
+      // Don't include username in updates - it's locked and cannot be changed
       const result = await upsertUserProfile(user.uid, {
         name: name.trim(),
-        username: username.trim(),
+        // username: username.trim(), // Username is locked - don't include in updates
         bio: bio.trim() || null,
         age: age ? parseInt(age) : null,
         gender: gender || null,
@@ -333,8 +334,8 @@ export default function EditProfileScreen({ navigation }) {
             autoCapitalize="none"
             style={styles.input}
             textColor={text}
-            disabled={saving || userData?.hasChangedUsername === true}
-            helperText={userData?.hasChangedUsername === true ? "You can only change your username once" : undefined}
+            disabled={true}
+            helperText="Username cannot be changed"
             helperTextEnabled={true}
           />
 

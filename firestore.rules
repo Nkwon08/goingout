@@ -190,13 +190,25 @@ service cloud.firestore {
     }
     
     // Events collection - users can read all events, create their own, update/delete only their own
+    // Exception: Allow updating groupId field when joining an event (for group creation)
     match /events/{eventId} {
       allow read: if request.auth != null; // All authenticated users can read events
       allow create: if request.auth != null && 
         request.resource.data.userId == request.auth.uid; // Users can only create events as themselves
-      allow update: if request.auth != null && 
-        request.resource.data.userId == request.auth.uid &&
-        resource.data.userId == request.auth.uid; // Users can only update their own events
+      allow update: if request.auth != null && (
+        // Users can only update their own events (full update)
+        (request.resource.data.userId == request.auth.uid &&
+         resource.data.userId == request.auth.uid) ||
+        // OR allow updating only groupId field when joining an event (for backward compatibility when group is created on join)
+        // This allows any authenticated user to set groupId if it's currently null/empty
+        (request.resource.data.groupId != null &&
+         (!resource.data.groupId || resource.data.groupId == '') &&
+         request.resource.data.userId == resource.data.userId &&
+         request.resource.data.title == resource.data.title &&
+         request.resource.data.description == resource.data.description &&
+         request.resource.data.location == resource.data.location &&
+         request.resource.data.host == resource.data.host)
+      );
       allow delete: if request.auth != null && 
         resource.data.userId == request.auth.uid; // Users can only delete their own events
     }

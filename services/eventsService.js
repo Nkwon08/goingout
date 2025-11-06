@@ -26,9 +26,31 @@ export const createEvent = async (userId, userData, eventData) => {
     }
 
     // Convert Date objects to Firestore Timestamps
-    const dateTimestamp = eventData.date instanceof Date 
-      ? Timestamp.fromDate(eventData.date) 
-      : Timestamp.fromMillis(eventData.date.getTime ? eventData.date.getTime() : eventData.date);
+    // Handle backward compatibility: if eventData.date exists, use it for both startDate and endDate
+    let startDateTimestamp, endDateTimestamp;
+    
+    if (eventData.startDate && eventData.endDate) {
+      // New format: use startDate and endDate
+      startDateTimestamp = eventData.startDate instanceof Date 
+        ? Timestamp.fromDate(eventData.startDate) 
+        : Timestamp.fromMillis(eventData.startDate.getTime ? eventData.startDate.getTime() : eventData.startDate);
+      
+      endDateTimestamp = eventData.endDate instanceof Date 
+        ? Timestamp.fromDate(eventData.endDate) 
+        : Timestamp.fromMillis(eventData.endDate.getTime ? eventData.endDate.getTime() : eventData.endDate);
+    } else if (eventData.date) {
+      // Backward compatibility: use date for both startDate and endDate
+      const dateTimestamp = eventData.date instanceof Date 
+        ? Timestamp.fromDate(eventData.date) 
+        : Timestamp.fromMillis(eventData.date.getTime ? eventData.date.getTime() : eventData.date);
+      startDateTimestamp = dateTimestamp;
+      endDateTimestamp = dateTimestamp;
+    } else {
+      // Fallback: use current date
+      const now = Timestamp.now();
+      startDateTimestamp = now;
+      endDateTimestamp = now;
+    }
     
     const startTimeTimestamp = eventData.startTime instanceof Date 
       ? Timestamp.fromDate(eventData.startTime) 
@@ -48,9 +70,11 @@ export const createEvent = async (userId, userData, eventData) => {
       location: eventData.location.trim(),
       host: eventData.host.trim(),
       image: eventData.photo || null,
-      date: dateTimestamp,
+      startDate: startDateTimestamp,
+      endDate: endDateTimestamp,
       startTime: startTimeTimestamp,
       endTime: endTimeTimestamp,
+      friendsOnly: eventData.friendsOnly || false,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -126,7 +150,10 @@ export const getUpcomingEvents = async (limitCount = 50) => {
         location: data.location,
         host: data.host,
         image: data.image,
-        date: data.date?.toDate ? data.date.toDate() : data.date,
+        // Handle backward compatibility: use startDate/endDate if available, otherwise fall back to date
+        date: data.date?.toDate ? data.date.toDate() : data.date, // Keep for backward compatibility
+        startDate: data.startDate?.toDate ? data.startDate.toDate() : (data.startDate || (data.date?.toDate ? data.date.toDate() : data.date)),
+        endDate: data.endDate?.toDate ? data.endDate.toDate() : (data.endDate || (data.date?.toDate ? data.date.toDate() : data.date)),
         startTime: data.startTime?.toDate ? data.startTime.toDate() : data.startTime,
         endTime: data.endTime?.toDate ? data.endTime.toDate() : data.endTime,
         createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt,
@@ -135,9 +162,10 @@ export const getUpcomingEvents = async (limitCount = 50) => {
         creatorUsername: data.creatorUsername,
         creatorAvatar: data.creatorAvatar,
         groupId: data.groupId || null,
+        friendsOnly: data.friendsOnly || false,
         // Format time string for display
         time: formatDateTime(
-          data.date?.toDate ? data.date.toDate() : data.date,
+          data.startDate?.toDate ? data.startDate.toDate() : (data.date?.toDate ? data.date.toDate() : data.date),
           data.startTime?.toDate ? data.startTime.toDate() : data.startTime
         ),
       };
@@ -188,6 +216,7 @@ export const subscribeToUpcomingEvents = (callback, limitCount = 50) => {
             creatorUsername: data.creatorUsername,
             creatorAvatar: data.creatorAvatar,
             groupId: data.groupId || null,
+            friendsOnly: data.friendsOnly || false,
             // Format time string for display
             time: formatDateTime(
               data.date?.toDate ? data.date.toDate() : data.date,
@@ -242,6 +271,7 @@ export const getEventById = async (eventId) => {
       creatorUsername: data.creatorUsername,
       creatorAvatar: data.creatorAvatar,
       groupId: data.groupId || null,
+      friendsOnly: data.friendsOnly || false,
       // Format time string for display
       time: formatDateTime(
         data.date?.toDate ? data.date.toDate() : data.date,
@@ -272,9 +302,42 @@ export const joinEvent = async (eventId, userId) => {
     }
 
     const eventData = eventDoc.data();
+    
+    // Check if event is friends-only and if user is a friend of the creator
+    if (eventData.friendsOnly && eventData.userId !== userId) {
+      // Get current user's username to check friendship
+      const { getUsernameFromAuthUid } = await import('./friendsService');
+      const { checkFriendship } = await import('./friendsService');
+      
+      const currentUsername = await getUsernameFromAuthUid(userId);
+      const creatorUsername = eventData.creatorUsername;
+      
+      if (!currentUsername) {
+        return { success: false, error: 'User not found' };
+      }
+      
+      // Check if current user is friends with event creator
+      // Get current user's friends list
+      const currentUserRef = doc(db, 'users', currentUsername);
+      const currentUserDoc = await getDoc(currentUserRef);
+      
+      if (!currentUserDoc.exists()) {
+        return { success: false, error: 'User profile not found' };
+      }
+      
+      const currentUserData = currentUserDoc.data();
+      const friends = currentUserData.friends || [];
+      
+      // Check if creator's username is in current user's friends array
+      if (!friends.includes(creatorUsername)) {
+        return { success: false, error: 'This event is for friends only. You must be friends with the event creator to join.' };
+      }
+    }
+    
     let groupId = eventData.groupId;
 
     // If event doesn't have a group yet, create one
+    // The group creator should always be the event creator
     if (!groupId) {
       const { createGroup } = await import('./groupsService');
       
@@ -297,10 +360,18 @@ export const joinEvent = async (eventId, userId) => {
       groupId = groupResult.groupId;
 
       // Update event with groupId
-      await updateDoc(eventRef, {
-        groupId: groupId,
-        updatedAt: serverTimestamp(),
-      });
+      // Note: This update is allowed by Firestore rules for setting groupId when it's null
+      try {
+        await updateDoc(eventRef, {
+          groupId: groupId,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (updateError) {
+        // If update fails (permission error), log it but continue
+        // The group was created successfully, so we can still add the user
+        console.warn('⚠️ Could not update event with groupId:', updateError.message);
+        // Continue - the group exists and user can still join
+      }
     }
 
     // Add user to the group (if not already a member)
@@ -391,9 +462,30 @@ export const updateEvent = async (eventId, userId, eventData) => {
     }
 
     // Convert Date objects to Firestore Timestamps
-    const dateTimestamp = eventData.date instanceof Date 
-      ? Timestamp.fromDate(eventData.date) 
-      : Timestamp.fromMillis(eventData.date.getTime ? eventData.date.getTime() : eventData.date);
+    // Handle backward compatibility: if eventData.date exists, use it for both startDate and endDate
+    let startDateTimestamp, endDateTimestamp;
+    
+    if (eventData.startDate && eventData.endDate) {
+      // New format: use startDate and endDate
+      startDateTimestamp = eventData.startDate instanceof Date 
+        ? Timestamp.fromDate(eventData.startDate) 
+        : Timestamp.fromMillis(eventData.startDate.getTime ? eventData.startDate.getTime() : eventData.startDate);
+      
+      endDateTimestamp = eventData.endDate instanceof Date 
+        ? Timestamp.fromDate(eventData.endDate) 
+        : Timestamp.fromMillis(eventData.endDate.getTime ? eventData.endDate.getTime() : eventData.endDate);
+    } else if (eventData.date) {
+      // Backward compatibility: use date for both startDate and endDate
+      const dateTimestamp = eventData.date instanceof Date 
+        ? Timestamp.fromDate(eventData.date) 
+        : Timestamp.fromMillis(eventData.date.getTime ? eventData.date.getTime() : eventData.date);
+      startDateTimestamp = dateTimestamp;
+      endDateTimestamp = dateTimestamp;
+    } else {
+      // Keep existing dates if not provided
+      startDateTimestamp = existingEventData.startDate || existingEventData.date;
+      endDateTimestamp = existingEventData.endDate || existingEventData.date;
+    }
     
     const startTimeTimestamp = eventData.startTime instanceof Date 
       ? Timestamp.fromDate(eventData.startTime) 
@@ -410,9 +502,11 @@ export const updateEvent = async (eventId, userId, eventData) => {
       location: eventData.location.trim(),
       host: eventData.host.trim(),
       image: eventData.photo || existingEventData.image, // Keep existing image if no new photo
-      date: dateTimestamp,
+      startDate: startDateTimestamp,
+      endDate: endDateTimestamp,
       startTime: startTimeTimestamp,
       endTime: endTimeTimestamp,
+      friendsOnly: eventData.friendsOnly !== undefined ? eventData.friendsOnly : (existingEventData.friendsOnly || false),
       updatedAt: serverTimestamp(),
     });
 

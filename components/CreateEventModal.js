@@ -1,7 +1,7 @@
 // CreateEventModal component - modal for creating new events
 import * as React from 'react';
-import { View, Modal, TextInput, StyleSheet, TouchableOpacity, Image, ScrollView, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform, Alert } from 'react-native';
-import { Text, Avatar, Button } from 'react-native-paper';
+import { View, Modal, TextInput, StyleSheet, TouchableOpacity, Image, ScrollView, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform, Alert, FlatList } from 'react-native';
+import { Text, Avatar, Button, Checkbox } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -21,14 +21,18 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
   const [photo, setPhoto] = React.useState(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
+  const [friendsOnly, setFriendsOnly] = React.useState(false);
   
   // Date and time state
-  const [date, setDate] = React.useState(new Date());
+  const [startDate, setStartDate] = React.useState(new Date());
+  const [endDate, setEndDate] = React.useState(new Date());
   const [startTime, setStartTime] = React.useState(new Date());
   const [endTime, setEndTime] = React.useState(new Date());
-  const [showDatePicker, setShowDatePicker] = React.useState(false);
+  const [showStartDatePicker, setShowStartDatePicker] = React.useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = React.useState(false);
   const [showStartTimePicker, setShowStartTimePicker] = React.useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = React.useState(false);
+  
 
   // Set default host from current user when modal opens, or load event data if editing
   React.useEffect(() => {
@@ -40,12 +44,28 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
         setLocation(event.location || '');
         setHost(event.host || '');
         setPhoto(event.image || null);
+        setFriendsOnly(event.friendsOnly || false);
         
         // Set dates and times
-        if (event.date) {
+        // Handle backward compatibility: if event.date exists but not startDate/endDate, use date for both
+        if (event.startDate) {
+          const startD = event.startDate instanceof Date ? event.startDate : event.startDate.toDate ? event.startDate.toDate() : new Date(event.startDate);
+          setStartDate(startD);
+        } else if (event.date) {
+          // Backward compatibility: use date for startDate
           const eventDate = event.date instanceof Date ? event.date : event.date.toDate ? event.date.toDate() : new Date(event.date);
-          setDate(eventDate);
+          setStartDate(eventDate);
         }
+        
+        if (event.endDate) {
+          const endD = event.endDate instanceof Date ? event.endDate : event.endDate.toDate ? event.endDate.toDate() : new Date(event.endDate);
+          setEndDate(endD);
+        } else if (event.date) {
+          // Backward compatibility: use date for endDate
+          const eventDate = event.date instanceof Date ? event.date : event.date.toDate ? event.date.toDate() : new Date(event.date);
+          setEndDate(eventDate);
+        }
+        
         if (event.startTime) {
           const start = event.startTime instanceof Date ? event.startTime : event.startTime.toDate ? event.startTime.toDate() : new Date(event.startTime);
           setStartTime(start);
@@ -61,16 +81,19 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
         setLocation('');
         setHost(currentUser?.name || currentUser?.username || '');
         setPhoto(null);
-        // Set default date to today, start time to current hour, end time to 2 hours later
+        setFriendsOnly(false);
+        // Set default dates to today, start time to current hour, end time to 2 hours later
         const now = new Date();
-        setDate(now);
+        setStartDate(now);
+        setEndDate(now);
         setStartTime(now);
         const endTimeDefault = new Date(now);
         endTimeDefault.setHours(now.getHours() + 2);
         setEndTime(endTimeDefault);
       }
       setSubmitting(false);
-      setShowDatePicker(false);
+      setShowStartDatePicker(false);
+      setShowEndDatePicker(false);
       setShowStartTimePicker(false);
       setShowEndTimePicker(false);
     } else {
@@ -81,11 +104,13 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
       setHost('');
       setPhoto(null);
       setSubmitting(false);
-      setShowDatePicker(false);
+      setShowStartDatePicker(false);
+      setShowEndDatePicker(false);
       setShowStartTimePicker(false);
       setShowEndTimePicker(false);
     }
   }, [visible, currentUser, isEditMode, event]);
+
 
   const handlePickPhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -149,17 +174,21 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
       return;
     }
 
-    // Validate that end time is after start time
-    const startDateTime = new Date(date);
+    // Validate that end date/time is after start date/time
+    const startDateTime = new Date(startDate);
     startDateTime.setHours(startTime.getHours());
     startDateTime.setMinutes(startTime.getMinutes());
+    startDateTime.setSeconds(0);
+    startDateTime.setMilliseconds(0);
     
-    const endDateTime = new Date(date);
+    const endDateTime = new Date(endDate);
     endDateTime.setHours(endTime.getHours());
     endDateTime.setMinutes(endTime.getMinutes());
+    endDateTime.setSeconds(0);
+    endDateTime.setMilliseconds(0);
     
     if (endDateTime <= startDateTime) {
-      Alert.alert('Error', 'End time must be after start time.');
+      Alert.alert('Error', 'End date and time must be after start date and time.');
       return;
     }
 
@@ -187,9 +216,11 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
         location: location.trim(),
         host: host.trim(),
         photo: photoUrl || photo, // Use uploaded URL if available, otherwise local URI
-        date: date,
+        startDate: startDate,
+        endDate: endDate,
         startTime: startTime,
         endTime: endTime,
+        friendsOnly: friendsOnly,
       });
       
       // Reset submitting state after successful submission
@@ -357,27 +388,31 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
                       />
                     </View>
 
-                    {/* Date */}
+                    {/* Start Date */}
                     <View style={styles.fieldContainer}>
-                      <Text style={[styles.label, { color: text }]}>Date *</Text>
+                      <Text style={[styles.label, { color: text }]}>Start Date *</Text>
                       <TouchableOpacity
                         style={[styles.input, styles.dateTimeInput, { borderColor: border, backgroundColor: background }]}
-                        onPress={() => setShowDatePicker(true)}
+                        onPress={() => setShowStartDatePicker(true)}
                       >
                         <Text style={[styles.dateTimeText, { color: text }]}>
-                          {date.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                          {startDate.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
                         </Text>
                         <MaterialCommunityIcons name="calendar" size={20} color={text} />
                       </TouchableOpacity>
-                      {showDatePicker && (
+                      {showStartDatePicker && (
                         <DateTimePicker
-                          value={date}
+                          value={startDate}
                           mode="date"
                           display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                           onChange={(event, selectedDate) => {
-                            setShowDatePicker(Platform.OS === 'ios');
+                            setShowStartDatePicker(Platform.OS === 'ios');
                             if (selectedDate) {
-                              setDate(selectedDate);
+                              setStartDate(selectedDate);
+                              // If end date is before new start date, update end date
+                              if (endDate < selectedDate) {
+                                setEndDate(selectedDate);
+                              }
                             }
                           }}
                           minimumDate={new Date()}
@@ -412,6 +447,34 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
                       )}
                     </View>
 
+                    {/* End Date */}
+                    <View style={styles.fieldContainer}>
+                      <Text style={[styles.label, { color: text }]}>End Date *</Text>
+                      <TouchableOpacity
+                        style={[styles.input, styles.dateTimeInput, { borderColor: border, backgroundColor: background }]}
+                        onPress={() => setShowEndDatePicker(true)}
+                      >
+                        <Text style={[styles.dateTimeText, { color: text }]}>
+                          {endDate.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                        </Text>
+                        <MaterialCommunityIcons name="calendar" size={20} color={text} />
+                      </TouchableOpacity>
+                      {showEndDatePicker && (
+                        <DateTimePicker
+                          value={endDate}
+                          mode="date"
+                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                          onChange={(event, selectedDate) => {
+                            setShowEndDatePicker(Platform.OS === 'ios');
+                            if (selectedDate) {
+                              setEndDate(selectedDate);
+                            }
+                          }}
+                          minimumDate={startDate}
+                        />
+                      )}
+                    </View>
+
                     {/* End Time */}
                     <View style={styles.fieldContainer}>
                       <Text style={[styles.label, { color: text }]}>End Time *</Text>
@@ -437,6 +500,34 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
                           }}
                         />
                       )}
+                    </View>
+
+                    {/* Friends Only Toggle */}
+                    <View style={styles.fieldContainer}>
+                      <TouchableOpacity
+                        style={[styles.friendsOnlyContainer, { borderColor: border, backgroundColor: background }]}
+                        onPress={() => setFriendsOnly(!friendsOnly)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.friendsOnlyContent}>
+                          <MaterialCommunityIcons 
+                            name={friendsOnly ? "account-group" : "account-group-outline"} 
+                            size={24} 
+                            color={friendsOnly ? IU_CRIMSON : text} 
+                          />
+                          <View style={styles.friendsOnlyTextContainer}>
+                            <Text style={[styles.friendsOnlyLabel, { color: text }]}>Share with friends only</Text>
+                            <Text style={[styles.friendsOnlyDescription, { color: subText }]}>
+                              Only your friends will be able to see this event
+                            </Text>
+                          </View>
+                        </View>
+                        <Checkbox
+                          status={friendsOnly ? 'checked' : 'unchecked'}
+                          onPress={() => setFriendsOnly(!friendsOnly)}
+                          color={IU_CRIMSON}
+                        />
+                      </TouchableOpacity>
                     </View>
                   </View>
                 </ScrollView>
@@ -602,6 +693,32 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     borderColor: '#FF6B6B',
+  },
+  friendsOnlyContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  friendsOnlyContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
+  },
+  friendsOnlyTextContainer: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  friendsOnlyLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  friendsOnlyDescription: {
+    fontSize: 13,
   },
 });
 

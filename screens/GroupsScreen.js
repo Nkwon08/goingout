@@ -814,6 +814,98 @@ function ChatTab({ groupId }) {
       );
     }
     
+    // Handle post messages - display with photo, text, username, and small pfp
+    if (props.currentMessage.type === 'post') {
+      const username = props.currentMessage.user?.username || props.currentMessage.user?.name || 'user';
+      const avatar = props.currentMessage.user?.avatar || null;
+      
+      return (
+        <View
+          style={{
+            backgroundColor: isOwnMessage ? bubbleOwn : bubbleOther,
+            borderRadius: 18,
+            paddingHorizontal: props.currentMessage.image ? 8 : 12,
+            paddingVertical: 8,
+            borderTopLeftRadius: isOwnMessage ? 18 : 4,
+            borderTopRightRadius: isOwnMessage ? 4 : 18,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.1,
+            shadowRadius: 2,
+            elevation: 2,
+            maxWidth: props.currentMessage.image ? '90%' : '50%',
+            minWidth: 0,
+            alignSelf: isOwnMessage ? 'flex-end' : 'flex-start',
+            marginLeft: 0,
+            marginRight: 0,
+          }}
+        >
+          {/* Photo (if any) */}
+          {props.currentMessage.image && (
+            <TouchableOpacity
+              onPress={() => setSelectedImage(props.currentMessage.image)}
+              activeOpacity={0.9}
+              style={{
+                marginBottom: props.currentMessage.text ? 8 : 0,
+              }}
+            >
+              <Image
+                source={{ uri: props.currentMessage.image }}
+                style={{
+                  width: 200,
+                  height: 200,
+                  borderRadius: 8,
+                }}
+                resizeMode="cover"
+              />
+            </TouchableOpacity>
+          )}
+          
+          {/* Text */}
+          {props.currentMessage.text && (
+            <Text
+              style={{
+                color: isOwnMessage ? textOwn : textOther,
+                fontSize: 16,
+                lineHeight: 20,
+                flexShrink: 1,
+                marginBottom: 8,
+              }}
+            >
+              {props.currentMessage.text}
+            </Text>
+          )}
+          
+          {/* Username and Profile Picture */}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              marginTop: props.currentMessage.text ? 0 : 0,
+            }}
+          >
+            {avatar && (
+              <Avatar.Image
+                size={24}
+                source={{ uri: avatar }}
+                style={{ marginRight: 8 }}
+              />
+            )}
+            <Text
+              style={{
+                color: isOwnMessage ? textOwn : textOther,
+                fontSize: 14,
+                fontWeight: '600',
+                opacity: 0.8,
+              }}
+            >
+              @{username}
+            </Text>
+          </View>
+        </View>
+      );
+    }
+    
     // Regular message bubble
     return (
       <View

@@ -8,6 +8,9 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
 import { deletePost, likePost, checkIfLiked } from '../services/postsService';
 import { addComment, subscribeToComments, deleteComment } from '../services/commentsService';
+import { subscribeToUserGroups } from '../services/groupsService';
+import { sendImageMessage, sendImageMessageWithUrl, sendMessage } from '../services/groupChatService';
+import { createGroup } from '../services/groupsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const IMAGE_WIDTH = SCREEN_WIDTH * 0.92 - 12; // Narrower by 12 pixels
@@ -31,6 +34,11 @@ export default function FeedPost({ post, onDelete }) {
   const [commentText, setCommentText] = React.useState('');
   const [submittingComment, setSubmittingComment] = React.useState(false);
   const [liking, setLiking] = React.useState(false);
+  const [showSendToGroupModal, setShowSendToGroupModal] = React.useState(false);
+  const [groups, setGroups] = React.useState([]);
+  const [selectedGroup, setSelectedGroup] = React.useState(null);
+  const [sendingToGroup, setSendingToGroup] = React.useState(false);
+  const [showCreateGroup, setShowCreateGroup] = React.useState(false);
   
   // Get stable createdAt timestamp for this specific post - each post has its own timer
   // This timestamp is calculated once per post.id and doesn't change when new posts are added
@@ -109,6 +117,33 @@ export default function FeedPost({ post, onDelete }) {
 
     return () => unsubscribe();
   }, [commentsVisible, post.id]);
+
+  // Subscribe to user groups when send modal is visible
+  React.useEffect(() => {
+    if (!showSendToGroupModal || !user?.uid) {
+      setGroups([]);
+      return;
+    }
+
+    const unsubscribe = subscribeToUserGroups(user.uid, ({ groups: userGroups, error }) => {
+      if (error) {
+        console.error('Error loading groups:', error);
+      } else {
+        // Filter out expired groups - only show active groups
+        const now = new Date();
+        const activeGroups = (userGroups || []).filter((group) => {
+          if (!group.endTime) return true; // Groups without endTime are considered active
+          const endTime = group.endTime instanceof Date ? group.endTime : new Date(group.endTime);
+          return endTime.getTime() > now.getTime();
+        });
+        setGroups(activeGroups);
+      }
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [showSendToGroupModal, user?.uid]);
 
   // Each post has its own independent timer
   // Timer continues from where it was (doesn't restart when new posts are added)
@@ -306,6 +341,99 @@ export default function FeedPost({ post, onDelete }) {
     setMenuVisible(true);
   };
 
+  // Handle share/send button press
+  const handleSharePress = () => {
+    if (!user?.uid) {
+      Alert.alert('Error', 'Please sign in to send posts to groups.');
+      return;
+    }
+    setShowSendToGroupModal(true);
+  };
+
+  // Handle sending post to group
+  const handleSendToGroup = async () => {
+    if (!selectedGroup || !user?.uid || !userData || sendingToGroup) return;
+
+    setSendingToGroup(true);
+    try {
+      // If post has images, send each image as a separate message
+      if (images.length > 0) {
+        for (let i = 0; i < images.length; i++) {
+          const imageUrl = images[i];
+          // Check if image is already a Firebase Storage URL (starts with http/https)
+          const isFirebaseUrl = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+          
+          let result;
+          if (isFirebaseUrl) {
+            // Use existing Firebase Storage URL directly
+            result = await sendImageMessageWithUrl(
+              selectedGroup.id,
+              user.uid,
+              imageUrl,
+              i === 0 ? (post.text || '') : '', // Include post text as caption for first image only
+              userData,
+              true // isPost = true
+            );
+          } else {
+            // Upload local image
+            result = await sendImageMessage(
+              selectedGroup.id,
+              user.uid,
+              imageUrl,
+              i === 0 ? (post.text || '') : '', // Include post text as caption for first image only
+              userData,
+              true // isPost = true
+            );
+          }
+          
+          if (result.error) {
+            Alert.alert('Error', `Failed to send image: ${result.error}`);
+            setSendingToGroup(false);
+            return;
+          }
+        }
+      } else if (post.text) {
+        // If no images but has text, send as text message
+        const { error } = await sendMessage(
+          selectedGroup.id,
+          user.uid,
+          post.text,
+          userData,
+          true // isPost = true
+        );
+        if (error) {
+          Alert.alert('Error', `Failed to send message: ${error}`);
+          setSendingToGroup(false);
+          return;
+        }
+      } else {
+        Alert.alert('Error', 'Post has no content to send.');
+        setSendingToGroup(false);
+        return;
+      }
+
+      Alert.alert('Success!', `Post sent to ${selectedGroup.name}.`);
+      setShowSendToGroupModal(false);
+      setSelectedGroup(null);
+    } catch (error) {
+      console.error('Error sending post to group:', error);
+      Alert.alert('Error', error.message || 'Failed to send post to group. Please try again.');
+    } finally {
+      setSendingToGroup(false);
+    }
+  };
+
+  // Handle create new group
+  const handleCreateNewGroup = () => {
+    setShowSendToGroupModal(false);
+    setShowCreateGroup(true);
+    // Navigate to CreateGroup screen
+    navigation.navigate('Groups', {
+      screen: 'CreateGroup',
+      params: { returnToPost: true, postData: post }
+    });
+  };
+
   // Handle delete post
   const handleDelete = () => {
     setMenuVisible(false);
@@ -443,11 +571,8 @@ export default function FeedPost({ post, onDelete }) {
               <Text style={[styles.actionCount, { color: text }]}> {commentCount.toLocaleString()}</Text>
             )}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton}>
-            <MaterialCommunityIcons name="share-outline" size={24} color={text} />
-            {(post.retweets || 0) > 0 && (
-              <Text style={[styles.actionCount, { color: text }]}> {(post.retweets || 0).toLocaleString()}</Text>
-            )}
+          <TouchableOpacity style={styles.actionButton} onPress={handleSharePress}>
+            <MaterialCommunityIcons name="send" size={24} color={text} />
           </TouchableOpacity>
         </View>
       </View>
@@ -589,6 +714,109 @@ export default function FeedPost({ post, onDelete }) {
             </TouchableOpacity>
       </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Send to Group Modal */}
+      <Modal
+        visible={showSendToGroupModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setShowSendToGroupModal(false);
+          setSelectedGroup(null);
+        }}
+      >
+        <View style={styles.sendModalOverlay}>
+          <View style={[styles.sendModalContainer, { backgroundColor: surface, borderColor: border }]}>
+            {/* Header */}
+            <View style={[styles.sendModalHeader, { borderBottomColor: border }]}>
+              <Text style={[styles.sendModalTitle, { color: text }]}>Send to Group</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowSendToGroupModal(false);
+                  setSelectedGroup(null);
+                }}
+              >
+                <MaterialCommunityIcons name="close" size={24} color={text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Groups List */}
+            <ScrollView style={styles.sendModalContent}>
+              {groups.length > 0 ? (
+                groups.map((group) => (
+                  <TouchableOpacity
+                    key={group.id}
+                    style={[
+                      styles.groupOption,
+                      { borderBottomColor: border },
+                      selectedGroup?.id === group.id && { backgroundColor: border }
+                    ]}
+                    onPress={() => setSelectedGroup(group)}
+                  >
+                    <View style={styles.groupOptionContent}>
+                      <MaterialCommunityIcons
+                        name="account-group"
+                        size={24}
+                        color={selectedGroup?.id === group.id ? IU_CRIMSON : text}
+                      />
+                      <View style={styles.groupOptionText}>
+                        <Text style={[styles.groupOptionName, { color: text }]}>{group.name}</Text>
+                        {group.description && (
+                          <Text style={[styles.groupOptionDescription, { color: subText }]} numberOfLines={1}>
+                            {group.description}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                    {selectedGroup?.id === group.id && (
+                      <MaterialCommunityIcons name="check-circle" size={24} color={IU_CRIMSON} />
+                    )}
+                  </TouchableOpacity>
+                ))
+              ) : (
+                <View style={styles.emptyGroupsContainer}>
+                  <Text style={[styles.emptyGroupsText, { color: subText }]}>No active groups</Text>
+                </View>
+              )}
+
+              {/* Create New Group Option */}
+              <TouchableOpacity
+                style={[styles.createGroupOption, { borderTopColor: border, borderBottomColor: border }]}
+                onPress={handleCreateNewGroup}
+              >
+                <MaterialCommunityIcons name="plus-circle" size={24} color={IU_CRIMSON} />
+                <Text style={[styles.createGroupText, { color: IU_CRIMSON }]}>Create New Group</Text>
+              </TouchableOpacity>
+            </ScrollView>
+
+            {/* Footer */}
+            <View style={[styles.sendModalFooter, { borderTopColor: border }]}>
+              <Button
+                mode="outlined"
+                onPress={() => {
+                  setShowSendToGroupModal(false);
+                  setSelectedGroup(null);
+                }}
+                textColor={text}
+                style={[styles.sendModalButton, { borderColor: border }]}
+              >
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                onPress={handleSendToGroup}
+                disabled={!selectedGroup || sendingToGroup}
+                buttonColor={IU_CRIMSON}
+                textColor="#FFFFFF"
+                style={styles.sendModalButton}
+                loading={sendingToGroup}
+              >
+                {sendingToGroup ? 'Sending...' : 'Send'}
+              </Button>
+            </View>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -809,5 +1037,89 @@ const styles = StyleSheet.create({
   submitCommentButton: {
     marginLeft: 8,
     padding: 8,
+  },
+  sendModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'flex-end',
+  },
+  sendModalContainer: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
+    borderWidth: 1,
+  },
+  sendModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  sendModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  sendModalContent: {
+    maxHeight: 400,
+  },
+  groupOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  groupOptionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  groupOptionText: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  groupOptionName: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  groupOptionDescription: {
+    fontSize: 14,
+    marginTop: 4,
+  },
+  emptyGroupsContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyGroupsText: {
+    fontSize: 16,
+  },
+  createGroupOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    marginTop: 8,
+  },
+  createGroupText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 12,
+  },
+  sendModalFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    gap: 12,
+  },
+  sendModalButton: {
+    flex: 1,
   },
 });
