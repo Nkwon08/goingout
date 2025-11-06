@@ -18,8 +18,10 @@ function PostsTab({ user, userData, themeColors }) {
   const [posts, setPosts] = React.useState([]);
   const [refreshing, setRefreshing] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
-  const [selectedPost, setSelectedPost] = React.useState(null);
+  const [selectedPostIndex, setSelectedPostIndex] = React.useState(null);
+  const [currentPostIndex, setCurrentPostIndex] = React.useState(0);
   const [containerHeight, setContainerHeight] = React.useState(0);
+  const flatListRef = React.useRef(null);
   const { text, subText, background, surface } = themeColors;
   const { isDarkMode } = useTheme();
 
@@ -53,19 +55,76 @@ function PostsTab({ user, userData, themeColors }) {
   };
 
   const handlePostPress = (post) => {
-    setSelectedPost(post);
+    const index = posts.findIndex(p => p.id === post.id);
+    if (index !== -1) {
+      setSelectedPostIndex(index);
+      setCurrentPostIndex(index);
+    }
   };
 
   const handleCloseModal = () => {
-    setSelectedPost(null);
+    setSelectedPostIndex(null);
+    setCurrentPostIndex(0);
   };
 
   const handlePostDelete = (postId) => {
+    const deletedIndex = posts.findIndex(p => p.id === postId);
+    
     // Remove the deleted post from the list
-    setPosts(prevPosts => prevPosts.filter(post => post.id !== postId));
-    // Close the modal
-    setSelectedPost(null);
+    setPosts(prevPosts => {
+      const newPosts = prevPosts.filter(post => post.id !== postId);
+      
+      // If we deleted the last post, close the modal
+      if (newPosts.length === 0) {
+        setSelectedPostIndex(null);
+        setCurrentPostIndex(0);
+        return newPosts;
+      }
+      
+      // If we deleted the current post, navigate to previous one or close if it was the first
+      if (deletedIndex === currentPostIndex) {
+        if (currentPostIndex > 0) {
+          // Move to previous post - just update index, user can scroll naturally
+          setCurrentPostIndex(currentPostIndex - 1);
+        } else {
+          // It was the first post, close modal
+          setSelectedPostIndex(null);
+          setCurrentPostIndex(0);
+        }
+      } else if (deletedIndex < currentPostIndex) {
+        // If we deleted a post before the current one, adjust the index
+        setCurrentPostIndex(currentPostIndex - 1);
+      }
+      
+      return newPosts;
+    });
   };
+
+  const handleViewableItemsChanged = React.useRef(({ viewableItems }) => {
+    if (viewableItems.length > 0) {
+      const index = viewableItems[0].index;
+      if (index !== null && index !== undefined) {
+        setCurrentPostIndex(index);
+      }
+    }
+  }).current;
+
+  const viewabilityConfig = React.useRef({
+    itemVisiblePercentThreshold: 50
+  }).current;
+
+  // Scroll to selected post when modal opens
+  React.useEffect(() => {
+    if (selectedPostIndex !== null && flatListRef.current && posts.length > 0) {
+      // Wait for FlatList to render, then scroll to approximate position
+      setTimeout(() => {
+        // Estimate scroll position (rough estimate based on average post height)
+        const estimatedHeight = 500;
+        const scrollOffset = estimatedHeight * selectedPostIndex;
+        flatListRef.current?.scrollToOffset({ offset: scrollOffset, animated: false });
+      }, 100);
+    }
+  }, [selectedPostIndex, posts.length]);
 
   if (loading) {
     return (
@@ -143,7 +202,11 @@ function PostsTab({ user, userData, themeColors }) {
           gap: gridGap,
           alignContent: 'flex-start',
         }}>
-        {posts.map((post) => {
+        {posts.filter(post => {
+          // Only show posts that have at least one image
+          const images = post.images || [];
+          return images.length > 0;
+        }).map((post) => {
           // Get first image from post
           const images = post.images || [];
           const firstImage = images.length > 0 ? images[0] : null;
@@ -164,30 +227,14 @@ function PostsTab({ user, userData, themeColors }) {
               }}
               activeOpacity={0.8}
             >
-              {firstImage ? (
-                <Image
-                  source={{ uri: firstImage }}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                  }}
-                  resizeMode="cover"
-                />
-              ) : (
-                <View style={{
+              <Image
+                source={{ uri: firstImage }}
+                style={{
                   width: '100%',
                   height: '100%',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  backgroundColor: isDarkMode ? '#2A2A2A' : '#F5F4F2',
-                }}>
-                  <MaterialCommunityIcons 
-                    name="image-outline" 
-                    size={32} 
-                    color={subText} 
-                  />
-                </View>
-              )}
+                }}
+                resizeMode="cover"
+              />
               {/* Overlay for multiple images indicator */}
               {images.length > 1 && (
                 <View style={{
@@ -212,10 +259,10 @@ function PostsTab({ user, userData, themeColors }) {
         </View>
       </View>
 
-      {/* Modal for maximized post */}
-      {selectedPost && (
+      {/* Modal for maximized post with horizontal scrolling */}
+      {selectedPostIndex !== null && posts.length > 0 && (
         <Modal
-          visible={!!selectedPost}
+          visible={selectedPostIndex !== null}
           transparent={false}
           animationType="slide"
           onRequestClose={handleCloseModal}
@@ -223,15 +270,26 @@ function PostsTab({ user, userData, themeColors }) {
           <View style={{ flex: 1, backgroundColor: background }}>
             <Appbar.Header mode="center-aligned" style={{ backgroundColor: background }}>
               <Appbar.Action 
-                icon="close" 
+                icon="arrow-left" 
                 color={text} 
                 onPress={handleCloseModal}
               />
-              <Appbar.Content title="Post" color={text} />
+              <Appbar.Content title="" color={text} />
             </Appbar.Header>
-            <View style={{ flex: 1 }}>
-              <FeedPost post={selectedPost} onDelete={handlePostDelete} />
-            </View>
+            <FlatList
+              ref={flatListRef}
+              data={posts}
+              keyExtractor={(item) => item.id}
+              showsVerticalScrollIndicator={true}
+              onViewableItemsChanged={handleViewableItemsChanged}
+              viewabilityConfig={viewabilityConfig}
+              contentContainerStyle={{ paddingBottom: 20 }}
+              renderItem={({ item }) => (
+                <View style={{ width: '100%' }}>
+                  <FeedPost post={item} onDelete={handlePostDelete} />
+                </View>
+              )}
+            />
           </View>
         </Modal>
       )}
