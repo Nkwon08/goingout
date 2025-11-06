@@ -1,7 +1,8 @@
 // User Profile screen - view another user's profile with posts and following button
 import * as React from 'react';
-import { View, FlatList, RefreshControl, Alert } from 'react-native';
+import { View, Alert, TouchableOpacity, Image, Modal, Dimensions } from 'react-native';
 import { Appbar, Avatar, Text, IconButton } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToUserPosts } from '../services/postsService';
@@ -17,7 +18,10 @@ function UserPostsTab({ userId, username, themeColors }) {
   const [posts, setPosts] = React.useState([]);
   const [refreshing, setRefreshing] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
-  const { text, subText, background } = themeColors;
+  const [selectedPost, setSelectedPost] = React.useState(null);
+  const [containerHeight, setContainerHeight] = React.useState(0);
+  const { text, subText, background, surface } = themeColors;
+  const { isDarkMode } = useTheme();
 
   React.useEffect(() => {
     if (!userId) {
@@ -30,12 +34,13 @@ function UserPostsTab({ userId, username, themeColors }) {
         if (result.error) {
           console.error('Error loading posts:', result.error);
         } else {
-          setPosts(result.posts);
+          // Limit to 9 posts for 3x3 grid
+          setPosts(result.posts.slice(0, 9));
         }
         setLoading(false);
         setRefreshing(false);
       },
-      100 // Get up to 100 posts
+      9 // Get up to 9 posts
     );
 
     return () => unsubscribe();
@@ -47,9 +52,13 @@ function UserPostsTab({ userId, username, themeColors }) {
     setTimeout(() => setRefreshing(false), 1000);
   };
 
-  const renderPost = ({ item }) => (
-    <FeedPost post={item} onDelete={() => {}} />
-  );
+  const handlePostPress = (post) => {
+    setSelectedPost(post);
+  };
+
+  const handleCloseModal = () => {
+    setSelectedPost(null);
+  };
 
   if (loading) {
     return (
@@ -69,17 +78,157 @@ function UserPostsTab({ userId, username, themeColors }) {
     );
   }
 
+  // Calculate grid item size to fill available space
+  // 3 columns with gaps, 3 rows to fill vertical space
+  const screenWidth = Dimensions.get('window').width;
+  const gridPadding = 16;
+  const gridGap = 2;
+  const headerHeight = 40; // Height of the "Posts" header
+  
+  // Calculate item size based on available width and height
+  // Ensure 9 posts (3x3) fill the remaining vertical space
+  const availableWidth = screenWidth - (gridPadding * 2);
+  const availableHeight = containerHeight > 0 ? containerHeight - headerHeight - gridPadding : 0;
+  
+  // Calculate size based on width (3 columns)
+  const itemSizeByWidth = (availableWidth - (gridGap * 2)) / 3;
+  
+  // Calculate size based on height (3 rows) if we have container height
+  const itemSizeByHeight = availableHeight > 0 ? (availableHeight - (gridGap * 2)) / 3 : itemSizeByWidth;
+  
+  // Use the smaller of the two to ensure everything fits
+  const itemSize = availableHeight > 0 
+    ? Math.min(itemSizeByWidth, itemSizeByHeight) 
+    : itemSizeByWidth;
+
   return (
-    <FlatList
-      data={posts}
-      renderItem={renderPost}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={{ padding: 16, gap: 12 }}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-      }
-      showsVerticalScrollIndicator={false}
-    />
+    <>
+      <View 
+        style={{ flex: 1 }}
+        onLayout={(event) => {
+          const { height } = event.nativeEvent.layout;
+          setContainerHeight(height);
+        }}
+      >
+        {/* Header divider */}
+        <View style={{
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          borderBottomWidth: 1,
+          borderBottomColor: isDarkMode ? '#3A3A3A' : '#D0CFCD',
+          backgroundColor: background,
+        }}>
+          <Text style={{
+            color: text,
+            fontSize: 16,
+            fontWeight: '600',
+          }}>
+            Posts
+          </Text>
+        </View>
+
+        {/* Grid container */}
+        <View style={{
+          flex: 1,
+          padding: gridPadding,
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          gap: gridGap,
+          alignContent: 'flex-start',
+        }}>
+        {posts.map((post) => {
+          // Get first image from post
+          const images = post.images || [];
+          const firstImage = images.length > 0 ? images[0] : null;
+          
+          // Calculate height for 3:4 aspect ratio
+          const itemHeight = itemSize * (4 / 3);
+          
+          return (
+            <TouchableOpacity
+              key={post.id}
+              onPress={() => handlePostPress(post)}
+              style={{
+                width: itemSize,
+                height: itemHeight,
+                backgroundColor: surface,
+                borderRadius: 4,
+                overflow: 'hidden',
+              }}
+              activeOpacity={0.8}
+            >
+              {firstImage ? (
+                <Image
+                  source={{ uri: firstImage }}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                  }}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={{
+                  width: '100%',
+                  height: '100%',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  backgroundColor: isDarkMode ? '#2A2A2A' : '#F5F4F2',
+                }}>
+                  <MaterialCommunityIcons 
+                    name="image-outline" 
+                    size={32} 
+                    color={subText} 
+                  />
+                </View>
+              )}
+              {/* Overlay for multiple images indicator */}
+              {images.length > 1 && (
+                <View style={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                  borderRadius: 12,
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                }}>
+                  <MaterialCommunityIcons 
+                    name="layers" 
+                    size={16} 
+                    color="#FFFFFF" 
+                  />
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+        </View>
+      </View>
+
+      {/* Modal for maximized post */}
+      {selectedPost && (
+        <Modal
+          visible={!!selectedPost}
+          transparent={false}
+          animationType="slide"
+          onRequestClose={handleCloseModal}
+        >
+          <View style={{ flex: 1, backgroundColor: background }}>
+            <Appbar.Header mode="center-aligned" style={{ backgroundColor: background }}>
+              <Appbar.Action 
+                icon="close" 
+                color={text} 
+                onPress={handleCloseModal}
+              />
+              <Appbar.Content title="Post" color={text} />
+            </Appbar.Header>
+            <View style={{ flex: 1 }}>
+              <FeedPost post={selectedPost} onDelete={() => {}} />
+            </View>
+          </View>
+        </Modal>
+      )}
+    </>
   );
 }
 
