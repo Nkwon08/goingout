@@ -31,13 +31,14 @@ export const createGroup = async (groupData) => {
       name,
       description,
       creator,
-      members, // Array of member UIDs (should include creator)
+      members, // Array of invited member UIDs (not including creator)
       startTime,
       endTime,
     } = groupData;
 
-    // Ensure creator is in members array
-    const membersArray = Array.isArray(members) ? [...new Set([creator, ...members])] : [creator];
+    // Creator is automatically a member, invited friends will be added after accepting
+    const membersArray = [creator]; // Start with only creator
+    const invitedMembers = Array.isArray(members) ? [...new Set(members.filter(id => id !== creator))] : [];
 
     // Convert Date objects to Firestore Timestamps
     const startTimeTimestamp = startTime instanceof Date 
@@ -64,8 +65,32 @@ export const createGroup = async (groupData) => {
 
     // Create the group in Firestore
     const groupRef = await addDoc(collection(db, 'groups'), groupToCreate);
+    const groupId = groupRef.id;
     
-    return { groupId: groupRef.id, error: null };
+    // Send group invitation notifications to invited friends
+    if (invitedMembers.length > 0) {
+      try {
+        const { createNotification } = await import('./notificationsService');
+        
+        // Send notifications to all invited members
+        const notificationPromises = invitedMembers.map(async (invitedUserId) => {
+          return createNotification(invitedUserId, {
+            type: 'group_invitation',
+            groupId: groupId,
+            fromUserId: creator,
+            message: `invited you to join "${groupToCreate.name}"`,
+          });
+        });
+        
+        await Promise.all(notificationPromises);
+        console.log(`📨 Sent ${invitedMembers.length} group invitation notifications`);
+      } catch (error) {
+        console.error('❌ Error sending group invitations:', error);
+        // Don't fail group creation if notifications fail
+      }
+    }
+    
+    return { groupId, error: null };
   } catch (error) {
     console.error('❌ Error creating group:', error);
     console.error('❌ Error code:', error.code);
@@ -268,6 +293,86 @@ export const removeMemberFromGroup = async (groupId, userId) => {
   } catch (error) {
     console.error('❌ Error removing member from group:', error);
     return { error: error.message };
+  }
+};
+
+// Accept a group invitation
+export const acceptGroupInvitation = async (groupId, userId, notificationId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { success: false, error: 'Firestore not configured' };
+    }
+
+    const groupRef = doc(db, 'groups', groupId);
+    const groupDoc = await getDoc(groupRef);
+
+    if (!groupDoc.exists()) {
+      return { success: false, error: 'Group not found' };
+    }
+
+    const currentMembers = groupDoc.data().members || [];
+    if (currentMembers.includes(userId)) {
+      // Already a member, just delete the notification
+      if (notificationId) {
+        const { getUsernameFromAuthUid } = await import('./usersService');
+        const username = await getUsernameFromAuthUid(userId);
+        if (username) {
+          const notificationRef = doc(db, 'users', username, 'notifications', notificationId);
+          await deleteDoc(notificationRef);
+        }
+      }
+      return { success: true, error: null };
+    }
+
+    // Add user to group members
+    await updateDoc(groupRef, {
+      members: arrayUnion(userId),
+      memberCount: currentMembers.length + 1,
+      updatedAt: serverTimestamp(),
+    });
+
+    // Delete the notification
+    if (notificationId) {
+      const { getUsernameFromAuthUid } = await import('./usersService');
+      const username = await getUsernameFromAuthUid(userId);
+      if (username) {
+        const notificationRef = doc(db, 'users', username, 'notifications', notificationId);
+        await deleteDoc(notificationRef);
+      }
+    }
+
+    return { success: true, error: null };
+  } catch (error) {
+    console.error('❌ Error accepting group invitation:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Decline a group invitation
+export const declineGroupInvitation = async (notificationId, userId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { success: false, error: 'Firestore not configured' };
+    }
+
+    // Get user's username (document ID is username, not authUid)
+    const { getUsernameFromAuthUid } = await import('./usersService');
+    const username = await getUsernameFromAuthUid(userId);
+    
+    if (!username) {
+      return { success: false, error: 'User not found' };
+    }
+
+    // Delete the notification
+    if (notificationId) {
+      const notificationRef = doc(db, 'users', username, 'notifications', notificationId);
+      await deleteDoc(notificationRef);
+    }
+
+    return { success: true, error: null };
+  } catch (error) {
+    console.error('❌ Error declining group invitation:', error);
+    return { success: false, error: error.message };
   }
 };
 

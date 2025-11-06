@@ -114,6 +114,17 @@ service cloud.firestore {
         allow delete: if request.auth != null && 
           resource.data.userId == request.auth.uid; // Users can delete their own messages
       }
+      
+      // Locations subcollection - group members can share their location
+      match /locations/{userId} {
+        allow read: if request.auth != null; // All group members can see locations
+        allow create: if request.auth != null && 
+          request.resource.data.userId == request.auth.uid; // Users can only share their own location
+        allow update: if request.auth != null && 
+          resource.data.userId == request.auth.uid; // Users can only update their own location
+        allow delete: if request.auth != null && 
+          resource.data.userId == request.auth.uid; // Users can stop sharing their location
+      }
     }
     
     // Votes collection - location-based public voting for "tonight" polls
