@@ -32,7 +32,7 @@ export default function EditProfileScreen({ navigation }) {
   // Gender options
   const genderOptions = ['', 'Male', 'Female', 'Non-binary', 'Prefer not to say'];
 
-  // Handle profile picture selection
+  // Handle profile picture selection from library
   const handlePickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -70,6 +70,50 @@ export default function EditProfileScreen({ navigation }) {
     } catch (error) {
       console.error('Error picking image:', error);
       Alert.alert('Error', 'Failed to pick image. Please try again.');
+      setUploadingImage(false);
+    }
+  };
+
+  // Handle taking photo with camera
+  const handleTakePicture = async () => {
+    try {
+      // Request camera permissions
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant camera permissions to take a photo for your profile picture.');
+        return;
+      }
+
+      // Launch camera
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setUploadingImage(true);
+        const imageUri = result.assets[0].uri;
+        
+        // Upload image to Firebase Storage
+        if (user?.uid) {
+          const uploadResult = await uploadImages([imageUri], user.uid, 'profile');
+          if (uploadResult.urls && uploadResult.urls.length > 0) {
+            setProfilePicture(uploadResult.urls[0]);
+            setUploadingImage(false);
+          } else {
+            Alert.alert('Error', 'Failed to upload profile picture. Please try again.');
+            setUploadingImage(false);
+          }
+        } else {
+          setProfilePicture(imageUri);
+          setUploadingImage(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error taking picture:', error);
+      Alert.alert('Error', 'Failed to take picture. Please try again.');
       setUploadingImage(false);
     }
   };
@@ -188,25 +232,32 @@ export default function EditProfileScreen({ navigation }) {
       >
         {/* Profile Picture Section */}
         <View style={styles.profilePictureSection}>
-          <TouchableOpacity onPress={handlePickImage} disabled={uploadingImage}>
-            {profilePicture ? (
-              <Image
-                source={{ uri: profilePicture }}
-                style={styles.profilePicture}
-              />
-            ) : (
-              <View style={[styles.profilePicture, styles.profilePicturePlaceholder]}>
-                <MaterialCommunityIcons name="camera" size={40} color={subText} />
-              </View>
-            )}
-            <View style={styles.cameraIconContainer}>
+          <View style={{ position: 'relative' }}>
+            <TouchableOpacity onPress={handlePickImage} disabled={uploadingImage}>
+              {profilePicture ? (
+                <Image
+                  source={{ uri: profilePicture }}
+                  style={styles.profilePicture}
+                />
+              ) : (
+                <View style={[styles.profilePicture, styles.profilePicturePlaceholder]}>
+                  <MaterialCommunityIcons name="camera" size={40} color={subText} />
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.cameraIconContainer}
+              onPress={handleTakePicture}
+              disabled={uploadingImage}
+              activeOpacity={0.7}
+            >
               <MaterialCommunityIcons
                 name="camera"
                 size={20}
                 color="#FFFFFF"
               />
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </View>
           {uploadingImage && (
             <Text style={[styles.uploadingText, { color: subText }]}>Uploading...</Text>
           )}

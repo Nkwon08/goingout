@@ -3,7 +3,7 @@ import { View, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { Searchbar, Button, Avatar, List, Divider, Text } from 'react-native-paper';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { addFriend, checkFriendship, getFriends } from '../services/friendsService';
+import { addFriend, checkFriendship, getFriends, sendFriendRequest } from '../services/friendsService';
 import { getCurrentUserData as getUserData } from '../services/authService';
 import { searchUsersByUsername, getAllUsers } from '../services/usersService';
 
@@ -251,22 +251,26 @@ export default function FriendsTab() {
     }
   }, [user, allUsersLastId, allUsersHasMore, allUsersLoading]);
 
-  /** Add a friend */
-  const handleAddFriend = React.useCallback(async (targetUid) => {
+  /** Send a friend request */
+  const handleSendFriendRequest = React.useCallback(async (targetUid) => {
     if (!user || targetUid === user.uid) return;
     try {
-      const result = await addFriend(user.uid, targetUid);
-      if (result.success || result.error === 'Already friends') {
-        Alert.alert('Success', 'Friend added!', [{ text: 'OK' }]);
+      const result = await sendFriendRequest(user.uid, targetUid);
+      if (result.success) {
+        Alert.alert('Success', 'Friend request sent!', [{ text: 'OK' }]);
         setSearchResultsWithStatus((prev) =>
-          prev.map((u) => (u.uid === targetUid ? { ...u, isFriend: true } : u))
+          prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: true } : u))
+        );
+        // Also update allUsers list
+        setAllUsers((prev) =>
+          prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: true } : u))
         );
       } else {
-        Alert.alert('Error', result.error || 'Failed to add friend', [{ text: 'OK' }]);
+        Alert.alert('Error', result.error || 'Failed to send friend request', [{ text: 'OK' }]);
       }
     } catch (err) {
-      console.error('Error adding friend:', err);
-      Alert.alert('Error', 'Failed to add friend. Please try again.', [{ text: 'OK' }]);
+      console.error('Error sending friend request:', err);
+      Alert.alert('Error', 'Failed to send friend request. Please try again.', [{ text: 'OK' }]);
     }
   }, [user]);
 
@@ -323,8 +327,10 @@ export default function FriendsTab() {
                       </View>
                       {u.isFriend ? (
                         <Button mode="outlined" textColor={colors.subText} compact disabled icon="account-check">Friends</Button>
+                      ) : u.requestSent ? (
+                        <Button mode="outlined" textColor={colors.subText} compact disabled icon="account-plus">Request Sent</Button>
                       ) : (
-                        <Button mode="contained" buttonColor={colors.primary} textColor="#fff" compact onPress={() => handleAddFriend(u.uid)} icon="account-plus">Add Friend</Button>
+                        <Button mode="contained" buttonColor={colors.primary} textColor="#fff" compact onPress={() => handleSendFriendRequest(u.uid)} icon="account-plus">Send Request</Button>
                       )}
                     </View>
                     {idx < searchResultsWithStatus.length - 1 && <Divider style={{ backgroundColor: colors.divider }} />}
@@ -351,27 +357,36 @@ export default function FriendsTab() {
               <View style={{ backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden' }}>
                 {allUsers.map((u, idx) => (
                   <View key={u.uid}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16 }}>
-                      <Avatar.Image size={48} source={{ uri: u.avatar || 'https://i.pravatar.cc/100?img=12' }} />
-                      <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{u.name || 'User'}</Text>
-                        <Text style={{ color: colors.subText, fontSize: 14 }}>@{u.username || 'username'}</Text>
-                        {u.bio && (
-                          <Text style={{ color: colors.subText, fontSize: 12, marginTop: 4 }} numberOfLines={2}>
-                            {u.bio}
-                          </Text>
-                        )}
-                        {(u.age || u.gender) && (
-                          <View style={{ flexDirection: 'row', marginTop: 4, gap: 8 }}>
-                            {u.age && (
-                              <Text style={{ color: colors.subText, fontSize: 12 }}>{u.age} years old</Text>
-                            )}
-                            {u.gender && (
-                              <Text style={{ color: colors.subText, fontSize: 12 }}>{u.gender}</Text>
-                            )}
-                          </View>
-                        )}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                        <Avatar.Image size={48} source={{ uri: u.avatar || 'https://i.pravatar.cc/100?img=12' }} />
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{u.name || 'User'}</Text>
+                          <Text style={{ color: colors.subText, fontSize: 14 }}>@{u.username || 'username'}</Text>
+                          {u.bio && (
+                            <Text style={{ color: colors.subText, fontSize: 12, marginTop: 4 }} numberOfLines={2}>
+                              {u.bio}
+                            </Text>
+                          )}
+                          {(u.age || u.gender) && (
+                            <View style={{ flexDirection: 'row', marginTop: 4, gap: 8 }}>
+                              {u.age && (
+                                <Text style={{ color: colors.subText, fontSize: 12 }}>{u.age} years old</Text>
+                              )}
+                              {u.gender && (
+                                <Text style={{ color: colors.subText, fontSize: 12 }}>{u.gender}</Text>
+                              )}
+                            </View>
+                          )}
+                        </View>
                       </View>
+                      {friends.includes(u.uid) ? (
+                        <Button mode="outlined" textColor={colors.subText} compact disabled icon="account-check">Friends</Button>
+                      ) : u.requestSent ? (
+                        <Button mode="outlined" textColor={colors.subText} compact disabled icon="account-plus">Request Sent</Button>
+                      ) : (
+                        <Button mode="contained" buttonColor={colors.primary} textColor="#fff" compact onPress={() => handleSendFriendRequest(u.uid)} icon="account-plus">Send Request</Button>
+                      )}
                     </View>
                     {idx < allUsers.length - 1 && <Divider style={{ backgroundColor: colors.divider }} />}
                   </View>

@@ -44,11 +44,15 @@ import {
   where,
   updateDoc,
   doc,
+  setDoc,
+  deleteDoc,
   serverTimestamp,
   onSnapshot,
   arrayUnion,
   arrayRemove,
   runTransaction,
+  orderBy,
+  limit,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../config/firebase';
@@ -379,6 +383,268 @@ export const subscribeToFriends = (userId, callback) => {
   } catch (error) {
     console.error('❌ Error setting up friends subscription:', error);
     callback({ friends: [], error: error.message });
+    return () => {};
+  }
+};
+
+// ============================================================================
+// Friend Request Functions
+// ============================================================================
+
+/**
+ * Send a friend request
+ * Creates a friend request document in friendRequests collection
+ * @param {string} fromUserId - User sending the request
+ * @param {string} toUserId - User receiving the request
+ * @returns {Promise<{ success: boolean, error: string|null }>}
+ */
+export const sendFriendRequest = async (fromUserId, toUserId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { success: false, error: 'Firestore not configured' };
+    }
+
+    if (!fromUserId || !toUserId || fromUserId === toUserId) {
+      return { success: false, error: 'Invalid user IDs' };
+    }
+
+    // Check if already friends
+    const fromUserRef = doc(db, 'users', fromUserId);
+    const fromUserDoc = await getDoc(fromUserRef);
+    if (fromUserDoc.exists()) {
+      const fromUserData = fromUserDoc.data();
+      if ((fromUserData.friends || []).includes(toUserId)) {
+        return { success: false, error: 'Already friends' };
+      }
+    }
+
+    // Check if request already exists
+    const requestId = `${fromUserId}_${toUserId}`;
+    const requestRef = doc(db, 'friendRequests', requestId);
+    const existingRequest = await getDoc(requestRef);
+    
+    if (existingRequest.exists()) {
+      const requestData = existingRequest.data();
+      if (requestData.status === 'pending') {
+        return { success: false, error: 'Request already sent' };
+      }
+      // If request exists but is not pending, we can't delete it (only receiver can)
+      // Just return error - they should wait for it to be processed
+      return { success: false, error: 'A previous request exists. Please wait for it to be processed.' };
+    }
+
+    // Create friend request (only create if document doesn't exist)
+    await setDoc(requestRef, {
+      fromUserId,
+      toUserId,
+      status: 'pending',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    console.log('✅ Friend request sent:', fromUserId, '→', toUserId);
+    return { success: true, error: null };
+  } catch (error) {
+    console.error('❌ Error sending friend request:', error);
+    return { success: false, error: error.message || 'Failed to send friend request' };
+  }
+};
+
+/**
+ * Accept a friend request
+ * Adds both users to each other's friends array and deletes the request
+ * @param {string} requestId - Friend request document ID
+ * @param {string} fromUserId - User who sent the request
+ * @param {string} toUserId - User accepting the request
+ * @returns {Promise<{ success: boolean, error: string|null }>}
+ */
+export const acceptFriendRequest = async (requestId, fromUserId, toUserId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { success: false, error: 'Firestore not configured' };
+    }
+
+    // Use transaction to ensure atomic updates
+    await runTransaction(db, async (transaction) => {
+      const requestRef = doc(db, 'friendRequests', requestId);
+      const fromUserRef = doc(db, 'users', fromUserId);
+      const toUserRef = doc(db, 'users', toUserId);
+
+      // Read all documents
+      const [requestDoc, fromUserDoc, toUserDoc] = await Promise.all([
+        transaction.get(requestRef),
+        transaction.get(fromUserRef),
+        transaction.get(toUserRef),
+      ]);
+
+      if (!requestDoc.exists()) {
+        throw new Error('Friend request not found');
+      }
+
+      if (!fromUserDoc.exists() || !toUserDoc.exists()) {
+        throw new Error('User not found');
+      }
+
+      // Check if already friends
+      const fromUserData = fromUserDoc.data();
+      const toUserData = toUserDoc.data();
+      if ((fromUserData.friends || []).includes(toUserId) || (toUserData.friends || []).includes(fromUserId)) {
+        // Already friends, just delete the request
+        transaction.delete(requestRef);
+        return;
+      }
+
+      // Add each other to friends arrays
+      transaction.update(fromUserRef, {
+        friends: arrayUnion(toUserId),
+        updatedAt: serverTimestamp(),
+      });
+
+      transaction.update(toUserRef, {
+        friends: arrayUnion(fromUserId),
+        updatedAt: serverTimestamp(),
+      });
+
+      // Delete the request
+      transaction.delete(requestRef);
+    });
+
+    console.log('✅ Friend request accepted:', fromUserId, '↔', toUserId);
+    return { success: true, error: null };
+  } catch (error) {
+    console.error('❌ Error accepting friend request:', error);
+    return { success: false, error: error.message || 'Failed to accept friend request' };
+  }
+};
+
+/**
+ * Decline a friend request
+ * Deletes the friend request document
+ * @param {string} requestId - Friend request document ID
+ * @returns {Promise<{ success: boolean, error: string|null }>}
+ */
+export const declineFriendRequest = async (requestId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { success: false, error: 'Firestore not configured' };
+    }
+
+    const requestRef = doc(db, 'friendRequests', requestId);
+    await deleteDoc(requestRef);
+
+    console.log('✅ Friend request declined:', requestId);
+    return { success: true, error: null };
+  } catch (error) {
+    console.error('❌ Error declining friend request:', error);
+    return { success: false, error: error.message || 'Failed to decline friend request' };
+  }
+};
+
+/**
+ * Get incoming friend requests for a user
+ * @param {string} userId - User ID to get requests for
+ * @returns {Promise<{ requests: Array, error: string|null }>}
+ */
+export const getIncomingFriendRequests = async (userId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { requests: [], error: 'Firestore not configured' };
+    }
+
+    const requestsRef = collection(db, 'friendRequests');
+    // Query without orderBy to avoid index requirement (will sort client-side)
+    const q = query(
+      requestsRef,
+      where('toUserId', '==', userId),
+      where('status', '==', 'pending'),
+      limit(50)
+    );
+
+    const snapshot = await getDocs(q);
+    
+    // Sort by createdAt descending (newest first) client-side
+    const requests = snapshot.docs
+      .map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }))
+      .sort((a, b) => {
+        const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+        const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+        return bTime - aTime; // Newest first
+      });
+
+    return { requests, error: null };
+  } catch (error) {
+    console.error('❌ Error getting friend requests:', error);
+    return { requests: [], error: error.message || 'Failed to get friend requests' };
+  }
+};
+
+/**
+ * Subscribe to incoming friend requests for a user
+ * @param {string} userId - User ID to subscribe to requests for
+ * @param {Function} callback - Callback function (result) => { requests: Array, error: string|null }
+ * @returns {Function} Unsubscribe function
+ */
+export const subscribeToFriendRequests = (userId, callback) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      callback({ requests: [], error: 'Firestore not configured' });
+      return () => {};
+    }
+
+    if (!userId) {
+      callback({ requests: [], error: 'No user ID provided' });
+      return () => {};
+    }
+
+    const requestsRef = collection(db, 'friendRequests');
+    // Query without orderBy to avoid index requirement (will sort client-side)
+    const q = query(
+      requestsRef,
+      where('toUserId', '==', userId),
+      where('status', '==', 'pending'),
+      limit(50)
+    );
+
+    let isMounted = true;
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        if (!isMounted) return;
+
+        // Sort by createdAt descending (newest first) client-side
+        const requests = snapshot.docs
+          .map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }))
+          .sort((a, b) => {
+            const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+            const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+            return bTime - aTime; // Newest first
+          });
+
+        callback({ requests, error: null });
+      },
+      (error) => {
+        if (!isMounted) return;
+        console.error('❌ Friend requests subscription error:', error);
+        callback({ requests: [], error: error.message || 'Failed to subscribe to friend requests' });
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe && typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  } catch (error) {
+    console.error('❌ Error setting up friend requests subscription:', error);
+    callback({ requests: [], error: error.message });
     return () => {};
   }
 };

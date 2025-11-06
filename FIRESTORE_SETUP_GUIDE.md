@@ -37,6 +37,28 @@ service cloud.firestore {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
     
+    // Friend Requests collection
+    // Users can:
+    // - Create friend requests (send requests)
+    // - Read incoming requests (where toUserId == their uid)
+    // - Read outgoing requests (where fromUserId == their uid)
+    // - Update/delete requests they can act on (accept/decline)
+    match /friendRequests/{requestId} {
+      // Allow read if user is the sender or receiver
+      allow read: if request.auth != null && (
+        resource.data.fromUserId == request.auth.uid ||
+        resource.data.toUserId == request.auth.uid
+      );
+      
+      // Allow create if user is the sender
+      allow create: if request.auth != null && 
+        request.resource.data.fromUserId == request.auth.uid;
+      
+      // Allow update/delete if user is the receiver (can accept/decline)
+      allow update, delete: if request.auth != null && 
+        resource.data.toUserId == request.auth.uid;
+    }
+    
     // Usernames collection - for username reservation
     match /usernames/{username} {
       allow read: if request.auth != null;
