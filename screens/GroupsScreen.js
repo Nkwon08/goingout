@@ -7,6 +7,7 @@ import MapView, { Marker } from 'react-native-maps';
 import { GiftedChat } from 'react-native-gifted-chat';
 import * as ImagePicker from 'expo-image-picker';
 import { Video } from 'expo-av';
+import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GroupCard from '../components/GroupCard';
 import PollCard from '../components/PollCard';
@@ -16,26 +17,416 @@ import { useThemeColors } from '../hooks/useThemeColors';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToUserGroups, deleteGroup } from '../services/groupsService';
+import { shareLocationInGroup, stopSharingLocationInGroup, subscribeToGroupLocations } from '../services/groupLocationService';
+import { getCurrentLocation } from '../services/locationService';
 
 const TopTab = createMaterialTopTabNavigator();
 
 const IU_CRIMSON = '#990000';
 
-function MapTab() {
-  const { background, subText } = useThemeColors();
-  const region = { latitude: 37.7749, longitude: -122.4194, latitudeDelta: 0.05, longitudeDelta: 0.05 };
-  const members = []; // Empty - will come from Firebase
+function MapTab({ groupId }) {
+  const { background, subText, text } = useThemeColors();
+  const { user, userData } = useAuth();
+  const [locations, setLocations] = React.useState([]);
+  const [myLocation, setMyLocation] = React.useState(null);
+  const [sharingLocation, setSharingLocation] = React.useState(false);
+  const [updatingLocation, setUpdatingLocation] = React.useState(false);
+  const [mapRegion, setMapRegion] = React.useState(null);
+  const locationWatchSubscription = React.useRef(null);
+  const myLocationWatchSubscription = React.useRef(null);
+  
+  // Default region (San Francisco)
+  const defaultRegion = { latitude: 37.7749, longitude: -122.4194, latitudeDelta: 0.05, longitudeDelta: 0.05 };
+  
+  // Get user's current location for display (even if not sharing)
+  React.useEffect(() => {
+    if (!user?.uid) {
+      setMyLocation(null);
+      return;
+    }
+
+    let isMounted = true;
+
+    const getMyLocation = async () => {
+      try {
+        const locationData = await getCurrentLocation();
+        if (locationData.error || !locationData.lat || !locationData.lng) {
+          console.log('Could not get user location:', locationData.error);
+          if (isMounted) {
+            setMyLocation(null);
+          }
+          return;
+        }
+
+        if (isMounted) {
+          setMyLocation({
+            lat: locationData.lat,
+            lng: locationData.lng,
+          });
+
+          // Watch location changes for display
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted' && isMounted) {
+            myLocationWatchSubscription.current = await Location.watchPositionAsync(
+              {
+                accuracy: Location.Accuracy.Balanced,
+                timeInterval: 60000, // Update every minute
+                distanceInterval: 100, // Update if moved 100 meters
+              },
+              (location) => {
+                if (isMounted) {
+                  setMyLocation({
+                    lat: location.coords.latitude,
+                    lng: location.coords.longitude,
+                  });
+                }
+              }
+            );
+          }
+        }
+      } catch (error) {
+        console.error('Error getting user location:', error);
+        if (isMounted) {
+          setMyLocation(null);
+        }
+      }
+    };
+
+    getMyLocation();
+
+    return () => {
+      isMounted = false;
+      if (myLocationWatchSubscription.current) {
+        myLocationWatchSubscription.current.remove();
+        myLocationWatchSubscription.current = null;
+      }
+    };
+  }, [user?.uid]);
+  
+  // Subscribe to group locations
+  React.useEffect(() => {
+    if (!groupId) {
+      setLocations([]);
+      return;
+    }
+
+    const unsubscribe = subscribeToGroupLocations(groupId, ({ locations: newLocations, error }) => {
+      if (error) {
+        console.error('Error loading locations:', error);
+        return;
+      }
+      setLocations(newLocations || []);
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [groupId]);
+  
+  // Check if user is currently sharing location
+  React.useEffect(() => {
+    if (!groupId || !user?.uid || !locations.length) {
+      setSharingLocation(false);
+      return;
+    }
+    
+    const userLocation = locations.find(loc => loc.userId === user.uid);
+    setSharingLocation(!!userLocation);
+  }, [groupId, user?.uid, locations]);
+  
+  // Start/stop location sharing
+  const toggleLocationSharing = React.useCallback(async () => {
+    if (!groupId || !user?.uid || !userData || updatingLocation) return;
+    
+    if (sharingLocation) {
+      // Stop sharing
+      setUpdatingLocation(true);
+      try {
+        const { error } = await stopSharingLocationInGroup(groupId, user.uid);
+        if (error) {
+          Alert.alert('Error', error);
+        } else {
+          setSharingLocation(false);
+          // Stop watching location
+          if (locationWatchSubscription.current) {
+            locationWatchSubscription.current.remove();
+            locationWatchSubscription.current = null;
+          }
+        }
+      } catch (error) {
+        console.error('Error stopping location sharing:', error);
+        Alert.alert('Error', 'Failed to stop sharing location');
+      } finally {
+        setUpdatingLocation(false);
+      }
+    } else {
+      // Start sharing
+      setUpdatingLocation(true);
+      try {
+        // Request location permission and get current location
+        const locationData = await getCurrentLocation();
+        if (locationData.error || !locationData.lat || !locationData.lng) {
+          Alert.alert('Location Required', locationData.error || 'Unable to get your location. Please enable location permissions.');
+          setUpdatingLocation(false);
+          return;
+        }
+        
+        // Start sharing location
+        const { error } = await shareLocationInGroup(groupId, user.uid, locationData.lat, locationData.lng, userData);
+        if (error) {
+          Alert.alert('Error', error);
+        } else {
+          setSharingLocation(true);
+          
+          // Watch location changes and update periodically
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted') {
+            locationWatchSubscription.current = await Location.watchPositionAsync(
+              {
+                accuracy: Location.Accuracy.High,
+                timeInterval: 30000, // Update every 30 seconds
+                distanceInterval: 50, // Update if moved 50 meters
+              },
+              async (location) => {
+                const { latitude, longitude } = location.coords;
+                await shareLocationInGroup(groupId, user.uid, latitude, longitude, userData);
+              }
+            );
+          }
+        }
+      } catch (error) {
+        console.error('Error starting location sharing:', error);
+        Alert.alert('Error', 'Failed to start sharing location');
+      } finally {
+        setUpdatingLocation(false);
+      }
+    }
+  }, [groupId, user?.uid, userData, sharingLocation, updatingLocation]);
+  
+  // Update map region to show all locations (including user's location)
+  React.useEffect(() => {
+    const allLats = [];
+    const allLngs = [];
+    
+    // Add shared locations
+    locations.forEach(loc => {
+      if (loc.lat != null && loc.lng != null) {
+        allLats.push(loc.lat);
+        allLngs.push(loc.lng);
+      }
+    });
+    
+    // Add user's own location (even if not sharing)
+    if (myLocation && myLocation.lat != null && myLocation.lng != null) {
+      allLats.push(myLocation.lat);
+      allLngs.push(myLocation.lng);
+    }
+    
+    if (allLats.length > 0 && allLngs.length > 0) {
+      const minLat = Math.min(...allLats);
+      const maxLat = Math.max(...allLats);
+      const minLng = Math.min(...allLngs);
+      const maxLng = Math.max(...allLngs);
+      
+      const centerLat = (minLat + maxLat) / 2;
+      const centerLng = (minLng + maxLng) / 2;
+      const latDelta = Math.max(maxLat - minLat, 0.01) * 1.5;
+      const lngDelta = Math.max(maxLng - minLng, 0.01) * 1.5;
+      
+      setMapRegion({
+        latitude: centerLat,
+        longitude: centerLng,
+        latitudeDelta: latDelta,
+        longitudeDelta: lngDelta,
+      });
+    } else if (myLocation && myLocation.lat != null && myLocation.lng != null) {
+      // If only user's location, center on it
+      setMapRegion({
+        latitude: myLocation.lat,
+        longitude: myLocation.lng,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      });
+    }
+  }, [locations, myLocation]);
+  
+  // Cleanup location watch on unmount
+  React.useEffect(() => {
+    return () => {
+      if (locationWatchSubscription.current) {
+        locationWatchSubscription.current.remove();
+        locationWatchSubscription.current = null;
+      }
+      if (myLocationWatchSubscription.current) {
+        myLocationWatchSubscription.current.remove();
+        myLocationWatchSubscription.current = null;
+      }
+    };
+  }, []);
+  
+  const currentRegion = mapRegion || defaultRegion;
   
   return (
-    <View style={{ flex: 1, backgroundColor: background, justifyContent: 'center', alignItems: 'center' }}>
-      {members.length > 0 ? (
-        <MapView style={{ flex: 1 }} initialRegion={region}>
-          {members.map((m) => (
-            <Marker key={m.id} coordinate={{ latitude: m.lat, longitude: m.lng }} title={m.name} />
-          ))}
-        </MapView>
-      ) : (
-        <Text style={{ color: subText }}>Empty</Text>
+    <View style={{ flex: 1, backgroundColor: background }}>
+      <MapView 
+        style={{ flex: 1 }} 
+        initialRegion={currentRegion}
+        region={currentRegion}
+      >
+        {/* Show user's own location */}
+        {myLocation && myLocation.lat != null && myLocation.lng != null && (
+          <Marker
+            key="my-location"
+            coordinate={{ latitude: myLocation.lat, longitude: myLocation.lng }}
+            title="You"
+          >
+            <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+              {userData?.photoURL || userData?.avatar ? (
+                <Image
+                  source={{ uri: userData.photoURL || userData.avatar }}
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    borderWidth: 3,
+                    borderColor: '#007AFF',
+                  }}
+                />
+              ) : (
+                <View
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: '#007AFF',
+                    borderWidth: 3,
+                    borderColor: '#FFFFFF',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' }}>
+                    {userData?.name?.charAt(0).toUpperCase() || 'Y'}
+                  </Text>
+                </View>
+              )}
+              <View
+                style={{
+                  width: 0,
+                  height: 0,
+                  borderLeftWidth: 7,
+                  borderRightWidth: 7,
+                  borderTopWidth: 10,
+                  borderLeftColor: 'transparent',
+                  borderRightColor: 'transparent',
+                  borderTopColor: '#007AFF',
+                  marginTop: -2,
+                }}
+              />
+            </View>
+          </Marker>
+        )}
+        
+        {/* Show other members' shared locations */}
+        {locations.map((location) => {
+          // Skip if this is the user's shared location (already shown above)
+          if (location.userId === user?.uid) return null;
+          
+          return (
+            <Marker
+              key={location.userId}
+              coordinate={{ latitude: location.lat, longitude: location.lng }}
+              title={location.userName}
+            >
+              <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+                {location.userAvatar ? (
+                  <Image
+                    source={{ uri: location.userAvatar }}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      borderWidth: 2,
+                      borderColor: '#FFFFFF',
+                    }}
+                  />
+                ) : (
+                  <View
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: IU_CRIMSON,
+                      borderWidth: 2,
+                      borderColor: '#FFFFFF',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>
+                      {location.userName.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <View
+                  style={{
+                    width: 0,
+                    height: 0,
+                    borderLeftWidth: 6,
+                    borderRightWidth: 6,
+                    borderTopWidth: 8,
+                    borderLeftColor: 'transparent',
+                    borderRightColor: 'transparent',
+                    borderTopColor: location.userAvatar ? '#FFFFFF' : IU_CRIMSON,
+                    marginTop: -2,
+                  }}
+                />
+              </View>
+            </Marker>
+          );
+        })}
+      </MapView>
+      
+      {/* Location sharing toggle */}
+      <View style={{ position: 'absolute', bottom: 16, left: 16, right: 16 }}>
+        <TouchableOpacity
+          onPress={toggleLocationSharing}
+          disabled={updatingLocation}
+          style={{
+            backgroundColor: sharingLocation ? IU_CRIMSON : '#FFFFFF',
+            padding: 16,
+            borderRadius: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 4,
+            elevation: 5,
+          }}
+        >
+          {updatingLocation ? (
+            <ActivityIndicator size="small" color={sharingLocation ? '#FFFFFF' : IU_CRIMSON} />
+          ) : (
+            <>
+              <MaterialCommunityIcons 
+                name={sharingLocation ? 'map-marker-off' : 'map-marker'} 
+                size={24} 
+                color={sharingLocation ? '#FFFFFF' : IU_CRIMSON} 
+              />
+              <Text style={{ color: sharingLocation ? '#FFFFFF' : IU_CRIMSON, fontSize: 16, fontWeight: '600', marginLeft: 8 }}>
+                {sharingLocation ? 'Stop Sharing' : 'Share Location'}
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+      
+      {locations.length === 0 && !myLocation && (
+        <View style={{ position: 'absolute', top: '50%', left: 0, right: 0, alignItems: 'center' }}>
+          <Text style={{ color: subText, fontSize: 16 }}>No members sharing location</Text>
+        </View>
       )}
     </View>
   );
@@ -771,7 +1162,9 @@ function GroupDetail({ group, onBack }) {
         <TopTab.Screen name="Chat">
           {(props) => <ChatTab {...props} groupId={group?.id} />}
         </TopTab.Screen>
-        <TopTab.Screen name="Map" component={MapTab} />
+        <TopTab.Screen name="Map">
+          {(props) => <MapTab {...props} groupId={group?.id} />}
+        </TopTab.Screen>
         <TopTab.Screen name="Polls" component={PollsTab} />
         <TopTab.Screen name="Album" component={AlbumTab} />
       </TopTab.Navigator>
