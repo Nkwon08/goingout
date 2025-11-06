@@ -20,13 +20,31 @@ export function AuthProvider({ children }) {
   const [friendsList, setFriendsList] = useState([]);
 
   // Function to refresh user data manually
-  const refreshUserData = React.useCallback(async (uid) => {
+  const refreshUserData = React.useCallback(async (uid, forceRefresh = true) => {
     if (!uid) return;
     try {
-      const { userData: data } = await getCurrentUserData(uid);
+      const { userData: data } = await getCurrentUserData(uid, forceRefresh);
       if (data) {
-        setUserData(data);
-        console.log('✅ User data refreshed manually');
+        // Prevent overwriting with stale/null data if we already have valid data
+        // Only update if the new data has a photoURL or if we don't have one yet
+        setUserData(prevData => {
+          // If new data has photoURL, always use it
+          if (data.photoURL || data.avatar) {
+            console.log('✅ Updating userData with new photoURL:', data.photoURL || data.avatar);
+            return data;
+          }
+          // If new data doesn't have photoURL but old data does, keep old photoURL
+          if (prevData && (prevData.photoURL || prevData.avatar) && !data.photoURL && !data.avatar) {
+            console.log('⚠️ New data missing photoURL, keeping existing:', prevData.photoURL || prevData.avatar);
+            return { ...data, photoURL: prevData.photoURL, avatar: prevData.avatar };
+          }
+          return data;
+        });
+        console.log('✅ User data refreshed manually:', {
+          photoURL: data.photoURL,
+          avatar: data.avatar,
+          forceRefresh,
+        });
       }
     } catch (error) {
       console.error('Error refreshing user data:', error);

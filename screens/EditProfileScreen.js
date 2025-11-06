@@ -4,6 +4,7 @@ import { View, ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Image, To
 import { Appbar, TextInput, Button, Avatar, Text } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
 import { updateProfile } from 'firebase/auth';
@@ -27,14 +28,18 @@ export default function EditProfileScreen({ navigation }) {
   const [gender, setGender] = React.useState(userData?.gender || '');
   const [profilePicture, setProfilePicture] = React.useState(userData?.photoURL || userData?.avatar || user?.photoURL || '');
   const [saving, setSaving] = React.useState(false);
+  const [hasLocalImageChange, setHasLocalImageChange] = React.useState(false); // Track if user selected a new image
 
   // Update profile picture when userData changes (e.g., after refresh)
+  // But only if user hasn't made a local change
   React.useEffect(() => {
-    const newPhotoURL = userData?.photoURL || userData?.avatar || user?.photoURL || '';
-    if (newPhotoURL && newPhotoURL !== profilePicture) {
-      setProfilePicture(newPhotoURL);
+    if (!hasLocalImageChange) {
+      const newPhotoURL = userData?.photoURL || userData?.avatar || user?.photoURL || '';
+      if (newPhotoURL && newPhotoURL !== profilePicture) {
+        setProfilePicture(newPhotoURL);
+      }
     }
-  }, [userData?.photoURL, userData?.avatar, user?.photoURL, profilePicture]);
+  }, [userData?.photoURL, userData?.avatar, user?.photoURL]);
 
   // Gender options
   const genderOptions = ['', 'Male', 'Female', 'Non-binary', 'Prefer not to say'];
@@ -60,6 +65,7 @@ export default function EditProfileScreen({ navigation }) {
         // This ensures it's uploaded to the correct path (avatar.jpg) via upsertUserProfile
         const imageUri = result.assets[0].uri;
         setProfilePicture(imageUri);
+        setHasLocalImageChange(true); // Mark that user has made a local change
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -87,15 +93,34 @@ export default function EditProfileScreen({ navigation }) {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
+        let imageUri = result.assets[0].uri;
+        
+        // Flip the image horizontally to correct mirroring from front camera
+        // Front camera images are typically mirrored, so we need to flip them back
+        try {
+          console.log('🔄 Flipping image to correct mirroring...');
+          const manipulatedImage = await ImageManipulator.manipulateAsync(
+            imageUri,
+            [{ flip: ImageManipulator.FlipType.Horizontal }],
+            {
+              compress: 0.8,
+              format: ImageManipulator.SaveFormat.JPEG,
+            }
+          );
+          imageUri = manipulatedImage.uri;
+          console.log('✅ Image flipped successfully:', imageUri.substring(0, 50));
+        } catch (flipError) {
+          console.error('❌ Error flipping image:', flipError);
+          // Continue with original image if flipping fails
+        }
+        
         // Store the local file URI - it will be uploaded when saving
-        // This ensures it's uploaded to the correct path (avatar.jpg) via upsertUserProfile
-        const imageUri = result.assets[0].uri;
         setProfilePicture(imageUri);
+        setHasLocalImageChange(true); // Mark that user has made a local change
       }
     } catch (error) {
       console.error('Error taking picture:', error);
       Alert.alert('Error', 'Failed to take picture. Please try again.');
-      setUploadingImage(false);
     }
   };
 
@@ -139,7 +164,8 @@ export default function EditProfileScreen({ navigation }) {
       console.log('💾 Saving profile with:', { 
         hasPfpUri: !!pfpUri, 
         hasPhotoURL: !!photoURL, 
-        profilePictureType: profilePicture ? (profilePicture.startsWith('file://') ? 'file' : 'url') : 'none' 
+        profilePictureType: profilePicture ? (profilePicture.startsWith('file://') ? 'file' : 'url') : 'none',
+        profilePicture: profilePicture?.substring(0, 50) + '...' // Log first 50 chars
       });
       
       // Use upsertUserProfile (handles username reservation, avatar upload, etc.)
@@ -152,7 +178,9 @@ export default function EditProfileScreen({ navigation }) {
         pfpUri, // Upload local avatar if provided
         photoURL, // Use existing URL if provided
       });
-
+      
+      console.log('💾 upsertUserProfile result:', result);
+      
       if (!result.success) {
         // Handle username_taken error
         if (result.error === 'username_taken') {
@@ -174,9 +202,11 @@ export default function EditProfileScreen({ navigation }) {
       // Update Firebase Auth display name (non-blocking)
       if (auth && !auth._isMock && user) {
         try {
+          // Get the photoURL from the result or wait for upload to complete
+          const finalPhotoURL = photoURL || (result.photoURL ? result.photoURL : null);
           await updateProfile(user, {
             displayName: name.trim(),
-            photoURL: photoURL || null,
+            photoURL: finalPhotoURL || null,
           });
         } catch (authError) {
           console.warn('⚠️ Firebase Auth update failed (non-critical):', authError.message);
@@ -187,14 +217,23 @@ export default function EditProfileScreen({ navigation }) {
       // Success - refresh user data to get updated profile picture
       console.log('✅ Profile update completed');
       
-      // Wait a moment for Firestore to update, then refresh user data
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Reset the local image change flag since we've saved
+      setHasLocalImageChange(false);
       
-      // Refresh user data to get the updated profile picture
+      // Wait for Firestore to update and propagate (reduced from 3000ms)
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Refresh user data to get the updated profile picture (force refresh from server)
       try {
         await refreshUserData(user.uid);
         console.log('✅ User data refreshed after profile update');
-        console.log('✅ Updated photoURL:', userData?.photoURL || 'not set yet');
+        console.log('✅ Current photoURL:', userData?.photoURL);
+        
+        // Quick second refresh to ensure we have the latest (reduced from 1500ms)
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await refreshUserData(user.uid);
+        console.log('✅ Second refresh completed');
+        console.log('✅ Final photoURL:', userData?.photoURL);
       } catch (refreshError) {
         console.warn('⚠️ Failed to refresh user data after profile update:', refreshError.message);
         // Continue anyway - the profile was updated successfully
@@ -206,7 +245,7 @@ export default function EditProfileScreen({ navigation }) {
         {
           text: 'OK',
           onPress: () => {
-            // Navigate back - ProfileScreen will refresh on focus
+            // Navigate back - ProfileScreen will refresh on focus with shorter delay
             navigation.goBack();
           },
         },

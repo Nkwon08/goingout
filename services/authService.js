@@ -8,7 +8,7 @@ import {
   GoogleAuthProvider,
   signInWithCredential,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction, collection, query, where, getDocs, limit, writeBatch, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction, collection, query, where, getDocs, getDocsFromServer, limit, writeBatch, deleteDoc } from 'firebase/firestore';
 import { ref, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
 import { auth, db, storage, GOOGLE_CLIENT_ID } from '../config/firebase';
 import * as AuthSession from 'expo-auth-session';
@@ -888,18 +888,31 @@ export const ensureUserDoc = async (uid) => {
 
 // Get current user data from Firestore
 // Returns consolidated fields: username, name, photo (photoURL), photoURL, avatar, bio, age, gender
-export const getCurrentUserData = async (uid) => {
+export const getCurrentUserData = async (uid, forceRefresh = false) => {
   try {
     // Find user by authUid since document ID is now username
     const usersRef = collection(db, 'users');
     const q = query(usersRef, where('authUid', '==', uid), limit(1));
-    const snapshots = await getDocs(q);
+    
+    // Force a fresh read from the server to avoid cache issues when forceRefresh is true
+    const snapshots = forceRefresh ? await getDocsFromServer(q) : await getDocs(q);
     
     if (!snapshots.empty) {
       const userDoc = snapshots.docs[0];
       const data = userDoc.data();
       // Get photoURL from data (prioritize photoURL, then avatar, then fallback to auth)
       const photoURL = data.photoURL || data.avatar || auth.currentUser?.photoURL || null;
+      
+      console.log('[getCurrentUserData] Retrieved user data:', {
+        uid,
+        username: data.username,
+        photoURL: photoURL,
+        avatar: data.avatar,
+        hasPhotoURL: !!data.photoURL,
+        hasAvatar: !!data.avatar,
+        forceRefresh,
+      });
+      
       return {
         userData: {
           username: data.username || auth.currentUser?.email?.split('@')[0] || 'user',
@@ -916,6 +929,7 @@ export const getCurrentUserData = async (uid) => {
     }
     return { userData: null, error: 'User not found' };
   } catch (error) {
+    console.error('[getCurrentUserData] Error:', error);
     return { userData: null, error: error.message };
   }
 };
