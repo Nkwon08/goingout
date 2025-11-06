@@ -369,6 +369,50 @@ export const acceptGroupInvitation = async (groupId, userId, notificationId) => 
   }
 };
 
+// Send group invitation to a user
+export const sendGroupInvitation = async (groupId, fromUserId, toUserId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { success: false, error: 'Firestore not configured' };
+    }
+
+    // Get group data
+    const groupRef = doc(db, 'groups', groupId);
+    const groupDoc = await getDoc(groupRef);
+
+    if (!groupDoc.exists()) {
+      return { success: false, error: 'Group not found' };
+    }
+
+    const groupData = groupDoc.data();
+    const groupName = groupData.name || 'the group';
+
+    // Check if user is already a member
+    const currentMembers = groupData.members || [];
+    if (currentMembers.includes(toUserId)) {
+      return { success: false, error: 'User is already a member' };
+    }
+
+    // Send notification
+    const { createNotification } = await import('./notificationsService');
+    const result = await createNotification(toUserId, {
+      type: 'group_invitation',
+      groupId: groupId,
+      fromUserId: fromUserId,
+      message: `invited you to join "${groupName}"`,
+    });
+
+    if (result.error) {
+      return { success: false, error: result.error };
+    }
+
+    return { success: true, error: null };
+  } catch (error) {
+    console.error('❌ Error sending group invitation:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 // Decline a group invitation
 export const declineGroupInvitation = async (notificationId, userId) => {
   try {

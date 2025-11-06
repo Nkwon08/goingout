@@ -10,6 +10,7 @@ import { useNavigation } from '@react-navigation/native';
 import { getEventById, joinEvent, checkEventJoinStatus, updateEvent, deleteEvent } from '../services/eventsService';
 import { getGroupById } from '../services/groupsService';
 import CreateEventModal from '../components/CreateEventModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const IU_CRIMSON = '#990000';
 
@@ -186,9 +187,29 @@ export default function EventDetailScreen({ route, navigation }) {
           if (group?.members) {
             setGroupMembers(group.members);
           }
+          
+          // Navigate to Groups tab with groupId
+          try {
+            await AsyncStorage.setItem('pendingGroupId', result.groupId);
+          } catch (storageError) {
+            console.error('Error storing groupId:', storageError);
+          }
+          
+          // Navigate up to find root navigator
+          let rootNavigator = navigation;
+          let parent = navigation.getParent();
+          
+          while (parent) {
+            rootNavigator = parent;
+            parent = parent.getParent();
+          }
+          
+          // Navigate to Groups tab
+          rootNavigator.navigate('Groups', {
+            screen: 'GroupsMain',
+            params: { groupId: result.groupId }
+          });
         }
-        
-        Alert.alert('Success', 'You have joined this event! You can now chat with other attendees in the group.');
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to join event. Please try again.');

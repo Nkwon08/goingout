@@ -10,8 +10,10 @@ import CreateEventModal from '../components/CreateEventModal';
 import { events, feedPosts } from '../data/mock';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
-import { createEvent, subscribeToUpcomingEvents, joinEvent, updateEvent, deleteEvent } from '../services/eventsService';
+import { createEvent, subscribeToUpcomingEvents, joinEvent, updateEvent, deleteEvent, checkEventJoinStatus } from '../services/eventsService';
 import { checkFriendship } from '../services/friendsService';
+import { useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SectionHeader = ({ title, textColor }) => (
   <Text variant="titleLarge" style={{ color: textColor, marginBottom: 12 }}>{title}</Text>
@@ -23,8 +25,10 @@ export default function ActivityMain() {
   const [editEvent, setEditEvent] = React.useState(null);
   const [localEvents, setLocalEvents] = React.useState([]);
   const [loadingEvents, setLoadingEvents] = React.useState(true);
+  const [joinedEventIds, setJoinedEventIds] = React.useState(new Set());
   const { background, text, subText } = useThemeColors();
   const { user, userData } = useAuth();
+  const navigation = useNavigation();
 
   // Load events from Firebase on mount and subscribe to real-time updates
   React.useEffect(() => {
@@ -75,6 +79,19 @@ export default function ActivityMain() {
       const uniqueEvents = allEvents.filter((event, index, self) =>
         index === self.findIndex((e) => e.id === event.id)
       );
+      
+      // Check which events the user has joined
+      if (user?.uid) {
+        const joinStatusChecks = uniqueEvents.map(async (event) => {
+          const { joined } = await checkEventJoinStatus(event.id, user.uid);
+          return { eventId: event.id, joined };
+        });
+        
+        const joinStatuses = await Promise.all(joinStatusChecks);
+        const joinedIds = new Set(joinStatuses.filter(s => s.joined).map(s => s.eventId));
+        setJoinedEventIds(joinedIds);
+      }
+      
       setLocalEvents(uniqueEvents);
       setLoadingEvents(false);
     });
@@ -85,11 +102,16 @@ export default function ActivityMain() {
     };
   }, [user?.uid, userData?.friends]);
 
-  // Filter events to only show upcoming events (not past their end time)
+  // Filter events to only show upcoming events (not past their end time) and exclude joined events
   const upcomingEvents = React.useMemo(() => {
     const now = new Date();
     
     return localEvents.filter((event) => {
+      // Don't show events the user has joined
+      if (joinedEventIds.has(event.id)) {
+        return false;
+      }
+      
       // If event has endTime and endDate/startDate/date fields
       if (event.endTime && (event.endDate || event.startDate || event.date)) {
         // Use endDate if available, otherwise fall back to startDate or date for backward compatibility
@@ -110,7 +132,7 @@ export default function ActivityMain() {
       // You can remove this fallback if all events will have endTime/date
       return true;
     });
-  }, [localEvents]);
+  }, [localEvents, joinedEventIds]);
 
   // Calculate trending locations from feed posts
   const trendingLocations = React.useMemo(() => {
@@ -178,7 +200,23 @@ export default function ActivityMain() {
                   if (result.error) {
                     Alert.alert('Error', result.error);
                   } else {
-                    Alert.alert('Success', 'You have joined this event! You can now chat with other attendees in the Groups tab.');
+                    // Remove event from feed
+                    setJoinedEventIds(prev => new Set([...prev, eventId]));
+                    
+                    // Navigate to Groups tab with groupId
+                    if (result.groupId) {
+                      try {
+                        await AsyncStorage.setItem('pendingGroupId', result.groupId);
+                      } catch (storageError) {
+                        console.error('Error storing groupId:', storageError);
+                      }
+                      
+                      // Navigate to Groups tab
+                      navigation.navigate('Groups', {
+                        screen: 'GroupsMain',
+                        params: { groupId: result.groupId }
+                      });
+                    }
                   }
                 } catch (error) {
                   Alert.alert('Error', 'Failed to join event. Please try again.');

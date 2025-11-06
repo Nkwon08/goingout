@@ -4,7 +4,7 @@ import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 're
 import { TextInput, Button, Text, Snackbar, Divider } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeColors } from '../hooks/useThemeColors';
-import { signUp, signInWithGoogle } from '../services/authService';
+import { signUp, signInWithGoogle, checkUsernameAvailability } from '../services/authService';
 
 const IU_CRIMSON = '#990000';
 
@@ -22,14 +22,70 @@ export default function SignUpScreen({ navigation }) {
   const [showPassword, setShowPassword] = React.useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [googleLoading, setGoogleLoading] = React.useState(false);
+  const [usernameAvailable, setUsernameAvailable] = React.useState(null); // null = not checked, true = available, false = taken
+  const [checkingUsername, setCheckingUsername] = React.useState(false);
+  const usernameCheckTimeoutRef = React.useRef(null);
 
   const { background, text, subText } = useThemeColors();
+
+  // Check username availability with debouncing
+  React.useEffect(() => {
+    // Clear previous timeout
+    if (usernameCheckTimeoutRef.current) {
+      clearTimeout(usernameCheckTimeoutRef.current);
+    }
+
+    // Reset state if username is empty
+    if (!username.trim()) {
+      setUsernameAvailable(null);
+      setCheckingUsername(false);
+      return;
+    }
+
+    // Set checking state
+    setCheckingUsername(true);
+    setUsernameAvailable(null);
+
+    // Debounce the check - wait 500ms after user stops typing
+    usernameCheckTimeoutRef.current = setTimeout(async () => {
+      try {
+        const result = await checkUsernameAvailability(username.trim());
+        setUsernameAvailable(result.available);
+      } catch (error) {
+        console.error('Error checking username availability:', error);
+        setUsernameAvailable(null); // Reset on error
+      } finally {
+        setCheckingUsername(false);
+      }
+    }, 500);
+
+    // Cleanup timeout on unmount
+    return () => {
+      if (usernameCheckTimeoutRef.current) {
+        clearTimeout(usernameCheckTimeoutRef.current);
+      }
+    };
+  }, [username]);
 
   // Handle sign up
   const handleSignUp = async () => {
     // Validation
     if (!name.trim() || !username.trim() || !email.trim() || !password.trim()) {
       setError('Please fill in all fields');
+      setSnackbarVisible(true);
+      return;
+    }
+
+    // Check if username is available
+    if (usernameAvailable === false) {
+      setError('This username is already taken. Please choose a different username.');
+      setSnackbarVisible(true);
+      return;
+    }
+
+    // If username availability is still being checked, wait a bit
+    if (checkingUsername) {
+      setError('Please wait while we check username availability...');
       setSnackbarVisible(true);
       return;
     }
@@ -125,17 +181,23 @@ export default function SignUpScreen({ navigation }) {
             disabled={loading}
           />
 
-          <TextInput
-            label="Username"
-            value={username}
-            onChangeText={setUsername}
-            mode="outlined"
-            autoCapitalize="none"
-            autoComplete="username"
-            style={styles.input}
-            textColor={text}
-            disabled={loading}
-          />
+          <View>
+            <TextInput
+              label="Username"
+              value={username}
+              onChangeText={setUsername}
+              mode="outlined"
+              autoCapitalize="none"
+              autoComplete="username"
+              style={styles.input}
+              textColor={text}
+              disabled={loading}
+              error={usernameAvailable === false}
+            />
+            {usernameAvailable === false && (
+              <Text style={styles.errorText}>Username not available</Text>
+            )}
+          </View>
 
           <TextInput
             label="Email"
@@ -190,7 +252,7 @@ export default function SignUpScreen({ navigation }) {
             mode="contained"
             onPress={handleSignUp}
             loading={loading}
-            disabled={loading || googleLoading}
+            disabled={loading || googleLoading || usernameAvailable === false || checkingUsername}
             buttonColor={IU_CRIMSON}
             textColor="#FFFFFF"
             style={styles.button}
@@ -334,6 +396,13 @@ const styles = StyleSheet.create({
   },
   googleButtonContent: {
     paddingVertical: 8,
+  },
+  errorText: {
+    color: '#FF0000',
+    fontSize: 12,
+    marginTop: -12,
+    marginBottom: 8,
+    marginLeft: 16,
   },
 });
 

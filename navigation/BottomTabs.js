@@ -202,14 +202,20 @@ export default function BottomTabs() {
       }}
     >
       {/* Define all tab screens */}
-      <Tab.Screen name="Activity" component={ActivityScreen} />
+      <Tab.Screen 
+        name="Activity" 
+        component={ActivityScreen}
+        options={{
+          tabBarLabel: 'Feed',
+        }}
+      />
       <Tab.Screen name="Groups" component={GroupsStack} />
       <Tab.Screen name="Camera" component={CameraScreen} />
       <Tab.Screen 
         name="NotificationsMain" 
         component={NotificationsScreen}
         options={{
-          tabBarLabel: 'Notifications',
+          tabBarLabel: 'Activity',
         }}
       />
       <Tab.Screen 

@@ -18,7 +18,7 @@ export default function NotificationsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: bgColor }} edges={['top']}>
       <TopTab.Navigator
-        initialRouteName="Notifications"
+        initialRouteName="Friends"
         screenOptions={{
           tabBarStyle: { backgroundColor: bgColor },
           tabBarIndicatorStyle: { backgroundColor: IU_CRIMSON },
@@ -26,8 +26,8 @@ export default function NotificationsScreen() {
           tabBarInactiveTintColor: inactiveColor,
         }}
       >
-        <TopTab.Screen name="Notifications" component={NotificationsTab} />
         <TopTab.Screen name="Friends" component={FriendsTab} />
+        <TopTab.Screen name="Notifications" component={NotificationsTab} />
       </TopTab.Navigator>
     </SafeAreaView>
   );

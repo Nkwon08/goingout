@@ -117,6 +117,40 @@ export const uploadAvatarAndGetURL = async (uid, source) => {
 };
 
 /**
+ * Check if username is available (for signup validation)
+ * @param {string} username - Username to check
+ * @returns {Promise<{ available: boolean, error: string|null }>}
+ */
+export const checkUsernameAvailability = async (username) => {
+  try {
+    if (!username || !username.trim()) {
+      return { available: false, error: null }; // Empty username is not available
+    }
+    
+    // Normalize username - this will be the document ID
+    const username_lowercase = username.toLowerCase().replace(/\s+/g, '');
+    
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      console.warn('[checkUsernameAvailability] Firestore not configured');
+      return { available: true, error: null }; // Assume available if DB not configured
+    }
+    
+    // Check if username document already exists
+    const userRef = doc(db, 'users', username_lowercase);
+    const userDoc = await getDoc(userRef);
+    
+    if (userDoc.exists()) {
+      return { available: false, error: null }; // Username is taken
+    }
+    
+    return { available: true, error: null }; // Username is available
+  } catch (error) {
+    console.error('[checkUsernameAvailability] Error:', error);
+    return { available: true, error: error.message }; // Assume available on error
+  }
+};
+
+/**
  * Reserve username (optional - ensures uniqueness)
  * Normalizes username and checks for conflicts using transaction
  * @param {string} uid - User ID

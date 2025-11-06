@@ -17,7 +17,7 @@ import PollCard from '../components/PollCard';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { subscribeToUserGroups, deleteGroup, addMemberToGroup } from '../services/groupsService';
+import { subscribeToUserGroups, deleteGroup, addMemberToGroup, removeMemberFromGroup, sendGroupInvitation } from '../services/groupsService';
 import { shareLocationInGroup, stopSharingLocationInGroup, subscribeToGroupLocations } from '../services/groupLocationService';
 import { getCurrentLocation } from '../services/locationService';
 import { createGroupPoll, voteOnGroupPoll, subscribeToGroupPolls } from '../services/groupPollsService';
@@ -2161,9 +2161,13 @@ function GroupDetail({ group, onBack }) {
   const [loadingMembers, setLoadingMembers] = React.useState(false);
   const [showAddMembersModal, setShowAddMembersModal] = React.useState(false);
   const [friendsWithData, setFriendsWithData] = React.useState([]);
+  const [friendSearchQuery, setFriendSearchQuery] = React.useState('');
   const [selectedFriends, setSelectedFriends] = React.useState(new Set());
   const [loadingFriends, setLoadingFriends] = React.useState(false);
   const [addingMembers, setAddingMembers] = React.useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = React.useState(false);
+  const [leaving, setLeaving] = React.useState(false);
+  const [removingMemberId, setRemovingMemberId] = React.useState(null);
   
   // Handle member profile tap - navigate to user profile
   const handleMemberProfileTap = React.useCallback((member) => {
@@ -2286,6 +2290,7 @@ function GroupDetail({ group, onBack }) {
           
           setFriendsWithData(friendsData.filter(f => f !== null));
           setSelectedFriends(new Set()); // Reset selections
+          setFriendSearchQuery(''); // Reset search query
         } catch (error) {
           console.error('Error loading friends:', error);
           setFriendsWithData([]);
@@ -2298,23 +2303,22 @@ function GroupDetail({ group, onBack }) {
     } else if (!showAddMembersModal) {
       setFriendsWithData([]);
       setSelectedFriends(new Set());
+      setFriendSearchQuery(''); // Reset search query
     }
   }, [showAddMembersModal, friendsListFromContext, group?.members]);
 
-  // Handle toggle friend selection
-  const handleToggleFriend = (friendUid) => {
-    setSelectedFriends((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(friendUid)) {
-        newSet.delete(friendUid);
-      } else {
-        newSet.add(friendUid);
-      }
-      return newSet;
-    });
-  };
+  // Filter friends based on search query
+  const filteredFriends = React.useMemo(() => {
+    if (!friendSearchQuery.trim()) {
+      return friendsWithData;
+    }
+    const query = friendSearchQuery.toLowerCase().trim();
+    return friendsWithData.filter(friend => 
+      friend.name?.toLowerCase().includes(query)
+    );
+  }, [friendsWithData, friendSearchQuery]);
 
-  // Handle add selected members to group
+  // Handle add selected members to group - sends invitations instead of directly adding
   const handleAddMembers = async () => {
     if (!group?.id || selectedFriends.size === 0) {
       return;
@@ -2322,35 +2326,144 @@ function GroupDetail({ group, onBack }) {
 
     setAddingMembers(true);
     try {
-      const addPromises = Array.from(selectedFriends).map(async (friendUid) => {
-        const result = await addMemberToGroup(group.id, friendUid);
-        if (result.error && result.error !== 'User is already a member') {
-          console.error(`Error adding member ${friendUid}:`, result.error);
+      const invitationPromises = Array.from(selectedFriends).map(async (friendUid) => {
+        const result = await sendGroupInvitation(group.id, user.uid, friendUid);
+        if (result.error) {
+          console.error(`Error sending invitation to ${friendUid}:`, result.error);
           return { success: false, error: result.error };
         }
         return { success: true };
       });
 
-      const results = await Promise.all(addPromises);
+      const results = await Promise.all(invitationPromises);
       const successCount = results.filter(r => r.success).length;
+      const errorCount = results.filter(r => r.error).length;
 
       if (successCount > 0) {
-        Alert.alert('Success', `Added ${successCount} member${successCount > 1 ? 's' : ''} to the group.`);
+        Alert.alert('Success', `Sent ${successCount} invitation${successCount > 1 ? 's' : ''} to join the group.`);
         setShowAddMembersModal(false);
         setSelectedFriends(new Set());
       } else {
-        Alert.alert('Error', 'Failed to add members. Please try again.');
+        Alert.alert('Error', 'Failed to send invitations. Please try again.');
+      }
+      
+      if (errorCount > 0) {
+        console.error(`Failed to send ${errorCount} invitation(s)`);
       }
     } catch (error) {
-      console.error('Error adding members:', error);
-      Alert.alert('Error', 'Failed to add members. Please try again.');
+      console.error('Error sending invitations:', error);
+      Alert.alert('Error', 'Failed to send invitations. Please try again.');
     } finally {
       setAddingMembers(false);
     }
   };
   
+  // Handle remove member (only for group creator)
+  const handleRemoveMember = async (memberUid, memberName) => {
+    if (!group?.id || !user?.uid || !isOwner || memberUid === group?.creator) {
+      return;
+    }
+    
+    Alert.alert(
+      'Remove Member',
+      `Are you sure you want to remove ${memberName} from this group?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            setRemovingMemberId(memberUid);
+            try {
+              const { error } = await removeMemberFromGroup(group.id, memberUid);
+              if (error) {
+                Alert.alert('Error', error);
+              } else {
+                // Update members list by removing the member
+                setMembersData(prev => prev.filter(m => m.uid !== memberUid));
+                Alert.alert('Success', `${memberName} has been removed from the group`);
+              }
+            } catch (error) {
+              console.error('Error removing member:', error);
+              Alert.alert('Error', error.message || 'Failed to remove member');
+            } finally {
+              setRemovingMemberId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+  
   // Check if current user is the group owner
   const isOwner = group?.creator === user?.uid;
+  
+  // Handle leave group
+  const handleLeaveGroup = async () => {
+    console.log('handleLeaveGroup called:', { 
+      groupId: group?.id, 
+      userId: user?.uid, 
+      isOwner,
+      groupCreator: group?.creator,
+      showLeaveConfirm: showLeaveConfirm
+    });
+    
+    if (!group?.id || !user?.uid || isOwner) {
+      console.log('Cannot leave group:', { groupId: group?.id, userId: user?.uid, isOwner });
+      return;
+    }
+    
+    // Close the members modal first, then show confirmation
+    setShowMembersModal(false);
+    
+    // Small delay to ensure members modal closes before showing confirmation
+    setTimeout(() => {
+      console.log('Setting showLeaveConfirm to true');
+      setShowLeaveConfirm(true);
+    }, 300);
+  };
+  
+  const confirmLeave = async () => {
+    if (!group?.id || !user?.uid || isOwner) {
+      console.log('Cannot confirm leave:', { groupId: group?.id, userId: user?.uid, isOwner });
+      return;
+    }
+    
+    setLeaving(true);
+    try {
+      console.log('Leaving group:', group.id, 'User:', user.uid);
+      const { error } = await removeMemberFromGroup(group.id, user.uid);
+      if (error) {
+        console.error('Error leaving group:', error);
+        Alert.alert('Error', error);
+        setLeaving(false);
+        setShowLeaveConfirm(false);
+      } else {
+        console.log('Successfully left group');
+        // Close modals first
+        setShowLeaveConfirm(false);
+        setShowMembersModal(false);
+        
+        // Navigate back to groups list immediately
+        // The group will automatically be removed from the list because
+        // subscribeToUserGroups will update when the user is removed from members
+        onBack();
+        
+        // Show success message after navigation
+        setTimeout(() => {
+          Alert.alert('Success', 'You have left the group');
+        }, 300);
+      }
+    } catch (error) {
+      console.error('Error leaving group:', error);
+      Alert.alert('Error', error.message || 'Failed to leave group');
+      setLeaving(false);
+      setShowLeaveConfirm(false);
+    }
+  };
   
   // Check if group is expired
   const isExpired = React.useMemo(() => {
@@ -2551,30 +2664,47 @@ function GroupDetail({ group, onBack }) {
               
               {membersData.map((member, index) => (
                 <View key={member.uid}>
-                  <TouchableOpacity
-                    onPress={() => handleMemberProfileTap(member)}
-                    activeOpacity={0.7}
-                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12 }}
-                  >
-                    <Avatar.Image
-                      size={48}
-                      source={{ uri: member.avatar || 'https://i.pravatar.cc/100?img=12' }}
-                      style={{ backgroundColor: surface }}
-                    />
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={{ color: text, fontSize: 16, fontWeight: '600' }}>
-                        {member.name}
-                      </Text>
-                      <Text style={{ color: subText, fontSize: 14 }}>
-                        @{member.username}
-                      </Text>
-                    </View>
-                    {member.uid === group?.creator && (
-                      <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: IU_CRIMSON, borderRadius: 12 }}>
-                        <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>Creator</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12 }}>
+                    <TouchableOpacity
+                      onPress={() => handleMemberProfileTap(member)}
+                      activeOpacity={0.7}
+                      style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+                    >
+                      <Avatar.Image
+                        size={48}
+                        source={{ uri: member.avatar || 'https://i.pravatar.cc/100?img=12' }}
+                        style={{ backgroundColor: surface }}
+                      />
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text style={{ color: text, fontSize: 16, fontWeight: '600' }}>
+                          {member.name}
+                        </Text>
+                        <Text style={{ color: subText, fontSize: 14 }}>
+                          @{member.username}
+                        </Text>
                       </View>
+                      {member.uid === group?.creator && (
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: IU_CRIMSON, borderRadius: 12, marginRight: 8 }}>
+                          <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>Creator</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                    {/* Remove member button - only show for creator, and not for the creator themselves */}
+                    {isOwner && member.uid !== group?.creator && (
+                      <TouchableOpacity
+                        onPress={() => handleRemoveMember(member.uid, member.name)}
+                        disabled={removingMemberId === member.uid}
+                        style={{ padding: 8, marginLeft: 8 }}
+                        activeOpacity={0.7}
+                      >
+                        {removingMemberId === member.uid ? (
+                          <ActivityIndicator size="small" color={IU_CRIMSON} />
+                        ) : (
+                          <MaterialCommunityIcons name="close-circle" size={24} color={IU_CRIMSON} />
+                        )}
+                      </TouchableOpacity>
                     )}
-                  </TouchableOpacity>
+                  </View>
                   {index < membersData.length - 1 && (
                     <View style={{ height: 1, backgroundColor: surface, marginLeft: 60 }} />
                   )}
@@ -2586,6 +2716,75 @@ function GroupDetail({ group, onBack }) {
               <Text style={{ color: subText }}>No members found</Text>
             </View>
           )}
+          
+          {/* Leave Group Button - Only show if user is not the creator */}
+          {!isOwner && user?.uid && group?.members?.includes(user.uid) && (
+            <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: surface }}>
+              <Button
+                mode="contained"
+                buttonColor={IU_CRIMSON}
+                textColor="#FFFFFF"
+                onPress={() => {
+                  console.log('Leave Group button pressed');
+                  handleLeaveGroup();
+                }}
+                disabled={leaving}
+                loading={leaving}
+                style={{ borderRadius: 12 }}
+              >
+                Leave Group
+              </Button>
+            </View>
+          )}
+        </View>
+      </Modal>
+
+      {/* Leave Group Confirmation Dialog */}
+      <Modal
+        visible={showLeaveConfirm}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          console.log('Leave confirm modal onRequestClose');
+          setShowLeaveConfirm(false);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', alignItems: 'center', padding: 20, zIndex: 9999 }}>
+          <View style={{ backgroundColor: background, borderRadius: 16, padding: 20, width: '100%', maxWidth: 400 }}>
+            <Text style={{ color: text, fontSize: 20, fontWeight: 'bold', marginBottom: 12 }}>
+              Leave Group
+            </Text>
+            <Text style={{ color: subText, fontSize: 16, marginBottom: 20 }}>
+              Are you sure you want to leave "{group?.name}"? You will no longer be able to see messages or participate in this group.
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 }}>
+              <Button
+                mode="text"
+                onPress={() => {
+                  console.log('Cancel leave pressed');
+                  setShowLeaveConfirm(false);
+                }}
+                disabled={leaving}
+                textColor={text}
+                style={{ marginRight: 8 }}
+              >
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor={IU_CRIMSON}
+                textColor="#FFFFFF"
+                onPress={() => {
+                  console.log('Confirm leave pressed');
+                  confirmLeave();
+                }}
+                disabled={leaving}
+                loading={leaving}
+              >
+                Leave
+              </Button>
+            </View>
+          </View>
         </View>
       </Modal>
 
@@ -2607,14 +2806,33 @@ function GroupDetail({ group, onBack }) {
               color={selectedFriends.size > 0 ? IU_CRIMSON : subText}
             />
           </Appbar.Header>
+          
+          {/* Search Bar */}
+          <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: surface }}>
+            <TextInput
+              placeholder="Search by name..."
+              placeholderTextColor={subText}
+              value={friendSearchQuery}
+              onChangeText={setFriendSearchQuery}
+              style={{
+                backgroundColor: surface,
+                borderRadius: 8,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                color: text,
+                fontSize: 16,
+              }}
+            />
+          </View>
+          
           {loadingFriends ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
               <ActivityIndicator size="small" color={IU_CRIMSON} />
               <Text style={{ color: subText, marginTop: 12 }}>Loading friends...</Text>
             </View>
-          ) : friendsWithData.length > 0 ? (
+          ) : filteredFriends.length > 0 ? (
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
-              {friendsWithData.map((friend, index) => (
+              {filteredFriends.map((friend, index) => (
                 <View key={friend.uid}>
                   <TouchableOpacity
                     onPress={() => handleToggleFriend(friend.uid)}
@@ -2640,7 +2858,7 @@ function GroupDetail({ group, onBack }) {
                       color={IU_CRIMSON}
                     />
                   </TouchableOpacity>
-                  {index < friendsWithData.length - 1 && (
+                  {index < filteredFriends.length - 1 && (
                     <View style={{ height: 1, backgroundColor: surface, marginLeft: 60 }} />
                   )}
                 </View>
@@ -2648,7 +2866,9 @@ function GroupDetail({ group, onBack }) {
             </ScrollView>
           ) : (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-              <Text style={{ color: subText }}>No friends available to add</Text>
+              <Text style={{ color: subText }}>
+                {friendSearchQuery.trim() ? 'No friends found matching your search' : 'No friends available to add'}
+              </Text>
             </View>
           )}
         </View>
