@@ -1365,7 +1365,7 @@ function ChatTab({ groupId }) {
                 paddingHorizontal: 8,
                 paddingTop: 4,
                 paddingBottom: keyboardHeight > 0 ? 0 : 12,
-                marginBottom: keyboardHeight > 0 ? -80 : 0,
+                marginBottom: keyboardHeight > 0 ? -120 : 0,
               }}
             >
               {/* Input row with plus button on left */}
@@ -1648,7 +1648,7 @@ function ChatTab({ groupId }) {
             >
               {/* Mode Toggle - Photo only for chat */}
               <SafeAreaView style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }} edges={['top']}>
-                <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingTop: 10, paddingBottom: 10, paddingHorizontal: 16, position: 'relative' }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingTop: 40, paddingBottom: 10, paddingHorizontal: 16, position: 'relative' }}>
                   <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: IU_CRIMSON, minHeight: 44, minWidth: 100 }}
                     activeOpacity={0.7}
@@ -1658,7 +1658,7 @@ function ChatTab({ groupId }) {
                   </TouchableOpacity>
                   
                   {/* Flash toggle button */}
-                  <View style={{ position: 'absolute', right: 16, top: 10, bottom: 10, justifyContent: 'center', alignItems: 'center' }}>
+                  <View style={{ position: 'absolute', right: 16, top: 40, bottom: 10, justifyContent: 'center', alignItems: 'center' }}>
                     <TouchableOpacity style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'center', alignItems: 'center' }} onPress={toggleFlash}>
                       <MaterialCommunityIcons 
                         name={flash === 'on' ? 'flash' : flash === 'auto' ? 'flash-auto' : 'flash-off'} 
@@ -1672,7 +1672,7 @@ function ChatTab({ groupId }) {
 
               {/* 3:4 aspect ratio viewfinder overlay */}
               <Pressable 
-                style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'column' }}
+                style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'column', zIndex: 5 }}
                 onPress={() => {
                   // Double tap detection
                   const now = Date.now();
@@ -1753,10 +1753,11 @@ function ChatTab({ groupId }) {
               </View>
 
               {/* Close button */}
-              <SafeAreaView style={{ position: 'absolute', top: 0, left: 0, right: 0 }} edges={['top']}>
+              <SafeAreaView style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30 }} edges={['top']} pointerEvents="box-none">
                 <TouchableOpacity
-                  style={{ position: 'absolute', top: 10, left: 16, zIndex: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'center', alignItems: 'center' }}
+                  style={{ position: 'absolute', top: 100, left: 16, zIndex: 30, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'center', alignItems: 'center' }}
                   onPress={() => setShowCamera(false)}
+                  activeOpacity={0.7}
                 >
                   <MaterialCommunityIcons name="close" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
