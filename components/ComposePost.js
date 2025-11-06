@@ -5,6 +5,7 @@ import { Text, Avatar, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation } from '@react-navigation/native';
 // Removed albums import - images will come from user's own photos
 // Removed getCurrentLocation import - using account location instead of GPS
 
@@ -33,6 +34,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
   const [bar, setBar] = React.useState(''); // Bar name (used for location field)
   const [barDropdownVisible, setBarDropdownVisible] = React.useState(false);
   const [cityLocation, setCityLocation] = React.useState(''); // City location for filtering (hidden)
+  const navigation = useNavigation();
 
   // Empty - images will come from user's own photos/Firebase in the future
   const appImages = [];
@@ -59,26 +61,12 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
     }
   };
 
-  const handleTakePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      alert('Sorry, we need camera permissions to take photos!');
-      return;
-    }
-
-    // Take a photo with the camera
-    // Lower quality for faster uploads
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.6, // Reduced from 0.8 for faster uploads
-    });
-
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      const newMedia = result.assets.map(asset => asset.uri);
-      setImages((prev) => [...prev, ...newMedia]);
-    }
+  const handleTakePhoto = () => {
+    // Navigate to Camera tab instead of using system camera
+    // Close ComposePost modal first
+    handleClose();
+    // Navigate to Camera tab
+    navigation.navigate('Camera');
   };
 
   const handleSubmit = () => {

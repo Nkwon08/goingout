@@ -10,7 +10,7 @@ import { deletePost, likePost, checkIfLiked } from '../services/postsService';
 import { addComment, subscribeToComments, deleteComment } from '../services/commentsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const IMAGE_WIDTH = SCREEN_WIDTH * 0.92;
+const IMAGE_WIDTH = SCREEN_WIDTH * 0.92 - 12; // Narrower by 12 pixels
 const IMAGE_HEIGHT = IMAGE_WIDTH * (4 / 3); // 3:4 aspect ratio (width:height = 3:4)
 const IU_CRIMSON = '#990000';
 

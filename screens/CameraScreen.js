@@ -19,6 +19,7 @@ const IU_CRIMSON = '#990000';
 export default function CameraScreen() {
   const [facing, setFacing] = React.useState('back');
   const [mode, setMode] = React.useState('photo'); // 'photo' or 'video'
+  const [flash, setFlash] = React.useState('off'); // 'off', 'on', or 'auto'
   const [isRecording, setIsRecording] = React.useState(false);
   const [recordingPromise, setRecordingPromise] = React.useState(null);
   const [cameraReady, setCameraReady] = React.useState(false);
@@ -117,6 +118,14 @@ export default function CameraScreen() {
     setCameraReady(false); // Reset ready state when switching camera
     cameraReadyRef.current = false;
     setFacing((current) => (current === 'back' ? 'front' : 'back'));
+  };
+
+  const toggleFlash = () => {
+    setFlash((current) => {
+      if (current === 'off') return 'on';
+      if (current === 'on') return 'auto';
+      return 'off';
+    });
   };
 
   const takePicture = async () => {
@@ -486,6 +495,7 @@ export default function CameraScreen() {
           style={styles.camera}
           facing={facing}
           mode={mode === 'photo' ? 'picture' : 'video'}
+          flash={flash}
           onCameraReady={handleCameraReady}
         >
         {/* Mode Toggle */}
@@ -508,6 +518,17 @@ export default function CameraScreen() {
               <MaterialCommunityIcons name="video" size={24} color={mode === 'video' ? '#FFFFFF' : '#8A90A6'} />
               <Text style={[styles.modeText, mode === 'video' && styles.modeTextActive, { marginLeft: 8 }]}>Video</Text>
             </TouchableOpacity>
+            
+            {/* Flash toggle button - aligned with mode toggles */}
+            <View style={styles.flashButtonContainer}>
+              <TouchableOpacity style={styles.flashButton} onPress={toggleFlash}>
+                <MaterialCommunityIcons 
+                  name={flash === 'on' ? 'flash' : flash === 'auto' ? 'flash-auto' : 'flash-off'} 
+                  size={24} 
+                  color={flash === 'off' ? '#8A90A6' : '#FFFFFF'} 
+                />
+              </TouchableOpacity>
+            </View>
           </View>
         </SafeAreaView>
 
@@ -644,6 +665,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 10,
     paddingBottom: 10,
+    paddingHorizontal: 16,
+    position: 'relative',
+  },
+  flashButtonContainer: {
+    position: 'absolute',
+    right: 16,
+    top: 10,
+    bottom: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  flashButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   modeButton: {
     flexDirection: 'row',
