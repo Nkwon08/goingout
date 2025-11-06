@@ -1,10 +1,14 @@
 // Tonight Selector component - allows users to vote on bars and add custom options
+// Votes are public and location-based - everyone can see each other's votes
 import * as React from 'react';
-import { View, Modal, TouchableOpacity, TextInput, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
-import { Card, Text, Button } from 'react-native-paper';
+import { View, Modal, TouchableOpacity, TextInput, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Alert } from 'react-native';
+import { Card, Text, Button, Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { useAuth } from '../context/AuthContext';
+import { voteForOption, subscribeToVotesForLocation, getUserVoteForLocation } from '../services/votesService';
+import { getCurrentLocation } from '../services/locationService';
 
 const IU_CRIMSON = '#990000';
 
@@ -21,70 +25,173 @@ const PREDEFINED_BARS = [
 
 export default function TonightSelector() {
   const { surface, text, subText, divider, background, border } = useThemeColors();
-  const [votes, setVotes] = React.useState({});
+  const { user, userData } = useAuth();
+  const [voteCounts, setVoteCounts] = React.useState({});
+  const [voters, setVoters] = React.useState({}); // Who voted for each option
   const [dropdownVisible, setDropdownVisible] = React.useState(false);
   const [selectedBar, setSelectedBar] = React.useState(null);
   const [otherModalVisible, setOtherModalVisible] = React.useState(false);
   const [otherText, setOtherText] = React.useState('');
   const [customBars, setCustomBars] = React.useState([]);
+  const [location, setLocation] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [voting, setVoting] = React.useState(false);
+  const [expandedOption, setExpandedOption] = React.useState(null); // To show/hide voter list
 
-  // Get all available bars (predefined + custom)
+  // Get all available bars (predefined + custom + voted options)
   const allBars = React.useMemo(() => {
-    return [...PREDEFINED_BARS, ...customBars];
-  }, [customBars]);
+    const allOptions = new Set([...PREDEFINED_BARS, ...customBars, ...Object.keys(voteCounts)]);
+    return Array.from(allOptions);
+  }, [customBars, voteCounts]);
 
   // Filter to only show bars with votes > 0 (for results display)
   const barsWithVotes = React.useMemo(() => {
-    return allBars.filter(bar => (votes[bar] || 0) > 0);
-  }, [allBars, votes]);
+    return allBars.filter(bar => (voteCounts[bar] || 0) > 0);
+  }, [allBars, voteCounts]);
 
   // Sort all bars by votes (descending) - highest votes on top, lowest on bottom
   const sortedBars = React.useMemo(() => {
-    return [...barsWithVotes].sort((a, b) => (votes[b] || 0) - (votes[a] || 0));
-  }, [barsWithVotes, votes]);
+    return [...barsWithVotes].sort((a, b) => (voteCounts[b] || 0) - (voteCounts[a] || 0));
+  }, [barsWithVotes, voteCounts]);
 
   // Sort all predefined bars by votes for dropdown (highest first, lowest last)
   const sortedPredefinedBars = React.useMemo(() => {
-    return [...PREDEFINED_BARS].sort((a, b) => (votes[b] || 0) - (votes[a] || 0));
-  }, [votes]);
+    return [...PREDEFINED_BARS].sort((a, b) => (voteCounts[b] || 0) - (voteCounts[a] || 0));
+  }, [voteCounts]);
 
   const totalVotes = React.useMemo(() => {
-    return Object.values(votes).reduce((sum, count) => sum + count, 0);
-  }, [votes]);
+    return Object.values(voteCounts).reduce((sum, count) => sum + count, 0);
+  }, [voteCounts]);
 
-  const handleSelectBar = (bar) => {
+  // Get user's location on mount
+  React.useEffect(() => {
+    const fetchLocation = async () => {
+      try {
+        const locationData = await getCurrentLocation();
+        if (locationData.error) {
+          console.error('Error getting location:', locationData.error);
+          Alert.alert('Location Error', locationData.error);
+          setLoading(false);
+        } else {
+          setLocation(locationData.city);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Error fetching location:', error);
+        setLoading(false);
+      }
+    };
+
+    fetchLocation();
+  }, []);
+
+  // Subscribe to votes for location
+  React.useEffect(() => {
+    if (!location || !user?.uid) return;
+
+    // Get user's current vote
+    getUserVoteForLocation(user.uid, location).then(({ vote, error }) => {
+      if (vote && !error) {
+        setSelectedBar(vote.option);
+      }
+    });
+
+    // Subscribe to real-time votes
+    const unsubscribe = subscribeToVotesForLocation(location, (result) => {
+      if (result.error) {
+        console.error('Error subscribing to votes:', result.error);
+      } else {
+        setVoteCounts(result.voteCounts || {});
+        setVoters(result.voters || {});
+      }
+    });
+
+    return () => unsubscribe();
+  }, [location, user?.uid]);
+
+  const handleSelectBar = async (bar) => {
     if (bar === 'Other') {
       setOtherModalVisible(true);
       setDropdownVisible(false);
     } else {
-      setVotes(prev => ({
-        ...prev,
-        [bar]: (prev[bar] || 0) + 1
-      }));
-      setSelectedBar(bar);
-      setDropdownVisible(false);
-      // Save last voted bar to AsyncStorage for auto-fill in compose post
-      AsyncStorage.setItem('lastVotedBar', bar).catch(err => console.error('Error saving last voted bar:', err));
+      if (!user?.uid || !location || voting) return;
+      
+      setVoting(true);
+      try {
+        const result = await voteForOption(
+          user.uid,
+          location,
+          bar,
+          {
+            name: userData?.name || user?.displayName || 'User',
+            username: userData?.username || 'user',
+            photoURL: userData?.photoURL || userData?.avatar || null,
+            avatar: userData?.avatar || userData?.photoURL || null,
+          }
+        );
+
+        if (result.success) {
+          if (result.action === 'removed') {
+            // Vote removed - clear selection
+            setSelectedBar(null);
+          } else {
+            setSelectedBar(bar);
+            // Save last voted bar to AsyncStorage for auto-fill in compose post
+            AsyncStorage.setItem('lastVotedBar', bar).catch(err => console.error('Error saving last voted bar:', err));
+          }
+          setDropdownVisible(false);
+        } else {
+          Alert.alert('Error', result.error || 'Failed to vote. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error voting:', error);
+        Alert.alert('Error', 'Failed to vote. Please try again.');
+      } finally {
+        setVoting(false);
+      }
     }
   };
 
-  const handleOtherSubmit = () => {
-    if (otherText.trim()) {
-      const newBar = otherText.trim();
-      // Add to custom bars if not already there
-      if (!customBars.includes(newBar)) {
-        setCustomBars(prev => [...prev, newBar]);
+  const handleOtherSubmit = async () => {
+    if (!otherText.trim() || !user?.uid || !location || voting) return;
+    
+    const newBar = otherText.trim();
+    setVoting(true);
+    
+    try {
+      const result = await voteForOption(
+        user.uid,
+        location,
+        newBar,
+        {
+          name: userData?.name || user?.displayName || 'User',
+          username: userData?.username || 'user',
+          photoURL: userData?.photoURL || userData?.avatar || null,
+          avatar: userData?.avatar || userData?.photoURL || null,
+        }
+      );
+
+      if (result.success) {
+        // Add to custom bars if not already there
+        if (!customBars.includes(newBar) && !PREDEFINED_BARS.includes(newBar)) {
+          setCustomBars(prev => [...prev, newBar]);
+        }
+        
+        if (result.action !== 'removed') {
+          setSelectedBar(newBar);
+          // Save last voted bar to AsyncStorage for auto-fill in compose post
+          AsyncStorage.setItem('lastVotedBar', newBar).catch(err => console.error('Error saving last voted bar:', err));
+        }
+        setOtherText('');
+        setOtherModalVisible(false);
+      } else {
+        Alert.alert('Error', result.error || 'Failed to vote. Please try again.');
       }
-      // Add vote for the new bar
-      setVotes(prev => ({
-        ...prev,
-        [newBar]: (prev[newBar] || 0) + 1
-      }));
-      setSelectedBar(newBar);
-      // Save last voted bar to AsyncStorage for auto-fill in compose post
-      AsyncStorage.setItem('lastVotedBar', newBar).catch(err => console.error('Error saving last voted bar:', err));
-      setOtherText('');
-      setOtherModalVisible(false);
+    } catch (error) {
+      console.error('Error voting:', error);
+      Alert.alert('Error', 'Failed to vote. Please try again.');
+    } finally {
+      setVoting(false);
     }
   };
 
@@ -93,12 +200,29 @@ export default function TonightSelector() {
     setOtherModalVisible(false);
   };
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Card mode="contained" style={{ backgroundColor: surface, borderRadius: 16 }}>
+          <Card.Content style={{ padding: 20 }}>
+            <ActivityIndicator size="small" color={IU_CRIMSON} />
+            <Text style={[styles.loadingText, { color: subText, marginTop: 12 }]}>
+              Loading location...
+            </Text>
+          </Card.Content>
+        </Card>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Card mode="contained" style={{ backgroundColor: surface, borderRadius: 16 }}>
         <Card.Title 
           title="Where's everyone going tonight?" 
-          titleStyle={{ color: text }} 
+          titleStyle={{ color: text }}
+          subtitle={location ? `Showing results for ${location}` : undefined}
+          subtitleStyle={{ color: subText }}
         />
         <Card.Content>
           {/* Dropdown button */}
@@ -106,30 +230,47 @@ export default function TonightSelector() {
             style={[styles.dropdownButton, { borderColor: border, backgroundColor: background }]}
             onPress={() => setDropdownVisible(true)}
             activeOpacity={0.7}
+            disabled={voting || !location}
           >
-            <Text style={[styles.dropdownText, { color: selectedBar ? text : subText }]}>
-              {selectedBar || 'Select'}
-            </Text>
-            <MaterialCommunityIcons 
-              name={dropdownVisible ? 'chevron-up' : 'chevron-down'} 
-              size={24} 
-              color={subText} 
-            />
+            {voting ? (
+              <ActivityIndicator size="small" color={IU_CRIMSON} />
+            ) : (
+              <>
+                <Text style={[styles.dropdownText, { color: selectedBar ? text : subText }]}>
+                  {selectedBar || 'Select'}
+                </Text>
+                <MaterialCommunityIcons 
+                  name={dropdownVisible ? 'chevron-up' : 'chevron-down'} 
+                  size={24} 
+                  color={subText} 
+                />
+              </>
+            )}
           </TouchableOpacity>
 
           {/* Results - only show bars with votes */}
           {sortedBars.length > 0 && (
             <View style={styles.resultsContainer}>
               <Text style={[styles.resultsTitle, { color: text, marginTop: 16 }]}>
-                Current Results
+                Current Results ({totalVotes} {totalVotes === 1 ? 'vote' : 'votes'})
               </Text>
               {sortedBars.map((bar) => {
-                const voteCount = votes[bar] || 0;
+                const voteCount = voteCounts[bar] || 0;
                 const ratio = totalVotes > 0 ? voteCount / totalVotes : 0;
+                const optionVoters = voters[bar] || [];
+                const isExpanded = expandedOption === bar;
+                
                 return (
                   <View key={bar} style={styles.resultItem}>
                     <View style={styles.resultHeader}>
-                      <Text style={[styles.resultLabel, { color: text }]}>{bar}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.resultLabel, { color: text }]}>{bar}</Text>
+                        {selectedBar === bar && (
+                          <Text style={[styles.yourVote, { color: IU_CRIMSON }]}>
+                            Your vote
+                          </Text>
+                        )}
+                      </View>
                       <Text style={[styles.resultVotes, { color: subText }]}>
                         {voteCount} vote{voteCount !== 1 ? 's' : ''}
                       </Text>
@@ -142,10 +283,52 @@ export default function TonightSelector() {
                         ]} 
                       />
                     </View>
+                    
+                    {/* Voters list - expandable */}
+                    {optionVoters.length > 0 && (
+                      <TouchableOpacity
+                        style={styles.votersToggle}
+                        onPress={() => setExpandedOption(isExpanded ? null : bar)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.votersToggleText, { color: subText }]}>
+                          {isExpanded ? 'Hide' : 'Show'} who voted ({optionVoters.length})
+                        </Text>
+                        <MaterialCommunityIcons
+                          name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                          size={20}
+                          color={subText}
+                        />
+                      </TouchableOpacity>
+                    )}
+                    
+                    {/* Expanded voters list */}
+                    {isExpanded && optionVoters.length > 0 && (
+                      <View style={[styles.votersList, { borderTopColor: divider }]}>
+                        {optionVoters.map((voter, index) => (
+                          <View key={voter.userId || index} style={styles.voterItem}>
+                            <Avatar.Image
+                              size={24}
+                              source={{ uri: voter.userAvatar || 'https://i.pravatar.cc/100?img=12' }}
+                              style={styles.voterAvatar}
+                            />
+                            <Text style={[styles.voterName, { color: text }]}>
+                              @{voter.userUsername || 'user'}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
                   </View>
                 );
               })}
             </View>
+          )}
+          
+          {!loading && sortedBars.length === 0 && (
+            <Text style={[styles.noVotesText, { color: subText, marginTop: 16 }]}>
+              No votes yet. Be the first to vote!
+            </Text>
           )}
         </Card.Content>
       </Card>
@@ -172,9 +355,9 @@ export default function TonightSelector() {
                   activeOpacity={0.7}
                 >
                   <Text style={[styles.dropdownItemText, { color: text }]}>{bar}</Text>
-                  {votes[bar] > 0 && (
+                  {voteCounts[bar] > 0 && (
                     <Text style={[styles.dropdownVoteCount, { color: subText }]}>
-                      {votes[bar]} vote{votes[bar] !== 1 ? 's' : ''}
+                      {voteCounts[bar]} vote{voteCounts[bar] !== 1 ? 's' : ''}
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -360,6 +543,46 @@ const styles = StyleSheet.create({
   },
   otherButton: {
     minWidth: 100,
+  },
+  loadingText: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  yourVote: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  votersToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    paddingVertical: 8,
+  },
+  votersToggleText: {
+    fontSize: 12,
+  },
+  votersList: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+  },
+  voterItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  voterAvatar: {
+    marginRight: 8,
+  },
+  voterName: {
+    fontSize: 13,
+  },
+  noVotesText: {
+    fontSize: 14,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
 });
 

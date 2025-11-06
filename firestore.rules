@@ -105,6 +105,19 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if request.auth != null;
     }
+    
+    // Votes collection - location-based public voting for "tonight" polls
+    // Anyone can read votes (public), users can vote once per location per day
+    match /votes/{voteId} {
+      allow read: if request.auth != null; // Public votes - anyone authenticated can read
+      allow create: if request.auth != null && 
+        request.resource.data.userId == request.auth.uid; // Users can only vote as themselves
+      allow update: if request.auth != null && 
+        resource.data.userId == request.auth.uid && // Users can only update their own votes
+        request.resource.data.userId == resource.data.userId; // Ensure userId doesn't change
+      allow delete: if request.auth != null && 
+        resource.data.userId == request.auth.uid; // Users can delete their own votes
+    }
   }
 }
 
