@@ -6,6 +6,7 @@ import {
   orderBy,
   limit,
   onSnapshot,
+  getDocs,
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
@@ -245,6 +246,55 @@ export const sendPollMessage = async (groupId, userId, pollId, question, options
   } catch (error) {
     console.error('❌ Error sending poll message:', error);
     return { messageId: null, error: error.message };
+  }
+};
+
+/**
+ * Get the latest message for a group (for preview)
+ * @param {string} groupId - The group ID
+ * @returns {Promise<{ message: object|null, error: string|null }>}
+ */
+export const getLatestMessage = async (groupId) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { message: null, error: 'Firestore not configured' };
+    }
+
+    if (!groupId) {
+      return { message: null, error: 'Group ID is required' };
+    }
+
+    const messagesRef = collection(db, 'groups', groupId, 'messages');
+    const q = query(messagesRef, orderBy('createdAt', 'desc'), limit(1));
+
+    const snapshot = await getDocs(q);
+    
+    if (snapshot.empty) {
+      return { message: null, error: null };
+    }
+
+    const doc = snapshot.docs[0];
+    const data = doc.data();
+    
+    const message = {
+      _id: doc.id,
+      text: data.text || '',
+      createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
+      user: {
+        _id: data.userId,
+        name: data.userName || 'User',
+        avatar: data.userAvatar || null,
+        username: data.userUsername || 'user',
+      },
+      image: data.image || null,
+      video: data.video || null,
+      type: data.type || 'text',
+    };
+
+    return { message, error: null };
+  } catch (error) {
+    console.error('❌ Error getting latest message:', error);
+    return { message: null, error: error.message };
   }
 };
 

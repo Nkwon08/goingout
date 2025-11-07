@@ -255,6 +255,46 @@ export const getGroupById = async (groupId) => {
   }
 };
 
+// Subscribe to a single group by ID for real-time updates
+export const subscribeToGroup = (groupId, callback) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      callback({ group: null, error: 'Firestore not configured' });
+      return () => {};
+    }
+
+    if (!groupId) {
+      callback({ group: null, error: 'Group ID is required' });
+      return () => {};
+    }
+
+    const groupRef = doc(db, 'groups', groupId);
+
+    const unsubscribe = onSnapshot(
+      groupRef,
+      (groupDoc) => {
+        if (!groupDoc.exists()) {
+          callback({ group: null, error: 'Group not found' });
+          return;
+        }
+
+        const group = formatGroupData(groupDoc.id, groupDoc.data());
+        callback({ group, error: null });
+      },
+      (error) => {
+        console.error('❌ Error subscribing to group:', error);
+        callback({ group: null, error: error.message });
+      }
+    );
+
+    return unsubscribe;
+  } catch (error) {
+    console.error('❌ Error setting up group subscription:', error);
+    callback({ group: null, error: error.message });
+    return () => {};
+  }
+};
+
 // Add a member to a group
 export const addMemberToGroup = async (groupId, userId) => {
   try {
@@ -538,6 +578,7 @@ const formatGroupData = (id, data) => {
     createdAt,
     updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : (data.updatedAt ? new Date(data.updatedAt) : null),
     profilePicture: data.profilePicture || null, // Group profile picture URL
+    coverPhoto: data.coverPhoto || null, // Group cover photo URL
     // Format for GroupCard component
     time: formatTime(startTime),
     // GroupCard expects members to be a number for display
@@ -613,6 +654,77 @@ export const updateGroupProfilePicture = async (groupId, userId, imageUri) => {
   } catch (error) {
     console.error('❌ Error updating group profile picture:', error);
     return { error: error.message || 'Failed to update group profile picture' };
+  }
+};
+
+// Update group cover photo
+// All group members can update the cover photo
+export const updateGroupCoverPhoto = async (groupId, userId, imageUri) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { error: 'Firestore not configured' };
+    }
+
+    if (!storage || typeof storage !== 'object' || Object.keys(storage).length === 0) {
+      return { error: 'Storage not configured' };
+    }
+
+    // Get the group to verify user is a member
+    const groupRef = doc(db, 'groups', groupId);
+    const groupDoc = await getDoc(groupRef);
+
+    if (!groupDoc.exists()) {
+      return { error: 'Group not found' };
+    }
+
+    const groupData = groupDoc.data();
+    
+    // Verify that the user is a member of the group
+    if (!groupData.members || !groupData.members.includes(userId)) {
+      return { error: 'You must be a member of the group to change the cover photo' };
+    }
+
+    // Upload image to Firebase Storage
+    const filename = `groups/${groupId}/cover.jpg`;
+    const storageRef = ref(storage, filename);
+    
+    // Fetch image and convert to blob
+    const response = await fetch(imageUri);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status}`);
+    }
+    
+    const blob = await response.blob();
+    if (blob.size === 0) {
+      throw new Error('Image file is empty');
+    }
+
+    // Upload blob
+    const uploadTask = uploadBytesResumable(storageRef, blob);
+    
+    await new Promise((resolve, reject) => {
+      uploadTask.on(
+        'state_changed',
+        null,
+        (error) => reject(error),
+        () => resolve()
+      );
+    });
+
+    // Get download URL
+    const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+
+    // Update group document with new cover photo URL
+    await updateDoc(groupRef, {
+      coverPhoto: downloadURL,
+      updatedAt: serverTimestamp(),
+    });
+
+    console.log('✅ Updated group cover photo:', downloadURL);
+    return { error: null, coverPhoto: downloadURL };
+  } catch (error) {
+    console.error('❌ Error updating group cover photo:', error);
+    return { error: error.message || 'Failed to update group cover photo' };
   }
 };
 

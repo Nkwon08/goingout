@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform, PanResponder, Animated, StyleSheet } from 'react-native';
+import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform, PanResponder, Animated, StyleSheet, InteractionManager } from 'react-native';
 import { Appbar, FAB, Text, Button, Avatar, Checkbox } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
@@ -17,7 +17,8 @@ import PollCard from '../components/PollCard';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { subscribeToUserGroups, deleteGroup, addMemberToGroup, removeMemberFromGroup, sendGroupInvitation, updateGroupProfilePicture } from '../services/groupsService';
+import { subscribeToUserGroups, deleteGroup, addMemberToGroup, removeMemberFromGroup, sendGroupInvitation, updateGroupProfilePicture, updateGroupCoverPhoto, subscribeToGroup } from '../services/groupsService';
+import { getLatestMessage } from '../services/groupChatService';
 import { shareLocationInGroup, stopSharingLocationInGroup, subscribeToGroupLocations } from '../services/groupLocationService';
 import { getCurrentLocation } from '../services/locationService';
 import { createGroupPoll, voteOnGroupPoll, subscribeToGroupPolls } from '../services/groupPollsService';
@@ -2150,10 +2151,11 @@ function PollsTab({ groupId }) {
   );
 }
 
-function GroupDetail({ group, onBack }) {
+function GroupDetail({ group: initialGroup, onBack }) {
   const { background, text, subText, surface } = useThemeColors();
   const { user, friendsList: friendsListFromContext } = useAuth();
   const navigation = useNavigation();
+  const [group, setGroup] = React.useState(initialGroup);
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
   const [showMembersModal, setShowMembersModal] = React.useState(false);
@@ -2169,6 +2171,32 @@ function GroupDetail({ group, onBack }) {
   const [leaving, setLeaving] = React.useState(false);
   const [removingMemberId, setRemovingMemberId] = React.useState(null);
   const [uploadingProfilePicture, setUploadingProfilePicture] = React.useState(false);
+  
+  // Update group state when initialGroup prop changes
+  React.useEffect(() => {
+    if (initialGroup) {
+      setGroup(initialGroup);
+    }
+  }, [initialGroup]);
+  
+  // Subscribe to group updates in real-time
+  React.useEffect(() => {
+    if (!group?.id) return;
+    
+    const unsubscribe = subscribeToGroup(group.id, ({ group: updatedGroup, error }) => {
+      if (error) {
+        console.error('Error subscribing to group:', error);
+        return;
+      }
+      if (updatedGroup) {
+        setGroup(updatedGroup);
+      }
+    });
+    
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [group?.id]);
   
   // Handle member profile tap - navigate to user profile
   const handleMemberProfileTap = React.useCallback((member) => {
@@ -2578,9 +2606,27 @@ function GroupDetail({ group, onBack }) {
           style={{ flex: 1, justifyContent: 'center', paddingLeft: 8 }}
           activeOpacity={0.7}
         >
-          <Text style={{ color: text, fontSize: 18, fontWeight: '500' }}>
-            {group?.name || 'Group'}
-          </Text>
+          <View style={{ 
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            alignSelf: 'flex-start',
+          }}>
+            <Text style={{ 
+              color: '#FFFFFF', 
+              fontSize: 18, 
+              fontWeight: '500',
+            }}>
+              {group?.name || 'Group'}
+            </Text>
+            <MaterialCommunityIcons 
+              name="chevron-right" 
+              size={18} 
+              color="#FFFFFF" 
+              style={{ marginLeft: 6 }}
+            />
+          </View>
         </TouchableOpacity>
         {isOwner && (
           <Appbar.Action 
@@ -2693,8 +2739,16 @@ function GroupDetail({ group, onBack }) {
               {/* Group Profile Picture */}
               <View style={{ alignItems: 'center', marginBottom: 24 }}>
                 <View style={{ position: 'relative' }}>
-                  {group?.profilePicture ? (
+                  {group?.coverPhoto ? (
                     <Avatar.Image
+                      key={group.coverPhoto}
+                      size={120}
+                      source={{ uri: group.coverPhoto }}
+                      style={{ backgroundColor: surface }}
+                    />
+                  ) : group?.profilePicture ? (
+                    <Avatar.Image
+                      key={group.profilePicture}
                       size={120}
                       source={{ uri: group.profilePicture }}
                       style={{ backgroundColor: surface }}
@@ -2986,6 +3040,10 @@ export default function GroupsScreen({ navigation }) {
   const [selectedGroupForDelete, setSelectedGroupForDelete] = React.useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
+  const [selectedGroupForCoverPhoto, setSelectedGroupForCoverPhoto] = React.useState(null);
+  const [showCoverPhotoMenu, setShowCoverPhotoMenu] = React.useState(false);
+  const [uploadingCoverPhoto, setUploadingCoverPhoto] = React.useState(false);
+  const [latestMessages, setLatestMessages] = React.useState({}); // Map of groupId -> latest message
   const { background, text, subText, surface } = useThemeColors();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -3015,6 +3073,43 @@ export default function GroupsScreen({ navigation }) {
       if (unsubscribe) unsubscribe();
     };
   }, [user?.uid]);
+  
+  // Fetch latest messages for all groups
+  React.useEffect(() => {
+    if (groups.length === 0) {
+      setLatestMessages({});
+      return;
+    }
+    
+    const fetchLatestMessages = async () => {
+      const messagePromises = groups.map(async (group) => {
+        if (!group.id) return null;
+        try {
+          const { message, error } = await getLatestMessage(group.id);
+          if (error) {
+            console.error(`Error fetching latest message for group ${group.id}:`, error);
+            return { groupId: group.id, message: null };
+          }
+          return { groupId: group.id, message };
+        } catch (error) {
+          console.error(`Error fetching latest message for group ${group.id}:`, error);
+          return { groupId: group.id, message: null };
+        }
+      });
+      
+      const results = await Promise.all(messagePromises);
+      const messagesMap = {};
+      results.forEach((result) => {
+        if (result && result.groupId) {
+          messagesMap[result.groupId] = result.message;
+        }
+      });
+      
+      setLatestMessages(messagesMap);
+    };
+    
+    fetchLatestMessages();
+  }, [groups]);
 
   // Auto-select group from route params or AsyncStorage when screen is focused
   useFocusEffect(
@@ -3055,11 +3150,11 @@ export default function GroupsScreen({ navigation }) {
     }, [route.params, groups, navigation, selected])
   );
 
-  // Separate groups into active and expired
-  const { activeGroups, expiredGroups } = React.useMemo(() => {
+  // Separate groups into active and expired, and group expired by month/year
+  const { activeGroups, expiredGroupsByMonth } = React.useMemo(() => {
     const now = new Date();
     const active = [];
-    const expired = [];
+    const expiredByMonth = {};
     
     groups.forEach((group) => {
       if (!group.endTime) {
@@ -3070,13 +3165,56 @@ export default function GroupsScreen({ navigation }) {
         if (endTime.getTime() > now.getTime()) {
           active.push(group);
         } else {
-          expired.push(group);
+          // Group expired groups by month and year
+          const monthYear = endTime.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+          const monthYearKey = `${endTime.getFullYear()}-${String(endTime.getMonth() + 1).padStart(2, '0')}`;
+          
+          if (!expiredByMonth[monthYearKey]) {
+            expiredByMonth[monthYearKey] = {
+              label: monthYear,
+              groups: [],
+              sortKey: endTime.getTime(), // For sorting months (most recent first)
+            };
+          }
+          expiredByMonth[monthYearKey].groups.push(group);
         }
       }
     });
     
-    return { activeGroups: active, expiredGroups: expired };
+    // Sort groups within each month by endTime (most recent first)
+    Object.keys(expiredByMonth).forEach((key) => {
+      expiredByMonth[key].groups.sort((a, b) => {
+        const aTime = a.endTime instanceof Date ? a.endTime : new Date(a.endTime);
+        const bTime = b.endTime instanceof Date ? b.endTime : new Date(b.endTime);
+        return bTime.getTime() - aTime.getTime();
+      });
+    });
+    
+    return { activeGroups: active, expiredGroupsByMonth: expiredByMonth };
   }, [groups]);
+  
+  // State to track which month/year sections are expanded
+  const [expandedMonths, setExpandedMonths] = React.useState(new Set());
+  
+  // Toggle month section expansion
+  const toggleMonth = (monthKey) => {
+    setExpandedMonths((prev) => {
+      const next = new Set(prev);
+      if (next.has(monthKey)) {
+        next.delete(monthKey);
+      } else {
+        next.add(monthKey);
+      }
+      return next;
+    });
+  };
+  
+  // Get sorted month keys (most recent first)
+  const sortedMonthKeys = React.useMemo(() => {
+    return Object.keys(expiredGroupsByMonth).sort((a, b) => {
+      return expiredGroupsByMonth[b].sortKey - expiredGroupsByMonth[a].sortKey;
+    });
+  }, [expiredGroupsByMonth]);
   
   const handleCreateGroup = () => {
     setShowGroupMenu(false);
@@ -3096,6 +3234,97 @@ export default function GroupsScreen({ navigation }) {
     if (isOwner) {
       setSelectedGroupForDelete(group);
       setShowDeleteConfirm(true);
+    }
+  };
+  
+  // Handle avatar press - open cover photo menu
+  const handleAvatarPress = (group) => {
+    setSelectedGroupForCoverPhoto(group);
+    setShowCoverPhotoMenu(true);
+  };
+  
+  // Handle change cover photo
+  const handleChangeCoverPhoto = async () => {
+    console.log('handleChangeCoverPhoto called', { groupId: selectedGroupForCoverPhoto?.id, userId: user?.uid });
+    
+    if (!selectedGroupForCoverPhoto?.id || !user?.uid) {
+      console.log('Missing groupId or userId');
+      return;
+    }
+    
+    try {
+      console.log('Requesting media library permissions...');
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photo library.');
+        setShowCoverPhotoMenu(false);
+        return;
+      }
+
+      console.log('Launching image library...');
+      
+      // Open image picker first, then close modal
+      // The image picker will appear as a native modal on top
+      let result;
+      try {
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [16, 9], // Cover photo aspect ratio
+          quality: 0.7, // Reduced quality for faster upload
+        });
+        
+        // Close modal after image picker completes
+        setShowCoverPhotoMenu(false);
+        
+        console.log('Image picker result:', { canceled: result.canceled, hasAssets: !!result.assets?.length, result });
+      } catch (error) {
+        console.error('Error launching image library:', error);
+        setShowCoverPhotoMenu(false);
+        if (error.message && error.message.includes('timed out')) {
+          Alert.alert('Timeout', 'Image picker timed out. Please try again.');
+        } else {
+          Alert.alert('Error', 'Failed to open image picker: ' + (error.message || 'Unknown error'));
+        }
+        setUploadingCoverPhoto(false);
+        setSelectedGroupForCoverPhoto(null);
+        return;
+      }
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        console.log('Image selected, starting upload...', { uri: result.assets[0].uri });
+        setUploadingCoverPhoto(true);
+        
+        try {
+          const { error, coverPhoto } = await updateGroupCoverPhoto(
+            selectedGroupForCoverPhoto.id,
+            user.uid,
+            result.assets[0].uri
+          );
+          
+          if (error) {
+            console.error('Error uploading cover photo:', error);
+            Alert.alert('Error', error);
+          } else {
+            console.log('Cover photo uploaded successfully');
+            Alert.alert('Success', 'Group cover photo updated successfully');
+          }
+        } catch (uploadError) {
+          console.error('Exception during upload:', uploadError);
+          Alert.alert('Error', 'Failed to upload cover photo: ' + (uploadError.message || 'Unknown error'));
+        } finally {
+          setUploadingCoverPhoto(false);
+          setSelectedGroupForCoverPhoto(null);
+        }
+      } else {
+        console.log('Image picker was canceled or no assets selected');
+        setSelectedGroupForCoverPhoto(null);
+      }
+    } catch (error) {
+      console.error('Error changing group cover photo:', error);
+      Alert.alert('Error', 'Failed to change group cover photo: ' + error.message);
+      setUploadingCoverPhoto(false);
+      setSelectedGroupForCoverPhoto(null);
     }
   };
   
@@ -3128,7 +3357,7 @@ export default function GroupsScreen({ navigation }) {
   return (
     <View style={{ flex: 1, backgroundColor: background }}>
       <Appbar.Header mode="center-aligned" style={{ backgroundColor: background }}>
-        <Appbar.Content title="My Groups" color={text} />
+        <Appbar.Content title="Groups" color={text} />
       </Appbar.Header>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         {loading ? (
@@ -3136,7 +3365,7 @@ export default function GroupsScreen({ navigation }) {
             <ActivityIndicator size="small" color={IU_CRIMSON} />
             <Text style={{ color: subText, marginTop: 8 }}>Loading groups...</Text>
           </View>
-        ) : activeGroups.length > 0 || expiredGroups.length > 0 ? (
+        ) : activeGroups.length > 0 || sortedMonthKeys.length > 0 ? (
           <>
             {/* Active Groups */}
             {activeGroups.map((g) => {
@@ -3147,39 +3376,85 @@ export default function GroupsScreen({ navigation }) {
                   group={g} 
                   onPress={() => setSelected(g)} 
                   onMenuPress={handleGroupMenuPress}
+                  onAvatarPress={handleAvatarPress}
                   showMenu={isOwner}
+                  latestMessage={latestMessages[g.id] || null}
                 />
               );
             })}
             
-            {/* Expired Groups Header */}
-            {expiredGroups.length > 0 && (
-              <Text style={{ 
-                color: subText, 
-                fontSize: 14, 
-                fontWeight: '600', 
-                marginTop: activeGroups.length > 0 ? 24 : 0,
-                marginBottom: 12,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5
-              }}>
-                Expired Groups
-              </Text>
+            {/* Expired Groups by Month/Year */}
+            {sortedMonthKeys.length > 0 && (
+              <View style={{ marginTop: activeGroups.length > 0 ? 24 : 0 }}>
+                {sortedMonthKeys.map((monthKey) => {
+                  const monthData = expiredGroupsByMonth[monthKey];
+                  const isExpanded = expandedMonths.has(monthKey);
+                  
+                  return (
+                    <View key={monthKey} style={{ marginBottom: 16 }}>
+                      {/* Month/Year Header - Collapsible */}
+                      <TouchableOpacity
+                        onPress={() => toggleMonth(monthKey)}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          paddingVertical: 12,
+                          paddingHorizontal: 16,
+                          backgroundColor: surface,
+                          borderRadius: 12,
+                          marginBottom: 8,
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={{
+                          color: text,
+                          fontSize: 16,
+                          fontWeight: '600',
+                        }}>
+                          {monthData.label}
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <Text style={{
+                            color: subText,
+                            fontSize: 14,
+                            marginRight: 8,
+                          }}>
+                            {monthData.groups.length} {monthData.groups.length === 1 ? 'group' : 'groups'}
+                          </Text>
+                          <MaterialCommunityIcons
+                            name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                            size={20}
+                            color={subText}
+                          />
+                        </View>
+                      </TouchableOpacity>
+                      
+                      {/* Groups in this month - shown when expanded */}
+                      {isExpanded && (
+                        <View>
+                          {monthData.groups.map((g) => {
+                            const isOwner = g?.creator === user?.uid;
+                            return (
+                              <GroupCard 
+                                key={g.id} 
+                                group={g} 
+                                onPress={() => setSelected(g)} 
+                                onMenuPress={handleGroupMenuPress}
+                                onAvatarPress={handleAvatarPress}
+                                showMenu={isOwner}
+                                latestMessage={latestMessages[g.id] || null}
+                                isExpired={true}
+                              />
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
             )}
-            
-            {/* Expired Groups */}
-            {expiredGroups.map((g) => {
-              const isOwner = g?.creator === user?.uid;
-              return (
-                <GroupCard 
-                  key={g.id} 
-                  group={g} 
-                  onPress={() => setSelected(g)} 
-                  onMenuPress={handleGroupMenuPress}
-                  showMenu={isOwner}
-                />
-              );
-            })}
           </>
         ) : (
           <Text style={{ color: subText, textAlign: 'center', padding: 20 }}>No groups yet. Create one to get started!</Text>
@@ -3326,6 +3601,81 @@ export default function GroupsScreen({ navigation }) {
             </View>
           </View>
         </View>
+      </Modal>
+      
+      {/* Cover Photo Menu Modal */}
+      <Modal
+        visible={showCoverPhotoMenu}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowCoverPhotoMenu(false);
+          setSelectedGroupForCoverPhoto(null);
+        }}
+      >
+        <TouchableWithoutFeedback onPress={() => {
+          setShowCoverPhotoMenu(false);
+          setSelectedGroupForCoverPhoto(null);
+        }}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' }}>
+            <View 
+              style={{ backgroundColor: surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: insets.bottom + 20 }}
+              onStartShouldSetResponder={() => true}
+            >
+                <Text style={{ color: text, fontSize: 20, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' }}>
+                  Cover Photo
+                </Text>
+                
+                {/* Change Cover Photo Button */}
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: IU_CRIMSON,
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 12,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    console.log('Cover photo button pressed');
+                    handleChangeCoverPhoto();
+                  }}
+                  activeOpacity={0.8}
+                  disabled={uploadingCoverPhoto}
+                >
+                  {uploadingCoverPhoto ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <MaterialCommunityIcons name="image-edit" size={24} color="#FFFFFF" />
+                      <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginLeft: 12 }}>
+                        {selectedGroupForCoverPhoto?.coverPhoto ? 'Change Cover Photo' : 'Add Cover Photo'}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                
+                {/* Cancel Button */}
+                <TouchableOpacity
+                  style={{
+                    marginTop: 12,
+                    padding: 12,
+                  }}
+                  onPress={() => {
+                    setShowCoverPhotoMenu(false);
+                    setSelectedGroupForCoverPhoto(null);
+                  }}
+                  disabled={uploadingCoverPhoto}
+                >
+                  <Text style={{ color: subText, fontSize: 16, textAlign: 'center' }}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+              </View>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
     </View>
   );
