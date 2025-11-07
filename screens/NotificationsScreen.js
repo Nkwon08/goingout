@@ -6,7 +6,7 @@ import FriendsTab from './FriendsTab';
 import { useTheme } from '../context/ThemeContext';
 
 const TopTab = createMaterialTopTabNavigator();
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 export default function NotificationsScreen() {
   const { isDarkMode } = useTheme();

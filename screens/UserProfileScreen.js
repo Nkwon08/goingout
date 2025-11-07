@@ -8,10 +8,11 @@ import { useAuth } from '../context/AuthContext';
 import { subscribeToUserPosts } from '../services/postsService';
 import { addFriend, removeFriend, getAuthUidFromUsername, subscribeToOutgoingFriendRequests, sendFriendRequest, cancelFriendRequest } from '../services/friendsService';
 import { getUserById } from '../services/usersService';
+import { blockUser, unblockUser, isUserBlocked } from '../services/blockService';
 import FeedPost from '../components/FeedPost';
 import { useThemeColors } from '../hooks/useThemeColors';
 
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 // Posts Tab Component
 function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
@@ -320,6 +321,11 @@ export default function UserProfileScreen({ route, navigation }) {
   const [hasPendingRequest, setHasPendingRequest] = React.useState(false);
   const [togglingFollow, setTogglingFollow] = React.useState(false);
   const [userId, setUserId] = React.useState(null);
+  const [isBlocked, setIsBlocked] = React.useState(false);
+  const [menuVisible, setMenuVisible] = React.useState(false);
+  const [blocking, setBlocking] = React.useState(false);
+  const [menuPosition, setMenuPosition] = React.useState({ top: 0, right: 0 });
+  const menuButtonRef = React.useRef(null);
   const isManuallyToggling = React.useRef(false); // Prevent useEffect from overriding manual state changes
   
   const { isDarkMode } = useTheme();
@@ -415,6 +421,23 @@ export default function UserProfileScreen({ route, navigation }) {
       setHasPendingRequest(false);
     }
   }, [targetUsername, friendsList, hasPendingRequest, userProfile?.username]);
+
+  // Check if user is blocked
+  React.useEffect(() => {
+    if (!user?.uid || !userProfile?.authUid) {
+      setIsBlocked(false);
+      return;
+    }
+
+    const checkBlockStatus = async () => {
+      const result = await isUserBlocked(user.uid, userProfile.authUid || userProfile.username);
+      if (!result.error) {
+        setIsBlocked(result.isBlocked);
+      }
+    };
+
+    checkBlockStatus();
+  }, [user?.uid, userProfile?.authUid, userProfile?.username]);
 
   // Check for pending outgoing friend requests
   React.useEffect(() => {
@@ -589,6 +612,68 @@ export default function UserProfileScreen({ route, navigation }) {
     }
   }, [user, targetUsername, isFollowing, userProfile, togglingFollow, friendsList, hasPendingRequest]);
 
+  // Handle block/unblock
+  const handleBlock = React.useCallback(async () => {
+    if (!user || !user.uid || !userProfile || blocking) {
+      return;
+    }
+
+    setMenuVisible(false);
+
+    if (isBlocked) {
+      // Unblock user - no confirmation needed
+      setBlocking(true);
+      try {
+        const result = await unblockUser(user.uid, userProfile.authUid || userProfile.username);
+        if (result.success) {
+          setIsBlocked(false);
+          Alert.alert('User Unblocked', 'This user has been unblocked. You can now see their posts and interact with them.');
+        } else {
+          Alert.alert('Error', result.error || 'Failed to unblock user');
+        }
+      } catch (error) {
+        console.error('Error unblocking user:', error);
+        Alert.alert('Error', 'Failed to unblock user. Please try again.');
+      } finally {
+        setBlocking(false);
+      }
+    } else {
+      // Block user - show confirmation dialog
+      Alert.alert(
+        'Block User',
+        `Are you sure you want to block @${userProfile.username || targetUsername}? You will no longer see their posts or be able to interact with them.`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => setMenuVisible(false),
+          },
+          {
+            text: 'Block',
+            style: 'destructive',
+            onPress: async () => {
+              setBlocking(true);
+              try {
+                const result = await blockUser(user.uid, userProfile.authUid || userProfile.username);
+                if (result.success) {
+                  setIsBlocked(true);
+                  Alert.alert('User Blocked', 'This user has been blocked. You will no longer see their posts or be able to interact with them.');
+                } else {
+                  Alert.alert('Error', result.error || 'Failed to block user');
+                }
+              } catch (error) {
+                console.error('Error blocking user:', error);
+                Alert.alert('Error', 'Failed to block user. Please try again.');
+              } finally {
+                setBlocking(false);
+              }
+            },
+          },
+        ]
+      );
+    }
+  }, [user, userProfile, blocking, isBlocked, targetUsername]);
+
   if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: bgColor, justifyContent: 'center', alignItems: 'center' }}>
@@ -633,7 +718,95 @@ export default function UserProfileScreen({ route, navigation }) {
           color={textColor} 
         />
         <Appbar.Content title={`@${userProfile.username || targetUsername}`} color={textColor} />
+        {/* Only show menu if viewing someone else's profile */}
+        {user?.uid !== userProfile?.authUid && (
+          <View
+            ref={menuButtonRef}
+            onLayout={() => {
+              if (menuButtonRef.current) {
+                menuButtonRef.current.measure((x, y, width, height, pageX, pageY) => {
+                  setMenuPosition({
+                    top: pageY + height + 4, // Position just below the button
+                    right: Dimensions.get('window').width - pageX - width, // Align to right edge
+                  });
+                });
+              }
+            }}
+          >
+            <Appbar.Action
+              icon="dots-vertical"
+              color={textColor}
+              onPress={() => {
+                // Measure button position before showing menu
+                if (menuButtonRef.current) {
+                  menuButtonRef.current.measure((x, y, width, height, pageX, pageY) => {
+                    setMenuPosition({
+                      top: pageY + height + 4, // Position just below the button
+                      right: Dimensions.get('window').width - pageX - width, // Align to right edge
+                    });
+                    setMenuVisible(true);
+                  });
+                } else {
+                  setMenuVisible(true);
+                }
+              }}
+            />
+          </View>
+        )}
       </Appbar.Header>
+      
+      {/* Menu Modal */}
+      <Modal
+        visible={menuVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setMenuVisible(false)}
+      >
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+          activeOpacity={1}
+          onPress={() => setMenuVisible(false)}
+        >
+          <View style={{ flex: 1 }} />
+        </TouchableOpacity>
+        <View
+          style={{
+            position: 'absolute',
+            top: menuPosition.top,
+            right: menuPosition.right,
+            backgroundColor: isDarkMode ? '#2A2A2A' : '#F5F4F2',
+            borderRadius: 8,
+            minWidth: 180,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5,
+          }}
+        >
+          <TouchableOpacity
+            onPress={handleBlock}
+            disabled={blocking}
+            style={{
+              paddingVertical: 12,
+              paddingHorizontal: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              opacity: blocking ? 0.5 : 1,
+            }}
+          >
+            <MaterialCommunityIcons
+              name={isBlocked ? 'account-check' : 'account-cancel'}
+              size={20}
+              color={textColor}
+              style={{ marginRight: 12 }}
+            />
+            <Text style={{ color: textColor, fontSize: 16 }}>
+              {isBlocked ? 'Unblock User' : 'Block User'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
       
       {/* Profile Header Section */}
       <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 20, backgroundColor: bgColor }}>

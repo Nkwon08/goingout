@@ -25,7 +25,7 @@ import { SvgXml } from 'react-native-svg';
 import { Asset } from 'expo-asset';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 const IU_CREAM = '#EEEDEB';
 const BLACK = '#000000';
 const DARK_GRAY = '#1A1A1A';

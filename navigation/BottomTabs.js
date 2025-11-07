@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { subscribeToNotifications } from '../services/notificationsService';
 
 const Tab = createBottomTabNavigator();
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 // Custom Bell Icon Component with shake animation and badge
 function NotificationBellIcon({ color, size, focused }) {

@@ -15,7 +15,7 @@ import { createPost } from '../services/postsService';
 import { subscribeToUserGroups } from '../services/groupsService';
 import { sendImageMessage, sendVideoMessage } from '../services/groupChatService';
 
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 export default function CameraScreen() {
   const [facing, setFacing] = React.useState('back');

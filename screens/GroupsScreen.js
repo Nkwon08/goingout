@@ -17,7 +17,7 @@ import PollCard from '../components/PollCard';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { subscribeToUserGroups, deleteGroup, addMemberToGroup, removeMemberFromGroup, sendGroupInvitation } from '../services/groupsService';
+import { subscribeToUserGroups, deleteGroup, addMemberToGroup, removeMemberFromGroup, sendGroupInvitation, updateGroupProfilePicture } from '../services/groupsService';
 import { shareLocationInGroup, stopSharingLocationInGroup, subscribeToGroupLocations } from '../services/groupLocationService';
 import { getCurrentLocation } from '../services/locationService';
 import { createGroupPoll, voteOnGroupPoll, subscribeToGroupPolls } from '../services/groupPollsService';
@@ -27,7 +27,7 @@ import { getUserById } from '../services/usersService';
 
 const TopTab = createMaterialTopTabNavigator();
 
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 function MapTab({ groupId }) {
   const { background, subText, text } = useThemeColors();
@@ -2168,6 +2168,7 @@ function GroupDetail({ group, onBack }) {
   const [showLeaveConfirm, setShowLeaveConfirm] = React.useState(false);
   const [leaving, setLeaving] = React.useState(false);
   const [removingMemberId, setRemovingMemberId] = React.useState(null);
+  const [uploadingProfilePicture, setUploadingProfilePicture] = React.useState(false);
   
   // Handle member profile tap - navigate to user profile
   const handleMemberProfileTap = React.useCallback((member) => {
@@ -2401,6 +2402,7 @@ function GroupDetail({ group, onBack }) {
   // Check if current user is the group owner
   const isOwner = group?.creator === user?.uid;
   
+<<<<<<< HEAD
   // Handle leave group
   const handleLeaveGroup = async () => {
     console.log('handleLeaveGroup called:', { 
@@ -2462,6 +2464,49 @@ function GroupDetail({ group, onBack }) {
       Alert.alert('Error', error.message || 'Failed to leave group');
       setLeaving(false);
       setShowLeaveConfirm(false);
+    }
+  };
+  
+  // Check if current user is a member
+  const isMember = group?.members && group.members.includes(user?.uid);
+  
+  // Handle change group profile picture
+  const handleChangeProfilePicture = async () => {
+    if (!group?.id || !user?.uid || !isMember) return;
+    
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photo library.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setUploadingProfilePicture(true);
+        const { error, profilePicture } = await updateGroupProfilePicture(
+          group.id,
+          user.uid,
+          result.assets[0].uri
+        );
+        
+        if (error) {
+          Alert.alert('Error', error);
+        } else {
+          Alert.alert('Success', 'Group profile picture updated successfully');
+        }
+        setUploadingProfilePicture(false);
+      }
+    } catch (error) {
+      console.error('Error changing group profile picture:', error);
+      Alert.alert('Error', 'Failed to change group profile picture');
+      setUploadingProfilePicture(false);
     }
   };
   
@@ -2646,6 +2691,58 @@ function GroupDetail({ group, onBack }) {
             </View>
           ) : membersData.length > 0 ? (
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+              {/* Group Profile Picture */}
+              <View style={{ alignItems: 'center', marginBottom: 24 }}>
+                <View style={{ position: 'relative' }}>
+                  {group?.profilePicture ? (
+                    <Avatar.Image
+                      size={120}
+                      source={{ uri: group.profilePicture }}
+                      style={{ backgroundColor: surface }}
+                    />
+                  ) : (
+                    <Avatar.Text
+                      size={120}
+                      label={group?.name?.slice(0, 2).toUpperCase() || 'GR'}
+                      style={{ backgroundColor: IU_CRIMSON }}
+                    />
+                  )}
+                  {isMember && (
+                    <TouchableOpacity
+                      onPress={handleChangeProfilePicture}
+                      disabled={uploadingProfilePicture}
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        right: 0,
+                        backgroundColor: IU_CRIMSON,
+                        borderRadius: 20,
+                        width: 40,
+                        height: 40,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        borderWidth: 3,
+                        borderColor: background,
+                      }}
+                    >
+                      {uploadingProfilePicture ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <MaterialCommunityIcons name="camera" size={20} color="#FFFFFF" />
+                      )}
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <Text style={{ color: text, fontSize: 20, fontWeight: '600', marginTop: 12 }}>
+                  {group?.name || 'Group'}
+                </Text>
+                {isMember && (
+                  <Text style={{ color: subText, fontSize: 12, marginTop: 4 }}>
+                    Tap camera icon to change picture
+                  </Text>
+                )}
+              </View>
+
               {/* Timer Display */}
               {group?.endTime && (
                 <View style={{ 
@@ -2661,6 +2758,10 @@ function GroupDetail({ group, onBack }) {
                   </Text>
                 </View>
               )}
+              
+              <Text style={{ color: text, fontSize: 16, fontWeight: '600', marginBottom: 12 }}>
+                Members ({membersData.length})
+              </Text>
               
               {membersData.map((member, index) => (
                 <View key={member.uid}>

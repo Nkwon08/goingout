@@ -4,7 +4,7 @@ import { Text, Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeColors } from '../hooks/useThemeColors';
 
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 export default function GroupCard({ group, onPress, onMenuPress, showMenu = false }) {
   const { surface, text, subText, divider } = useThemeColors();
@@ -22,10 +22,18 @@ export default function GroupCard({ group, onPress, onMenuPress, showMenu = fals
   return (
     <View style={{ backgroundColor: surface, padding: 16, borderRadius: 16, marginBottom: 12, flexDirection: 'row', alignItems: 'center' }}>
       <TouchableOpacity onPress={onPress} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
-        <Avatar.Text size={40} label={group.name.slice(0, 2).toUpperCase()} style={{ backgroundColor: divider, marginRight: 12 }} />
+        {group?.profilePicture ? (
+          <Avatar.Image
+            size={40}
+            source={{ uri: group.profilePicture }}
+            style={{ backgroundColor: divider, marginRight: 12 }}
+          />
+        ) : (
+          <Avatar.Text size={40} label={group?.name?.slice(0, 2).toUpperCase() || 'GR'} style={{ backgroundColor: divider, marginRight: 12 }} />
+        )}
         <View style={{ flex: 1 }}>
-          <Text style={{ color: text, fontSize: 16 }}>{group.name}</Text>
-          <Text style={{ color: subText }}>{group.time || ''} • {memberCount} member{memberCount !== 1 ? 's' : ''}</Text>
+          <Text style={{ color: text, fontSize: 16 }}>{group?.name || 'Group'}</Text>
+          <Text style={{ color: subText }}>{group?.time || ''} • {memberCount} member{memberCount !== 1 ? 's' : ''}</Text>
         </View>
       </TouchableOpacity>
       {showMenu && (

@@ -8,7 +8,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { uploadImage } from '../services/storageService';
 
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 export default function CreateEventModal({ visible, onClose, onSubmit, currentUser, event, isEditMode = false, onDelete }) {
   const { surface, text, subText, background, border } = useThemeColors();

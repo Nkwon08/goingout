@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import UserProfileScreen from '../screens/UserProfileScreen';
+import BlockedUsersScreen from '../screens/BlockedUsersScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -86,6 +87,14 @@ function ProfileStackContent() {
         options={{
           presentation: 'card',
           // This ensures the back button works correctly
+          animation: 'slide_from_right',
+        }}
+      />
+      <Stack.Screen 
+        name="BlockedUsers" 
+        component={BlockedUsersScreen}
+        options={{
+          presentation: 'card',
           animation: 'slide_from_right',
         }}
       />

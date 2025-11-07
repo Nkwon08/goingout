@@ -15,7 +15,7 @@ import { createGroup } from '../services/groupsService';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const IMAGE_WIDTH = SCREEN_WIDTH * 0.92 - 12; // Narrower by 12 pixels
 const IMAGE_HEIGHT = IMAGE_WIDTH * (4 / 3); // 3:4 aspect ratio (width:height = 3:4)
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 export default function FeedPost({ post, onDelete }) {
       // Get current user and userData to check if they own this post and get current profile picture
@@ -77,7 +77,7 @@ export default function FeedPost({ post, onDelete }) {
     return `${years}y ago`;
   });
   
-  const { surface, text, subText, border } = useThemeColors();
+  const { surface, text, subText, border, isDarkMode } = useThemeColors();
   
   // Check if current user owns this post
   const isOwnPost = user && post.userId === user.uid;
@@ -472,7 +472,7 @@ export default function FeedPost({ post, onDelete }) {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: surface, borderColor: border }]}>
+    <View style={[styles.container, { backgroundColor: surface, borderColor: isDarkMode ? '#333333' : '#E0E0E0' }]}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.userInfo}>
@@ -512,7 +512,7 @@ export default function FeedPost({ post, onDelete }) {
               <Image
                 source={{ uri: img }}
                 style={styles.image}
-                  resizeMode="contain"
+                resizeMode="cover"
               />
               </View>
             ))}
@@ -824,19 +824,27 @@ export default function FeedPost({ post, onDelete }) {
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 24,
-    marginHorizontal: 12,
-    borderRadius: 16,
+    marginBottom: 20,
+    marginHorizontal: 16,
+    borderRadius: 20,
     overflow: 'hidden',
-    paddingBottom: 12,
-    borderWidth: 1,
+    paddingBottom: 16,
+    borderWidth: 0.5,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 5,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   userInfo: {
     flexDirection: 'row',
@@ -851,7 +859,7 @@ const styles = StyleSheet.create({
   },
   imagesContainer: {
     position: 'relative',
-    marginVertical: 8,
+    marginVertical: 12,
   },
   imagesScrollView: {
     width: IMAGE_WIDTH,
@@ -863,16 +871,13 @@ const styles = StyleSheet.create({
   imageWrapper: {
     width: IMAGE_WIDTH,
     height: IMAGE_HEIGHT,
-    justifyContent: 'center',
-    alignItems: 'center',
+    overflow: 'hidden',
+    borderRadius: 16,
   },
   image: {
-    width: IMAGE_WIDTH,
-    height: IMAGE_HEIGHT,
+    width: '100%',
+    height: '100%',
     backgroundColor: '#D0CFCD',
-    borderRadius: 12,
-    maxHeight: 800,
-    minHeight: 250,
   },
   dotsContainer: {
     flexDirection: 'row',
@@ -891,7 +896,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 3,
   },
   dotActive: {
-    backgroundColor: '#990000',
+    backgroundColor: '#DC143C',
     width: 8,
     height: 8,
     borderRadius: 4,
@@ -899,8 +904,8 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   leftActions: {
     flexDirection: 'row',
@@ -918,9 +923,9 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   captionContainer: {
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 4,
   },
   caption: {
     fontSize: 14,
@@ -929,7 +934,7 @@ const styles = StyleSheet.create({
   locationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     paddingBottom: 8,
     gap: 6,
   },
@@ -940,8 +945,8 @@ const styles = StyleSheet.create({
   timeAgo: {
     fontSize: 12,
     textTransform: 'uppercase',
-    paddingHorizontal: 12,
-    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
   },
   menuOverlay: {
     flex: 1,

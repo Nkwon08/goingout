@@ -28,11 +28,11 @@ export default function NotificationsTab() {
   const [selectedNotifications, setSelectedNotifications] = React.useState(new Set());
   
   const bgColor = isDarkMode ? '#1A1A1A' : '#EEEDEB';
-  const surfaceColor = isDarkMode ? '#2A2A2A' : '#F5F4F2';
+  const surfaceColor = isDarkMode ? '#1E1E1E' : '#F5F4F2';
   const textColor = isDarkMode ? '#E6E8F0' : '#1A1A1A';
   const subTextColor = isDarkMode ? '#8A90A6' : '#666666';
   const dividerColor = isDarkMode ? '#3A3A3A' : '#D0CFCD';
-  const primaryColor = '#990000';
+  const primaryColor = '#DC143C';
 
   // ---------- subscriptions (unchanged) ----------
   React.useEffect(() => {

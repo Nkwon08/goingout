@@ -18,6 +18,8 @@ import {
   arrayRemove,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { storage } from '../config/firebase';
 
 // Create a new group
 export const createGroup = async (groupData) => {
@@ -535,10 +537,82 @@ const formatGroupData = (id, data) => {
     endTime,
     createdAt,
     updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : (data.updatedAt ? new Date(data.updatedAt) : null),
+    profilePicture: data.profilePicture || null, // Group profile picture URL
     // Format for GroupCard component
     time: formatTime(startTime),
     // GroupCard expects members to be a number for display
     // But we'll keep the array in members field and use memberCount for display
   };
+};
+
+// Update group profile picture
+// All group members can update the profile picture
+export const updateGroupProfilePicture = async (groupId, userId, imageUri) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { error: 'Firestore not configured' };
+    }
+
+    if (!storage || typeof storage !== 'object' || Object.keys(storage).length === 0) {
+      return { error: 'Storage not configured' };
+    }
+
+    // Get the group to verify user is a member
+    const groupRef = doc(db, 'groups', groupId);
+    const groupDoc = await getDoc(groupRef);
+
+    if (!groupDoc.exists()) {
+      return { error: 'Group not found' };
+    }
+
+    const groupData = groupDoc.data();
+    
+    // Verify that the user is a member of the group
+    if (!groupData.members || !groupData.members.includes(userId)) {
+      return { error: 'You must be a member of the group to change the profile picture' };
+    }
+
+    // Upload image to Firebase Storage
+    const filename = `groups/${groupId}/profile.jpg`;
+    const storageRef = ref(storage, filename);
+    
+    // Fetch image and convert to blob
+    const response = await fetch(imageUri);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status}`);
+    }
+    
+    const blob = await response.blob();
+    if (blob.size === 0) {
+      throw new Error('Image file is empty');
+    }
+
+    // Upload blob
+    const uploadTask = uploadBytesResumable(storageRef, blob);
+    
+    await new Promise((resolve, reject) => {
+      uploadTask.on(
+        'state_changed',
+        null,
+        (error) => reject(error),
+        () => resolve()
+      );
+    });
+
+    // Get download URL
+    const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+
+    // Update group document with new profile picture URL
+    await updateDoc(groupRef, {
+      profilePicture: downloadURL,
+      updatedAt: serverTimestamp(),
+    });
+
+    console.log('✅ Updated group profile picture:', downloadURL);
+    return { error: null, profilePicture: downloadURL };
+  } catch (error) {
+    console.error('❌ Error updating group profile picture:', error);
+    return { error: error.message || 'Failed to update group profile picture' };
+  }
 };
 

@@ -4,7 +4,7 @@ import { Text } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeColors } from '../hooks/useThemeColors';
 
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 export default function TrendingSection({ trendingLocations, onLocationPress, selectedLocation }) {
   const { surface, text, subText, divider, background, isDarkMode } = useThemeColors();

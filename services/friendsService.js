@@ -57,6 +57,7 @@ import {
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../config/firebase';
+import { isUserBlocked } from './blockService';
 
 // ============================================================================
 // Helper Functions - Convert between authUid and username
@@ -758,63 +759,6 @@ export const unblockUser = async (currentUserId, blockedUserId) => {
   }
 };
 
-/**
- * Check if a user is blocked
- * @param {string} currentUserId - User checking
- * @param {string} targetUserId - User to check
- * @returns {Promise<boolean>}
- */
-export const isUserBlocked = async (currentUserId, targetUserId) => {
-  try {
-    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
-      return false;
-    }
-
-    const userRef = doc(db, 'users', currentUserId);
-    const userDoc = await getDoc(userRef);
-
-    if (!userDoc.exists()) {
-      return false;
-    }
-
-    const userData = userDoc.data();
-    const blocked = userData.blocked || [];
-    
-    return blocked.includes(targetUserId);
-  } catch (error) {
-    console.error('❌ Error checking if user is blocked:', error);
-    return false;
-  }
-};
-
-/**
- * Get blocked users list
- * @param {string} userId - User ID
- * @returns {Promise<{ blocked: Array, error: string|null }>}
- */
-export const getBlockedUsers = async (userId) => {
-  try {
-    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
-      return { blocked: [], error: 'Firestore not configured' };
-    }
-
-    const userRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userRef);
-
-    if (!userDoc.exists()) {
-      return { blocked: [], error: 'User not found' };
-    }
-
-    const userData = userDoc.data();
-    const blocked = userData.blocked || [];
-
-    return { blocked, error: null };
-  } catch (error) {
-    console.error('❌ Error getting blocked users:', error);
-    return { blocked: [], error: error.message || 'Failed to get blocked users' };
-  }
-};
-
 // ============================================================================
 // Friend Request Functions
 // ============================================================================
@@ -854,6 +798,18 @@ export const sendFriendRequest = async (targetId) => {
     // Reject self-requests
     if (!toUserId || fromUserId === toUserId) {
       return { success: false, error: 'Cannot send friend request to yourself' };
+    }
+
+    // Check if users are blocked
+    const blockedCheck = await isUserBlocked(fromUserId, toUserId);
+    if (blockedCheck.isBlocked) {
+      return { success: false, error: 'Cannot send friend request to a blocked user' };
+    }
+    
+    // Check if target user has blocked current user (bidirectional check)
+    const reverseBlockedCheck = await isUserBlocked(toUserId, fromUserId);
+    if (reverseBlockedCheck.isBlocked) {
+      return { success: false, error: 'Cannot send friend request to this user' };
     }
 
     // Prepare payload

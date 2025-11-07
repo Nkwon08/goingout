@@ -232,8 +232,9 @@ export const getPosts = async (lastPostId = null, pageSize = 20) => {
 // userLng: user's GPS longitude
 // userId: current user's ID (for checking friends visibility)
 // friendsList: array of friend user IDs (for filtering Friends Only posts)
+// blockedUsersList: array of blocked usernames (for filtering blocked users' posts)
 // radiusKm: radius in kilometers for nearby posts (default: 10km)
-export const subscribeToPosts = (callback, pageSize = 20, userLocation = null, userId = null, userLat = null, userLng = null, radiusKm = null, friendsList = []) => {
+export const subscribeToPosts = (callback, pageSize = 20, userLocation = null, userId = null, userLat = null, userLng = null, radiusKm = null, friendsList = [], blockedUsersList = []) => {
   try {
     // Check if db is configured - Firestore v9+ doesn't have 'collection' method
     // Instead check if it's a real Firestore instance (not empty object from fallback)
@@ -312,6 +313,28 @@ export const subscribeToPosts = (callback, pageSize = 20, userLocation = null, u
               const nowTime = now.getTime();
               if (expiresAtTime <= nowTime) {
                 return false;
+              }
+            }
+            
+            // Filter out posts from blocked users
+            // Check if post author's userId or username is in blockedUsersList
+            if (blockedUsersList && blockedUsersList.length > 0) {
+              const postAuthorId = post.userId || '';
+              const postAuthorUsername = post.username || '';
+              
+              // Normalize blocked users list for comparison (lowercase)
+              const normalizedBlockedList = blockedUsersList.map(u => String(u).toLowerCase().replace(/\s+/g, ''));
+              const normalizedPostAuthorId = String(postAuthorId).toLowerCase().replace(/\s+/g, '');
+              const normalizedPostAuthorUsername = String(postAuthorUsername).toLowerCase().replace(/\s+/g, '');
+              
+              // Check if post author is blocked
+              const isBlocked = normalizedBlockedList.some(blockedUser => 
+                blockedUser === normalizedPostAuthorId || 
+                blockedUser === normalizedPostAuthorUsername
+              );
+              
+              if (isBlocked) {
+                return false; // Don't show posts from blocked users
               }
             }
             

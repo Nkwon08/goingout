@@ -172,7 +172,7 @@ export default function ActivityMain() {
             width: 36,
             height: 36,
             borderRadius: 18,
-            backgroundColor: '#990000',
+            backgroundColor: '#DC143C',
             justifyContent: 'center',
             alignItems: 'center',
           }}

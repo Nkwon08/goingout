@@ -11,7 +11,7 @@ import AuthStack from './navigation/AuthStack';
 import { ActivityIndicator, View } from 'react-native';
 
 // Brand colors
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 const IU_CREAM = '#EEEDEB';
 
 // App content component that uses theme context and auth
@@ -49,7 +49,7 @@ function AppContent() {
           primary: IU_CRIMSON,
           secondary: IU_CREAM,
           background: '#1A1A1A',
-          surface: '#2A2A2A',
+          surface: '#1E1E1E',
           onSurface: '#E6E8F0',
         },
         roundness: 16,
@@ -106,7 +106,7 @@ function AppContent() {
     return (
       <PaperProvider theme={paperTheme}>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: isDarkMode ? '#1A1A1A' : '#EEEDEB' }}>
-          <ActivityIndicator size="large" color="#990000" />
+          <ActivityIndicator size="large" color="#DC143C" />
         </View>
       </PaperProvider>
     );

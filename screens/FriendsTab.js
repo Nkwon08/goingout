@@ -34,11 +34,11 @@ export default function FriendsTab() {
 
   const colors = {
     bg: isDarkMode ? '#1A1A1A' : '#EEEDEB',
-    surface: isDarkMode ? '#2A2A2A' : '#F5F4F2',
+    surface: isDarkMode ? '#1E1E1E' : '#F5F4F2',
     text: isDarkMode ? '#E6E8F0' : '#1A1A1A',
     subText: isDarkMode ? '#8A90A6' : '#666666',
     divider: isDarkMode ? '#3A3A3A' : '#D0CFCD',
-    primary: '#990000',
+    primary: '#DC143C',
   };
 
   /** Load friends list from AuthContext - subscription is managed centrally */
@@ -666,14 +666,14 @@ export default function FriendsTab() {
               <View style={{ backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden' }}>
                 {searchResultsWithStatus.map((u, idx) => (
                   <View key={u.uid}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}>
                       <TouchableOpacity 
-                        style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}
+                        style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
                         onPress={() => handleUserProfileTap(u)}
                         activeOpacity={0.7}
                       >
                         <Avatar.Image size={40} source={{ uri: u.avatar || 'https://i.pravatar.cc/100?img=12' }} />
-                        <View style={{ flex: 1 }}>
+                        <View style={{ flex: 1, marginLeft: 12 }}>
                           <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600' }}>{u.name || 'Unknown User'}</Text>
                           <Text style={{ color: colors.subText, fontSize: 12 }}>@{u.username || 'unknown'}</Text>
                         </View>
@@ -770,29 +770,30 @@ export default function FriendsTab() {
             <Text style={{ color: colors.subText, marginVertical: 6, fontSize: 14, fontWeight: '600' }}>Pending Friends ({pendingFriendsWithData.length})</Text>
             <View style={{ backgroundColor: colors.surface, borderRadius: 16, marginBottom: 16 }}>
               {pendingFriendsWithData.map((p, idx) => (
-                <View key={p.uid || idx}>
-                  <List.Item
-                    title={p.name || 'Unknown User'}
-                    description={`@${p.username || 'unknown'}`}
-                    titleStyle={{ color: colors.text }}
-                    descriptionStyle={{ color: colors.subText, fontSize: 12 }}
-                    left={() => <Avatar.Image size={36} source={{ uri: p.avatar || 'https://i.pravatar.cc/100?img=12' }} />}
-                    right={() => (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <IconButton
-                          icon="close-circle"
-                          iconColor={colors.subText}
-                          size={24}
-                          onPress={(e) => {
-                            e.stopPropagation(); // Prevent List.Item onPress from firing
-                            handleCancelFriendRequest(p.uid || p.authUid || p.username);
-                          }}
-                          style={{ margin: 0 }}
-                        />
-                      </View>
-                    )}
+                  <View key={p.uid || idx}>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}
                     onPress={() => handleUserProfileTap(p)}
-                  />
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <Avatar.Image size={40} source={{ uri: p.avatar || 'https://i.pravatar.cc/100?img=12' }} />
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600' }}>{p.name || 'Unknown User'}</Text>
+                        <Text style={{ color: colors.subText, fontSize: 12 }}>@{p.username || 'unknown'}</Text>
+                      </View>
+                    </View>
+                    <IconButton
+                      icon="close-circle"
+                      iconColor={colors.subText}
+                      size={24}
+                      onPress={(e) => {
+                        e.stopPropagation(); // Prevent TouchableOpacity onPress from firing
+                        handleCancelFriendRequest(p.uid || p.authUid || p.username);
+                      }}
+                      style={{ margin: 0 }}
+                    />
+                  </TouchableOpacity>
                   {idx < pendingFriendsWithData.length - 1 && <Divider style={{ backgroundColor: colors.divider }} />}
                 </View>
               ))}
@@ -806,14 +807,17 @@ export default function FriendsTab() {
           <View style={{ backgroundColor: colors.surface, borderRadius: 16 }}>
             {friendsWithData.map((f, idx) => (
               <View key={f.uid || idx}>
-                <List.Item
-                  title={f.name || 'Unknown User'}
-                  description={`@${f.username || 'unknown'}`}
-                  titleStyle={{ color: colors.text }}
-                  descriptionStyle={{ color: colors.subText, fontSize: 12 }}
-                  left={() => <Avatar.Image size={36} source={{ uri: f.avatar || 'https://i.pravatar.cc/100?img=12' }} />}
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', padding: 16 }}
                   onPress={() => handleFriendProfileTap(f)}
-                />
+                  activeOpacity={0.7}
+                >
+                  <Avatar.Image size={40} source={{ uri: f.avatar || 'https://i.pravatar.cc/100?img=12' }} />
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600' }}>{f.name || 'Unknown User'}</Text>
+                    <Text style={{ color: colors.subText, fontSize: 12 }}>@{f.username || 'unknown'}</Text>
+                  </View>
+                </TouchableOpacity>
                 {idx < friendsWithData.length - 1 && <Divider style={{ backgroundColor: colors.divider }} />}
               </View>
             ))}

@@ -4,7 +4,7 @@ import { Text, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 export default function MediaPreview({ visible, media, onDelete, onAddToGroup, onPostToFeed, onPostPublicly, onCancel, groups, initialSelectedGroup }) {
   const [selectedGroup, setSelectedGroup] = React.useState(initialSelectedGroup || null);

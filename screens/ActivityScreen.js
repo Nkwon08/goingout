@@ -7,7 +7,7 @@ import ActivityRecent from './ActivityRecent';
 import { useThemeColors } from '../hooks/useThemeColors';
 
 const TopTab = createMaterialTopTabNavigator();
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 export default function ActivityScreen() {
   const { background, text, subText } = useThemeColors();

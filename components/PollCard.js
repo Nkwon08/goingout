@@ -3,7 +3,7 @@ import { View, TouchableOpacity } from 'react-native';
 import { Card, Text, Button, ProgressBar } from 'react-native-paper';
 import { useThemeColors } from '../hooks/useThemeColors';
 
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 export default function PollCard({ poll, onVote, currentUserId, showVoteButton = true }) {
   const totalVotes = poll.options.reduce((sum, o) => sum + (o.votes || 0), 0) || 1;

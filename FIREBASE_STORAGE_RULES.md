@@ -38,6 +38,13 @@ service firebase.storage {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
     
+    // Allow authenticated users to upload group profile pictures
+    // Note: Group membership is verified in the service function
+    match /groups/{groupId}/{allPaths=**} {
+      allow read: if request.auth != null; // Only authenticated users can read group images
+      allow write: if request.auth != null; // Any authenticated user can write (membership checked in service)
+    }
+    
     // Default: deny all other access
     match /{allPaths=**} {
       allow read, write: if false;
@@ -52,9 +59,10 @@ service firebase.storage {
 ## What these rules do:
 
 - **Authenticated users can upload** to their own folders (`posts/{userId}/`, `profile/{userId}/`, `group-chat/{userId}/`, and `events/{userId}/`)
+- **Authenticated users can upload group profile pictures** to `groups/{groupId}/` (membership is verified in the service function)
 - **Anyone can read** post, profile, and event images (public viewing)
-- **Only authenticated users can read** group chat media (privacy)
-- **Users can only write to their own folders** (security)
+- **Only authenticated users can read** group chat media and group images (privacy)
+- **Users can only write to their own folders** (security) except for groups where membership is checked in the service
 
 ## Common Error Codes:
 

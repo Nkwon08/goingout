@@ -13,8 +13,9 @@ import { uploadImages } from '../services/storageService';
 import { getCurrentUserData } from '../services/authService';
 import { getCurrentLocation } from '../services/locationService';
 import { subscribeToVotesForLocation } from '../services/votesService';
+import { subscribeToBlockedUsers } from '../services/blockService';
 
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 export default function ActivityRecent() {
   // State management
@@ -35,6 +36,7 @@ export default function ActivityRecent() {
   const [userLng, setUserLng] = React.useState(null);
   const [userLocation, setUserLocation] = React.useState(null); // City name
   const [loadingLocation, setLoadingLocation] = React.useState(true);
+  const [blockedUsersList, setBlockedUsersList] = React.useState([]);
   
   // Get current user from auth context (friendsList is managed centrally in AuthContext)
   const { user, userData, loading: authLoading, friendsList } = useAuth();
@@ -165,12 +167,37 @@ export default function ActivityRecent() {
       userLat, // GPS latitude (not used for filtering anymore)
       userLng, // GPS longitude (not used for filtering anymore)
       null, // radiusKm (not used for filtering anymore)
-      friendsList // Friends list for filtering Friends Only posts
+      friendsList, // Friends list for filtering Friends Only posts
+      blockedUsersList // Blocked users list for filtering posts
     );
 
     // Cleanup subscription on unmount
     return () => unsubscribe();
-  }, [user, userData, friendsList]); // Re-subscribe if user, userData, or friends change
+  }, [user, userData, friendsList, blockedUsersList]); // Re-subscribe if user, userData, friends, or blocked users change
+
+  // Subscribe to blocked users
+  React.useEffect(() => {
+    if (!user?.uid) {
+      setBlockedUsersList([]);
+      return;
+    }
+
+    const unsubscribe = subscribeToBlockedUsers(user.uid, (result) => {
+      if (result.error) {
+        console.error('Error loading blocked users:', result.error);
+      } else {
+        // Extract usernames from blocked users
+        const blockedList = result.blockedUsers.map(u => u.username || u.authUid || u).filter(Boolean);
+        setBlockedUsersList(blockedList);
+      }
+    });
+
+    return () => {
+      if (unsubscribe && typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, [user?.uid]);
 
   // Removed debug logging for faster performance
 

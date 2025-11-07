@@ -12,7 +12,7 @@ import { getGroupById } from '../services/groupsService';
 import CreateEventModal from '../components/CreateEventModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 
 export default function EventDetailScreen({ route, navigation }) {
   const { eventId, event } = route.params || {};

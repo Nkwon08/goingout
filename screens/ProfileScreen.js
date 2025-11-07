@@ -1,18 +1,19 @@
 // Profile screen - user profile with tabs for posts and settings
 import * as React from 'react';
-import { View, ScrollView, FlatList, RefreshControl, TouchableOpacity, Image, Modal, Dimensions, StyleSheet, Platform, StatusBar } from 'react-native';
-import { Appbar, Avatar, Text, Button, Switch, List, Divider } from 'react-native-paper';
+import { View, ScrollView, FlatList, RefreshControl, TouchableOpacity, Image, Modal, Dimensions, StyleSheet, Platform, StatusBar, TextInput, Alert } from 'react-native';
+import { Appbar, Avatar, Text, Button, Switch, List, Divider, TextInput as PaperTextInput } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useRoute } from '@react-navigation/native';
 import { signOutUser } from '../services/authService';
+import { deleteAccount } from '../services/authService';
 import { getCurrentLocation } from '../services/locationService';
 import { subscribeToUserPosts } from '../services/postsService';
 import FeedPost from '../components/FeedPost';
 import { useThemeColors } from '../hooks/useThemeColors';
 
-const IU_CRIMSON = '#990000';
+const IU_CRIMSON = '#DC143C';
 // Header height: Appbar.Header is typically 56px on Android, 44px on iOS, plus status bar
 const HEADER_HEIGHT = Platform.OS === 'ios' ? 44 : 56;
 const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 0 : StatusBar.currentHeight || 0;
@@ -270,8 +271,52 @@ function FriendsListModal({ visible, onClose, friendsList, navigation }) {
 
 // Settings Tab Component
 function SettingsTab({ navigation, user, userData, isDarkMode, toggleTheme, publicAlbums, setPublicAlbums, location, loadingLocation, loggingOut, handleLogout, bgColor, surfaceColor, textColor, subTextColor, dividerColor }) {
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = React.useState(false);
+  const [deleteEmail, setDeleteEmail] = React.useState('');
+  const [deletePassword, setDeletePassword] = React.useState('');
+  const [deletingAccount, setDeletingAccount] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState('');
+
+  const handleDeleteAccountPress = () => {
+    setDeleteEmail('');
+    setDeletePassword('');
+    setDeleteError('');
+    setShowDeleteAccountModal(true);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deleteEmail.trim() || !deletePassword.trim()) {
+      setDeleteError('Please enter both email and password');
+      return;
+    }
+
+    setDeletingAccount(true);
+    setDeleteError('');
+
+    try {
+      const result = await deleteAccount(deleteEmail.trim(), deletePassword);
+      
+      if (result.success) {
+        Alert.alert(
+          'Account Deleted',
+          'Your account has been permanently deleted. You will be signed out.',
+          [{ text: 'OK' }]
+        );
+        // The auth state change will handle navigation automatically
+      } else {
+        setDeleteError(result.error || 'Failed to delete account');
+      }
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      setDeleteError(error.message || 'Failed to delete account');
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
   return (
-    <ScrollView contentContainerStyle={{ padding: 16 }}>
+    <>
+      <ScrollView contentContainerStyle={{ padding: 16 }}>
       {/* Settings section */}
       <View style={{ backgroundColor: surfaceColor, borderRadius: 16, padding: 12, marginBottom: 16 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -309,23 +354,23 @@ function SettingsTab({ navigation, user, userData, isDarkMode, toggleTheme, publ
           onPress={() => navigation.navigate('EditProfile')}
         />
         <Divider style={{ backgroundColor: dividerColor }} />
-        {/* TEMPORARY: Debug button - test username storage */}
         <List.Item 
-          title="Debug Usernames" 
-          description="Test username storage and list all usernames"
-          titleStyle={{ color: '#FFA500' }} 
-          descriptionStyle={{ color: subTextColor, fontSize: 12 }}
-          left={(p) => <List.Icon {...p} color="#FFA500" icon="database-sync-outline" />} 
-          onPress={async () => {
-            const { debugListUsernames } = await import('../services/usersService');
-            await debugListUsernames(50);
-            alert('Check console for username list');
-          }}
+          title="Blocked Users" 
+          titleStyle={{ color: textColor }} 
+          left={(p) => <List.Icon {...p} color={textColor} icon="account-cancel-outline" />} 
+          onPress={() => navigation.navigate('BlockedUsers')}
         />
         <Divider style={{ backgroundColor: dividerColor }} />
         <List.Item title="Privacy" titleStyle={{ color: textColor }} left={(p) => <List.Icon {...p} color={textColor} icon="shield-outline" />} onPress={() => {}} />
         <Divider style={{ backgroundColor: dividerColor }} />
         <List.Item title="Help" titleStyle={{ color: textColor }} left={(p) => <List.Icon {...p} color={textColor} icon="help-circle-outline" />} onPress={() => {}} />
+        <Divider style={{ backgroundColor: dividerColor }} />
+        <List.Item
+          title="Delete Account"
+          titleStyle={{ color: '#FF6B6B' }}
+          left={(p) => <List.Icon {...p} color="#FF6B6B" icon="delete-forever-outline" />}
+          onPress={handleDeleteAccountPress}
+        />
         <Divider style={{ backgroundColor: dividerColor }} />
         <List.Item
           title="Logout"
@@ -336,6 +381,87 @@ function SettingsTab({ navigation, user, userData, isDarkMode, toggleTheme, publ
         />
       </View>
     </ScrollView>
+
+    {/* Delete Account Modal */}
+    <Modal
+      visible={showDeleteAccountModal}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => !deletingAccount && setShowDeleteAccountModal(false)}
+    >
+      <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', padding: 20 }}>
+        <View style={{ backgroundColor: surfaceColor, borderRadius: 16, padding: 24 }}>
+          <Text style={{ color: textColor, fontSize: 20, fontWeight: '600', marginBottom: 8 }}>
+            Delete Account
+          </Text>
+          <Text style={{ color: subTextColor, fontSize: 14, marginBottom: 24 }}>
+            This action cannot be undone. All your data will be permanently deleted. Please enter your email and password to confirm.
+          </Text>
+
+          <PaperTextInput
+            label="Email"
+            value={deleteEmail}
+            onChangeText={setDeleteEmail}
+            mode="outlined"
+            autoCapitalize="none"
+            keyboardType="email-address"
+            disabled={deletingAccount}
+            style={{ marginBottom: 16, backgroundColor: bgColor }}
+            textColor={textColor}
+            outlineColor={dividerColor}
+            activeOutlineColor={textColor}
+          />
+
+          <PaperTextInput
+            label="Password"
+            value={deletePassword}
+            onChangeText={setDeletePassword}
+            mode="outlined"
+            secureTextEntry
+            disabled={deletingAccount}
+            style={{ marginBottom: 16, backgroundColor: bgColor }}
+            textColor={textColor}
+            outlineColor={dividerColor}
+            activeOutlineColor={textColor}
+          />
+
+          {deleteError ? (
+            <Text style={{ color: '#FF6B6B', fontSize: 12, marginBottom: 16 }}>
+              {deleteError}
+            </Text>
+          ) : null}
+
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <Button
+              mode="outlined"
+              onPress={() => {
+                setShowDeleteAccountModal(false);
+                setDeleteEmail('');
+                setDeletePassword('');
+                setDeleteError('');
+              }}
+              disabled={deletingAccount}
+              style={{ flex: 1 }}
+              textColor={textColor}
+            >
+              Cancel
+            </Button>
+            <Button
+              mode="contained"
+              onPress={handleDeleteAccount}
+              disabled={deletingAccount || !deleteEmail.trim() || !deletePassword.trim()}
+              loading={deletingAccount}
+              buttonColor="#FF6B6B"
+              textColor="#fff"
+              style={{ flex: 1 }}
+            >
+              Delete Account
+            </Button>
+          </View>
+        </View>
+      </View>
+    </Modal>
+    </>
   );
 }
 
@@ -532,16 +658,9 @@ export default function ProfileScreen({ navigation }) {
       {/* Header */}
       <Appbar.Header mode="center-aligned" style={{ backgroundColor: 'transparent', elevation: 0 }}>
         <View style={{ width: 40 }} />
-        <Appbar.Content title="PROFILE" titleStyle={{ color: '#FFFFFF', fontWeight: '600' }} />
-        <Appbar.Action 
-          icon="cog" 
-          color="#FFFFFF" 
-          onPress={() => setShowSettings(true)}
-        />
+        <View style={{ flex: 1 }} />
+        <View style={{ width: 40 }} />
       </Appbar.Header>
-
-      {/* Black Background */}
-      <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: '#000000' }} />
 
       <ScrollView 
         style={{ flex: 1 }}
@@ -555,25 +674,38 @@ export default function ProfileScreen({ navigation }) {
         <View style={{
           backgroundColor: '#2A2A2A',
           marginHorizontal: 16,
-          marginTop: 0,
-          borderRadius: 20,
+          marginTop: 20,
+          borderTopLeftRadius: 20,
+          borderTopRightRadius: 20,
           paddingTop: 70,
           paddingBottom: 24,
           paddingHorizontal: 20,
-          marginBottom: 20,
+          marginBottom: 0,
           alignItems: 'center',
         }}>
+          {/* Grey Curved Line Above Profile Picture */}
+          <View style={{
+            position: 'absolute',
+            top: -60,
+            width: 140,
+            height: 140,
+            borderRadius: 70,
+            borderWidth: 2,
+            borderColor: '#2A2A2A',
+            borderBottomWidth: 0,
+            borderBottomLeftRadius: 0,
+            borderBottomRightRadius: 0,
+            backgroundColor: 'transparent',
+          }} />
+          
           {/* Profile Picture - Overlapping with background */}
           <View style={{
             position: 'absolute',
-            top: -40,
+            top: -50,
             width: 120,
             height: 120,
             borderRadius: 60,
             overflow: 'hidden',
-            borderWidth: 4,
-            borderColor: '#2A2A2A',
-            backgroundColor: '#2A2A2A',
           }}>
             <Avatar.Image 
               key={`avatar-${avatarKey}`}
@@ -707,8 +839,8 @@ export default function ProfileScreen({ navigation }) {
             alignItems: 'center',
             marginTop: 24,
             paddingTop: 24,
-            borderTopWidth: 1,
-            borderTopColor: '#444444',
+            borderTopWidth: 0.5,
+            borderTopColor: '#555555',
           }}>
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Text style={{
@@ -728,9 +860,9 @@ export default function ProfileScreen({ navigation }) {
               </Text>
             </View>
             <View style={{
-              width: 1,
+              width: 0.5,
               height: 40,
-              backgroundColor: '#444444',
+              backgroundColor: '#555555',
             }} />
             <TouchableOpacity 
               style={{ flex: 1, alignItems: 'center' }}
@@ -761,8 +893,10 @@ export default function ProfileScreen({ navigation }) {
             marginHorizontal: 16,
             marginBottom: 24,
             backgroundColor: '#2A2A2A',
-            borderRadius: 20,
+            borderBottomLeftRadius: 20,
+            borderBottomRightRadius: 20,
             padding: 16,
+            paddingTop: 0,
           }}>
             <View style={{
               flexDirection: 'row',

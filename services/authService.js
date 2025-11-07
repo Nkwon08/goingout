@@ -7,9 +7,12 @@ import {
   onAuthStateChanged as firebaseOnAuthStateChanged,
   GoogleAuthProvider,
   signInWithCredential,
+  deleteUser,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction, collection, query, where, getDocs, getDocsFromServer, limit, writeBatch, deleteDoc } from 'firebase/firestore';
-import { ref, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
+import { ref, getDownloadURL, uploadBytesResumable, deleteObject, listAll } from 'firebase/storage';
 import { auth, db, storage, GOOGLE_CLIENT_ID } from '../config/firebase';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
@@ -1030,5 +1033,334 @@ export const signInWithGoogle = async () => {
   } catch (error) {
     console.error('Google sign in error:', error);
     return { user: null, error: error.message || 'Failed to sign in with Google' };
+  }
+};
+
+/**
+ * Delete user account permanently
+ * Requires email and password for re-authentication
+ * Deletes all user data from Firestore and Firebase Auth account
+ * @param {string} email - User's email
+ * @param {string} password - User's password
+ * @returns {Promise<{ success: boolean, error: string|null }>}
+ */
+export const deleteAccount = async (email, password) => {
+  try {
+    if (!auth || !auth.currentUser) {
+      return { success: false, error: 'User not authenticated' };
+    }
+
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { success: false, error: 'Firestore not configured' };
+    }
+
+    const user = auth.currentUser;
+    const uid = user.uid;
+
+    // Verify email matches
+    if (user.email !== email.trim()) {
+      return { success: false, error: 'Email does not match your account' };
+    }
+
+    // Re-authenticate user with email and password
+    const credential = EmailAuthProvider.credential(email.trim(), password);
+    await reauthenticateWithCredential(user, credential);
+
+    // Get user's username from Firestore
+    const usersRef = collection(db, 'users');
+    const userQuery = query(usersRef, where('authUid', '==', uid), limit(1));
+    const userSnapshot = await getDocs(userQuery);
+    
+    let username = null;
+    if (!userSnapshot.empty) {
+      const userDoc = userSnapshot.docs[0];
+      username = userDoc.id; // Document ID is username_lowercase
+    }
+
+    console.log('[deleteAccount] Starting account deletion for user:', uid, 'username:', username);
+
+    // Delete all user's posts (and their comments subcollections)
+    const postsRef = collection(db, 'posts');
+    const userPostsQuery = query(postsRef, where('userId', '==', uid));
+    const postsSnapshot = await getDocs(userPostsQuery);
+    
+    for (const postDoc of postsSnapshot.docs) {
+      const postId = postDoc.id;
+      // Delete all comments in this post's comments subcollection
+      try {
+        const commentsRef = collection(db, 'posts', postId, 'comments');
+        const commentsSnapshot = await getDocs(commentsRef);
+        const deleteCommentsPromises = commentsSnapshot.docs.map((commentDoc) => 
+          deleteDoc(doc(db, 'posts', postId, 'comments', commentDoc.id))
+        );
+        await Promise.all(deleteCommentsPromises);
+      } catch (error) {
+        console.warn('[deleteAccount] Error deleting comments for post', postId, ':', error.message);
+      }
+      // Delete the post
+      await deleteDoc(postDoc.ref);
+    }
+    console.log('[deleteAccount] Deleted', postsSnapshot.docs.length, 'posts and their comments');
+
+    // Delete all friend requests (incoming and outgoing)
+    const friendRequestsRef = collection(db, 'friendRequests');
+    const incomingRequestsQuery = query(friendRequestsRef, where('toUserId', '==', uid));
+    const outgoingRequestsQuery = query(friendRequestsRef, where('fromUserId', '==', uid));
+    const [incomingSnapshot, outgoingSnapshot] = await Promise.all([
+      getDocs(incomingRequestsQuery),
+      getDocs(outgoingRequestsQuery),
+    ]);
+    const deleteRequestsPromises = [
+      ...incomingSnapshot.docs.map((doc) => deleteDoc(doc.ref)),
+      ...outgoingSnapshot.docs.map((doc) => deleteDoc(doc.ref)),
+    ];
+    await Promise.all(deleteRequestsPromises);
+    console.log('[deleteAccount] Deleted', incomingSnapshot.docs.length + outgoingSnapshot.docs.length, 'friend requests');
+
+    // Remove user from all friends' friends arrays
+    if (username) {
+      const friendsQuery = query(usersRef, where('friends', 'array-contains', username));
+      const friendsSnapshot = await getDocs(friendsQuery);
+      const batch = writeBatch(db);
+      let batchCount = 0;
+      
+      friendsSnapshot.docs.forEach((friendDoc) => {
+        if (batchCount >= 500) {
+          // Firestore batch limit is 500
+          return;
+        }
+        const friendData = friendDoc.data();
+        const friendsArray = friendData.friends || [];
+        const updatedFriends = friendsArray.filter((f) => f !== username);
+        batch.update(friendDoc.ref, { friends: updatedFriends });
+        batchCount++;
+      });
+      
+      if (batchCount > 0) {
+        await batch.commit();
+        console.log('[deleteAccount] Removed user from', batchCount, 'friends lists');
+      }
+    }
+
+    // Remove user from all blocked users' blocked arrays
+    if (username) {
+      const blockedQuery = query(usersRef, where('blockedUsers', 'array-contains', username));
+      const blockedSnapshot = await getDocs(blockedQuery);
+      const batch = writeBatch(db);
+      let batchCount = 0;
+      
+      blockedSnapshot.docs.forEach((blockedDoc) => {
+        if (batchCount >= 500) {
+          return;
+        }
+        const blockedData = blockedDoc.data();
+        const blockedArray = blockedData.blockedUsers || [];
+        const updatedBlocked = blockedArray.filter((b) => b !== username);
+        batch.update(blockedDoc.ref, { blockedUsers: updatedBlocked });
+        batchCount++;
+      });
+      
+      if (batchCount > 0) {
+        await batch.commit();
+        console.log('[deleteAccount] Removed user from', batchCount, 'blocked users lists');
+      }
+    }
+
+    // Delete user's notifications
+    if (username) {
+      try {
+        const notificationsRef = collection(db, 'users', username, 'notifications');
+        const notificationsSnapshot = await getDocs(notificationsRef);
+        const deleteNotificationsPromises = notificationsSnapshot.docs.map((notifDoc) => 
+          deleteDoc(doc(db, 'users', username, 'notifications', notifDoc.id))
+        );
+        await Promise.all(deleteNotificationsPromises);
+        console.log('[deleteAccount] Deleted', notificationsSnapshot.docs.length, 'notifications');
+      } catch (error) {
+        console.warn('[deleteAccount] Error deleting notifications:', error.message);
+      }
+    }
+
+    // Delete groups created by user
+    const groupsRef = collection(db, 'groups');
+    const userGroupsQuery = query(groupsRef, where('creator', '==', uid));
+    const groupsSnapshot = await getDocs(userGroupsQuery);
+    
+    for (const groupDoc of groupsSnapshot.docs) {
+      const groupId = groupDoc.id;
+      // Delete all messages, locations, polls, photos in the group
+      const [messagesRef, locationsRef, pollsRef, photosRef] = [
+        collection(db, 'groups', groupId, 'messages'),
+        collection(db, 'groups', groupId, 'locations'),
+        collection(db, 'groups', groupId, 'polls'),
+        collection(db, 'groups', groupId, 'photos'),
+      ];
+      
+      const [messagesSnapshot, locationsSnapshot, pollsSnapshot, photosSnapshot] = await Promise.all([
+        getDocs(messagesRef).catch(() => ({ docs: [] })),
+        getDocs(locationsRef).catch(() => ({ docs: [] })),
+        getDocs(pollsRef).catch(() => ({ docs: [] })),
+        getDocs(photosRef).catch(() => ({ docs: [] })),
+      ]);
+      
+      const deletePromises = [
+        ...messagesSnapshot.docs.map((doc) => deleteDoc(doc.ref)),
+        ...locationsSnapshot.docs.map((doc) => deleteDoc(doc.ref)),
+        ...pollsSnapshot.docs.map((doc) => deleteDoc(doc.ref)),
+        ...photosSnapshot.docs.map((doc) => deleteDoc(doc.ref)),
+      ];
+      await Promise.all(deletePromises);
+      
+      // Delete the group document
+      await deleteDoc(groupDoc.ref);
+    }
+    console.log('[deleteAccount] Deleted', groupsSnapshot.docs.length, 'groups');
+
+    // Remove user from groups where they are a member (but not creator)
+    const memberGroupsQuery = query(groupsRef, where('members', 'array-contains', uid));
+    const memberGroupsSnapshot = await getDocs(memberGroupsQuery);
+    const memberBatch = writeBatch(db);
+    let memberBatchCount = 0;
+    
+    memberGroupsSnapshot.docs.forEach((groupDoc) => {
+      if (memberBatchCount >= 500) {
+        return;
+      }
+      const groupData = groupDoc.data();
+      // Only update if user is not the creator (creators' groups were already deleted above)
+      if (groupData.creator !== uid) {
+        const membersArray = groupData.members || [];
+        const updatedMembers = membersArray.filter((m) => m !== uid);
+        memberBatch.update(groupDoc.ref, { members: updatedMembers });
+        memberBatchCount++;
+      }
+    });
+    
+    if (memberBatchCount > 0) {
+      await memberBatch.commit();
+      console.log('[deleteAccount] Removed user from', memberBatchCount, 'groups as member');
+    }
+
+    // Delete comments by user from all posts (comments are subcollections)
+    // We need to check all posts and delete comments where userId matches
+    try {
+      const allPostsRef = collection(db, 'posts');
+      const allPostsSnapshot = await getDocs(allPostsRef);
+      let totalCommentsDeleted = 0;
+      
+      for (const postDoc of allPostsSnapshot.docs) {
+        const postId = postDoc.id;
+        const commentsRef = collection(db, 'posts', postId, 'comments');
+        const userCommentsQuery = query(commentsRef, where('userId', '==', uid));
+        const commentsSnapshot = await getDocs(userCommentsQuery);
+        
+        const deleteCommentsPromises = commentsSnapshot.docs.map((commentDoc) => 
+          deleteDoc(doc(db, 'posts', postId, 'comments', commentDoc.id))
+        );
+        await Promise.all(deleteCommentsPromises);
+        totalCommentsDeleted += commentsSnapshot.docs.length;
+      }
+      console.log('[deleteAccount] Deleted', totalCommentsDeleted, 'comments from all posts');
+    } catch (error) {
+      console.warn('[deleteAccount] Error deleting comments:', error.message);
+    }
+
+    // Delete votes by user (if votes collection exists)
+    try {
+      const votesRef = collection(db, 'votes');
+      const userVotesQuery = query(votesRef, where('userId', '==', uid));
+      const votesSnapshot = await getDocs(userVotesQuery);
+      const deleteVotesPromises = votesSnapshot.docs.map((voteDoc) => deleteDoc(voteDoc.ref));
+      await Promise.all(deleteVotesPromises);
+      console.log('[deleteAccount] Deleted', votesSnapshot.docs.length, 'votes');
+    } catch (error) {
+      console.warn('[deleteAccount] Error deleting votes:', error.message);
+    }
+
+    // Delete events created by user
+    try {
+      const eventsRef = collection(db, 'events');
+      const userEventsQuery = query(eventsRef, where('userId', '==', uid));
+      const eventsSnapshot = await getDocs(userEventsQuery);
+      const deleteEventsPromises = eventsSnapshot.docs.map((eventDoc) => deleteDoc(eventDoc.ref));
+      await Promise.all(deleteEventsPromises);
+      console.log('[deleteAccount] Deleted', eventsSnapshot.docs.length, 'events');
+    } catch (error) {
+      console.warn('[deleteAccount] Error deleting events:', error.message);
+    }
+
+    // Delete storage files (avatar and post images)
+    if (storage && typeof storage === 'object' && Object.keys(storage).length > 0) {
+      try {
+        // Delete user's avatar
+        const avatarRef = ref(storage, `profile/${uid}/avatar.jpg`);
+        try {
+          await deleteObject(avatarRef);
+          console.log('[deleteAccount] Deleted avatar from storage');
+        } catch (avatarError) {
+          if (avatarError.code !== 'storage/object-not-found') {
+            console.warn('[deleteAccount] Error deleting avatar:', avatarError.message);
+          }
+        }
+
+        // Delete all post images for this user
+        // Posts are stored in posts/{postId}/images or similar structure
+        // We'll delete the entire profile folder if it exists
+        const profileFolderRef = ref(storage, `profile/${uid}`);
+        try {
+          const listResult = await listAll(profileFolderRef);
+          const deletePromises = listResult.items.map((itemRef) => deleteObject(itemRef));
+          await Promise.all(deletePromises);
+          console.log('[deleteAccount] Deleted', listResult.items.length, 'files from profile folder');
+        } catch (folderError) {
+          if (folderError.code !== 'storage/object-not-found') {
+            console.warn('[deleteAccount] Error deleting profile folder:', folderError.message);
+          }
+        }
+
+        // Delete post images (if stored in posts/{uid}/ structure)
+        const postsFolderRef = ref(storage, `posts/${uid}`);
+        try {
+          const postsListResult = await listAll(postsFolderRef);
+          const deletePostPromises = postsListResult.items.map((itemRef) => deleteObject(itemRef));
+          await Promise.all(deletePostPromises);
+          console.log('[deleteAccount] Deleted', postsListResult.items.length, 'post images from storage');
+        } catch (postsError) {
+          if (postsError.code !== 'storage/object-not-found') {
+            console.warn('[deleteAccount] Error deleting post images:', postsError.message);
+          }
+        }
+      } catch (storageError) {
+        console.warn('[deleteAccount] Error deleting storage files:', storageError.message);
+      }
+    }
+
+    // Delete user document
+    if (username) {
+      const userDocRef = doc(db, 'users', username);
+      await deleteDoc(userDocRef);
+      console.log('[deleteAccount] Deleted user document');
+    }
+
+    // Finally, delete Firebase Auth account
+    await deleteUser(user);
+    console.log('[deleteAccount] Deleted Firebase Auth account');
+
+    return { success: true, error: null };
+  } catch (error) {
+    console.error('[deleteAccount] Error:', error);
+    
+    // Handle specific error cases
+    if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+      return { success: false, error: 'Incorrect password. Please try again.' };
+    }
+    if (error.code === 'auth/user-mismatch') {
+      return { success: false, error: 'Email does not match your account.' };
+    }
+    if (error.code === 'auth/requires-recent-login') {
+      return { success: false, error: 'Please sign out and sign back in, then try again.' };
+    }
+    
+    return { success: false, error: error.message || 'Failed to delete account' };
   }
 };
