@@ -2402,7 +2402,6 @@ function GroupDetail({ group, onBack }) {
   // Check if current user is the group owner
   const isOwner = group?.creator === user?.uid;
   
-<<<<<<< HEAD
   // Handle leave group
   const handleLeaveGroup = async () => {
     console.log('handleLeaveGroup called:', { 
