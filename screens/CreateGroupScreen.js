@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { getUserById } from '../services/usersService';
 import { createGroup } from '../services/groupsService';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 export default function CreateGroupScreen({ navigation }) {
   const { background, text, subText, surface, divider } = useThemeColors();

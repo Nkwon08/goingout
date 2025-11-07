@@ -15,7 +15,7 @@ export default function BlockedUsersScreen({ navigation }) {
   const { user } = useAuth();
   
   // Theme colors
-  const bgColor = isDarkMode ? '#1A1A1A' : '#EEEDEB';
+  const bgColor = isDarkMode ? '#121212' : '#FAFAFA';
   const surfaceColor = isDarkMode ? '#2A2A2A' : '#F5F4F2';
   const textColor = isDarkMode ? '#E6E8F0' : '#1A1A1A';
   const subTextColor = isDarkMode ? '#8A90A6' : '#666666';

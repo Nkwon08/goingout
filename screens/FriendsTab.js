@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { View, ScrollView, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
 import { Searchbar, Button, Avatar, List, Divider, Text, IconButton } from 'react-native-paper';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -33,12 +34,13 @@ export default function FriendsTab() {
   
 
   const colors = {
-    bg: isDarkMode ? '#1A1A1A' : '#EEEDEB',
+    bg: isDarkMode ? '#121212' : '#FAFAFA',
     surface: isDarkMode ? '#1E1E1E' : '#F5F4F2',
     text: isDarkMode ? '#E6E8F0' : '#1A1A1A',
     subText: isDarkMode ? '#8A90A6' : '#666666',
     divider: isDarkMode ? '#3A3A3A' : '#D0CFCD',
-    primary: '#DC143C',
+    primary: '#CC0000',
+    isDarkMode,
   };
 
   /** Load friends list from AuthContext - subscription is managed centrally */
@@ -640,15 +642,30 @@ export default function FriendsTab() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView contentContainerStyle={{ padding: 16 }}>
+    <LinearGradient
+      colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+      style={{ flex: 1 }}
+    >
+      <View style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ padding: 16 }}>
         {/* Search */}
         <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>Find Friends</Text>
         <Searchbar
           placeholder="Search by username..."
           onChangeText={setSearchQuery}
           value={searchQuery}
-          style={{ backgroundColor: colors.surface, marginBottom: 12 }}
+          style={{ 
+            backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+            marginBottom: 12,
+            borderRadius: 20,
+            borderWidth: 1,
+            borderColor: colors.isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.3,
+            shadowRadius: 16,
+            elevation: 8,
+          }}
           inputStyle={{ color: colors.text }}
           iconColor={colors.subText}
           placeholderTextColor={colors.subText}
@@ -663,7 +680,18 @@ export default function FriendsTab() {
                 <Text style={{ color: colors.subText, marginTop: 8, fontSize: 14 }}>Searching...</Text>
               </View>
             ) : searchResultsWithStatus.length ? (
-              <View style={{ backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden' }}>
+              <View style={{ 
+                backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                borderRadius: 20,
+                overflow: 'hidden',
+                borderWidth: 1,
+                borderColor: colors.isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: 0.3,
+                shadowRadius: 16,
+                elevation: 8,
+              }}>
                 {searchResultsWithStatus.map((u, idx) => (
                   <View key={u.uid}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}>
@@ -707,7 +735,18 @@ export default function FriendsTab() {
                 <Text style={{ color: colors.subText, marginTop: 8, fontSize: 14 }}>Loading users...</Text>
               </View>
             ) : allUsers.length > 0 ? (
-              <View style={{ backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden' }}>
+              <View style={{ 
+                backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                borderRadius: 20,
+                overflow: 'hidden',
+                borderWidth: 1,
+                borderColor: colors.isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: 0.3,
+                shadowRadius: 16,
+                elevation: 8,
+              }}>
                 {allUsers.map((u, idx) => (
                   <View key={u.uid}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}>
@@ -768,7 +807,18 @@ export default function FriendsTab() {
         {pendingFriendsWithData.length > 0 && (
           <>
             <Text style={{ color: colors.subText, marginVertical: 6, fontSize: 14, fontWeight: '600' }}>Pending Friends ({pendingFriendsWithData.length})</Text>
-            <View style={{ backgroundColor: colors.surface, borderRadius: 16, marginBottom: 16 }}>
+            <View style={{ 
+              backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+              borderRadius: 20,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: colors.isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.3,
+              shadowRadius: 16,
+              elevation: 8,
+            }}>
               {pendingFriendsWithData.map((p, idx) => (
                   <View key={p.uid || idx}>
                   <TouchableOpacity
@@ -804,7 +854,17 @@ export default function FriendsTab() {
         {/* Friends List */}
         <Text style={{ color: colors.subText, marginVertical: 6, fontSize: 14, fontWeight: '600' }}>Friends ({friendsWithData.length})</Text>
         {friendsWithData.length ? (
-          <View style={{ backgroundColor: colors.surface, borderRadius: 16 }}>
+          <View style={{ 
+            backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+            borderRadius: 20,
+            borderWidth: 1,
+            borderColor: colors.isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.3,
+            shadowRadius: 16,
+            elevation: 8,
+          }}>
             {friendsWithData.map((f, idx) => (
               <View key={f.uid || idx}>
                 <TouchableOpacity
@@ -826,6 +886,7 @@ export default function FriendsTab() {
           <Text style={{ color: colors.subText, textAlign: 'center', padding: 10 }}>Empty</Text>
         )}
       </ScrollView>
-    </View>
+      </View>
+    </LinearGradient>
   );
 }

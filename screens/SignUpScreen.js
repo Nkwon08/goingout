@@ -6,7 +6,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { signUp, signInWithGoogle, checkUsernameAvailability } from '../services/authService';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 export default function SignUpScreen({ navigation }) {
   // State for form inputs

@@ -9,7 +9,7 @@ import { useNavigation } from '@react-navigation/native';
 // Removed albums import - images will come from user's own photos
 // Removed getCurrentLocation import - using account location instead of GPS
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 // Predefined bar options (same as TonightSelector)
 const PREDEFINED_BARS = [
@@ -272,7 +272,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
               )}
               {/* Bar Location Selector (replaces location field) */}
               <View style={styles.locationRow}>
-                <MaterialCommunityIcons name="map-marker-outline" size={20} color={bar.trim() ? "#DC143C" : "#666666"} />
+                <MaterialCommunityIcons name="map-marker-outline" size={20} color={bar.trim() ? "#CC0000" : "#666666"} />
                 <TouchableOpacity
                   style={styles.locationInputTouchable}
                   onPress={() => setBarDropdownVisible(true)}
@@ -343,15 +343,15 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
 
           <View style={styles.footer}>
                   <TouchableOpacity style={styles.actionButton} onPress={handlePickMedia}>
-                    <MaterialCommunityIcons name="image-outline" size={24} color="#DC143C" />
+                    <MaterialCommunityIcons name="image-outline" size={24} color="#CC0000" />
                     <Text style={styles.actionButtonLabel}>Album</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.actionButton} onPress={handleTakePhoto}>
-                    <MaterialCommunityIcons name="camera-outline" size={24} color="#DC143C" />
+                    <MaterialCommunityIcons name="camera-outline" size={24} color="#CC0000" />
                     <Text style={styles.actionButtonLabel}>Camera</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionButton} onPress={() => setChooseFromOutlink(true)}>
-                    <MaterialCommunityIcons name="image-multiple-outline" size={24} color="#DC143C" />
+                    <MaterialCommunityIcons name="image-multiple-outline" size={24} color="#CC0000" />
                     <Text style={styles.actionButtonLabel}>Multiple</Text>
             </TouchableOpacity>
             <Text style={styles.charCount}>{text.length}/280</Text>
@@ -770,7 +770,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   actionButtonLabel: {
-    color: '#DC143C',
+    color: '#CC0000',
     fontSize: 12,
     marginTop: 4,
     fontWeight: '500',

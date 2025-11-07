@@ -5,10 +5,10 @@ import { useThemeColors } from '../hooks/useThemeColors';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 export default function EventCard({ event, onJoin, onEdit, style }) {
-  const { surface, text, subText } = useThemeColors();
+  const { surface, text, subText, isDarkMode } = useThemeColors();
   const navigation = useNavigation();
   const { user } = useAuth();
   
@@ -45,7 +45,18 @@ export default function EventCard({ event, onJoin, onEdit, style }) {
   
   return (
     <TouchableOpacity activeOpacity={0.8} onPress={handlePress}>
-      <Card mode="contained" style={[{ width: 280, backgroundColor: surface, borderRadius: 16 }, style]}>
+      <Card mode="contained" style={[{ 
+        width: 280, 
+        backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.3,
+        shadowRadius: 16,
+        elevation: 8,
+      }, style]}>
         <Image source={{ uri: event.image }} style={{ width: '100%', height: 140, borderTopLeftRadius: 16, borderTopRightRadius: 16 }} />
         <Card.Content>
           <Text variant="titleMedium" style={{ color: text, marginTop: 8 }}>{event.title}</Text>

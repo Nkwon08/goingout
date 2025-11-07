@@ -8,11 +8,17 @@ import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import RootNavigator from './navigation/RootNavigator';
 import AuthStack from './navigation/AuthStack';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // Brand colors
-const IU_CRIMSON = '#DC143C';
-const IU_CREAM = '#EEEDEB';
+const PRIMARY_COLOR = '#CC0000';      // IU Crimson
+const SECONDARY_COLOR = '#ffffff';    // White
+const ACCENT_COLOR = '#CC0000';       // IU Crimson
+const ACCENT_COLOR_2 = '#CC0000';     // IU Crimson
+const ACCENT_COLOR_3 = '#CC0000';     // IU Crimson
+const ACCENT_COLOR_4 = '#CC0000';     // IU Crimson
+const IU_CREAM = '#FAFAFA';
 
 // App content component that uses theme context and auth
 function AppContent() {
@@ -46,9 +52,9 @@ function AppContent() {
         ...MD3DarkTheme,
         colors: {
           ...MD3DarkTheme.colors,
-          primary: IU_CRIMSON,
-          secondary: IU_CREAM,
-          background: '#1A1A1A',
+          primary: PRIMARY_COLOR,
+          secondary: SECONDARY_COLOR,
+          background: '#121212',
           surface: '#1E1E1E',
           onSurface: '#E6E8F0',
         },
@@ -59,10 +65,10 @@ function AppContent() {
         ...MD3LightTheme,
         colors: {
           ...MD3LightTheme.colors,
-          primary: IU_CRIMSON,
-          secondary: IU_CREAM,
+          primary: PRIMARY_COLOR,
+          secondary: SECONDARY_COLOR,
           background: IU_CREAM,
-          surface: '#F5F4F2',
+          surface: '#FFFFFF',
           onSurface: '#1A1A1A',
         },
         roundness: 16,
@@ -77,12 +83,12 @@ function AppContent() {
         ...NavigationDarkTheme,
         colors: {
           ...NavigationDarkTheme.colors,
-          primary: IU_CRIMSON,
-          background: '#1A1A1A',
-          card: '#1A1A1A',
+          primary: PRIMARY_COLOR,
+          background: '#121212',
+          card: '#121212',
           text: '#E6E8F0',
           border: '#3A3A3A',
-          notification: IU_CRIMSON,
+          notification: PRIMARY_COLOR,
         },
       };
     } else {
@@ -90,12 +96,12 @@ function AppContent() {
         ...NavigationDefaultTheme,
         colors: {
           ...NavigationDefaultTheme.colors,
-          primary: IU_CRIMSON,
+          primary: PRIMARY_COLOR,
           background: IU_CREAM,
           card: IU_CREAM,
           text: '#1A1A1A',
           border: '#D0CFCD',
-          notification: IU_CRIMSON,
+          notification: PRIMARY_COLOR,
         },
       };
     }
@@ -105,9 +111,14 @@ function AppContent() {
   if (loading) {
     return (
       <PaperProvider theme={paperTheme}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: isDarkMode ? '#1A1A1A' : '#EEEDEB' }}>
-          <ActivityIndicator size="large" color="#DC143C" />
-        </View>
+        <LinearGradient
+          colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+          style={{ flex: 1 }}
+        >
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <ActivityIndicator size="large" color={PRIMARY_COLOR} />
+          </View>
+        </LinearGradient>
       </PaperProvider>
     );
   }

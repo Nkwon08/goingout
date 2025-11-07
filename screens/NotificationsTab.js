@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { View, ScrollView, ActivityIndicator, Alert, TouchableOpacity, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { List, Divider, Text, Avatar, Button } from 'react-native-paper';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -27,12 +28,12 @@ export default function NotificationsTab() {
   const [selectionMode, setSelectionMode] = React.useState(false);
   const [selectedNotifications, setSelectedNotifications] = React.useState(new Set());
   
-  const bgColor = isDarkMode ? '#1A1A1A' : '#EEEDEB';
+  const bgColor = isDarkMode ? '#121212' : '#FAFAFA';
   const surfaceColor = isDarkMode ? '#1E1E1E' : '#F5F4F2';
   const textColor = isDarkMode ? '#E6E8F0' : '#1A1A1A';
   const subTextColor = isDarkMode ? '#8A90A6' : '#666666';
   const dividerColor = isDarkMode ? '#3A3A3A' : '#D0CFCD';
-  const primaryColor = '#DC143C';
+  const primaryColor = '#CC0000';
 
   // ---------- subscriptions (unchanged) ----------
   React.useEffect(() => {
@@ -406,16 +407,32 @@ export default function NotificationsTab() {
   const hasNotifications = requestsWithData.length > 0 || invitationsWithData.length > 0 || postNotifications.length > 0;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: bgColor }} edges={['bottom']}>
-      <ScrollView
-        contentContainerStyle={{ padding: 16, paddingTop: 0, paddingBottom: 40 }}
-        contentInsetAdjustmentBehavior="automatic"
-        style={{ flex: 1, marginTop: 15 }}
+    <LinearGradient
+      colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+      style={{ flex: 1 }}
+    >
+      <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
+        <ScrollView
+          contentContainerStyle={{ padding: 16, paddingTop: 0, paddingBottom: 40 }}
+          contentInsetAdjustmentBehavior="automatic"
+          style={{ flex: 1, marginTop: 15 }}
         keyboardShouldPersistTaps="handled"
       >
         {/* Post notifications section */}
         {postNotifications.length > 0 && (
-          <View style={{ backgroundColor: surfaceColor, borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}>
+          <View style={{ 
+            backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+            borderRadius: 20,
+            overflow: 'hidden',
+            marginBottom: 16,
+            borderWidth: 1,
+            borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.3,
+            shadowRadius: 16,
+            elevation: 8,
+          }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingBottom: 8 }}>
               <Text style={{ color: textColor, fontSize: 16, fontWeight: '600' }}>
                 Post Activity ({postNotifications.length})
@@ -537,7 +554,19 @@ export default function NotificationsTab() {
 
         {/* Friend requests */}
         {requestsWithData.length > 0 && (
-          <View style={{ backgroundColor: surfaceColor, borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}>
+          <View style={{ 
+            backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+            borderRadius: 20,
+            overflow: 'hidden',
+            marginBottom: 16,
+            borderWidth: 1,
+            borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.3,
+            shadowRadius: 16,
+            elevation: 8,
+          }}>
             <Text style={{ color: textColor, fontSize: 16, fontWeight: '600', padding: 16, paddingBottom: 8 }}>
               Friend Requests ({requestsWithData.length})
             </Text>
@@ -591,7 +620,19 @@ export default function NotificationsTab() {
 
         {/* Group invitations */}
         {invitationsWithData.length > 0 && (
-          <View style={{ backgroundColor: surfaceColor, borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}>
+          <View style={{ 
+            backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+            borderRadius: 20,
+            overflow: 'hidden',
+            marginBottom: 16,
+            borderWidth: 1,
+            borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.3,
+            shadowRadius: 16,
+            elevation: 8,
+          }}>
             <Text style={{ color: textColor, fontSize: 16, fontWeight: '600', padding: 16, paddingBottom: 8 }}>
               Group Invitations ({invitationsWithData.length})
             </Text>
@@ -649,6 +690,7 @@ export default function NotificationsTab() {
           </View>
         )}
       </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }

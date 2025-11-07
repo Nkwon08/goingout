@@ -3,11 +3,11 @@ import { View, TouchableOpacity } from 'react-native';
 import { Card, Text, Button, ProgressBar } from 'react-native-paper';
 import { useThemeColors } from '../hooks/useThemeColors';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 export default function PollCard({ poll, onVote, currentUserId, showVoteButton = true }) {
   const totalVotes = poll.options.reduce((sum, o) => sum + (o.votes || 0), 0) || 1;
-  const { surface, text, subText, divider } = useThemeColors();
+  const { surface, text, subText, divider, isDarkMode } = useThemeColors();
   
   // Find which option the current user voted for
   const userVotedOptionId = React.useMemo(() => {
@@ -27,7 +27,18 @@ export default function PollCard({ poll, onVote, currentUserId, showVoteButton =
   };
 
   return (
-    <Card mode="contained" style={{ backgroundColor: surface, marginBottom: 12, borderRadius: 16 }}>
+    <Card mode="contained" style={{ 
+      backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+      marginBottom: 12, 
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.3,
+      shadowRadius: 16,
+      elevation: 8,
+    }}>
       <Card.Title 
         title={poll.question} 
         titleStyle={{ color: text }}

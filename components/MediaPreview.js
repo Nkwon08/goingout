@@ -4,12 +4,13 @@ import { Text, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
-export default function MediaPreview({ visible, media, onDelete, onAddToGroup, onPostToFeed, onPostPublicly, onCancel, groups, initialSelectedGroup }) {
+export default function MediaPreview({ visible, media, onDelete, onAddToGroup, onPostToFeed, onPostPublicly, onCancel, groups, initialSelectedGroup, navigation }) {
   const [selectedGroup, setSelectedGroup] = React.useState(initialSelectedGroup || null);
+  const [showGroupSelection, setShowGroupSelection] = React.useState(false);
   const isVideo = media?.type === 'video';
-
+  
   // Update selectedGroup when initialSelectedGroup changes or when preview opens
   React.useEffect(() => {
     if (visible && initialSelectedGroup) {
@@ -17,79 +18,115 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
     } else if (!visible) {
       // Reset selection when preview closes
       setSelectedGroup(null);
+      setShowGroupSelection(false);
     }
   }, [visible, initialSelectedGroup]);
 
-  if (!visible || !media || !media.uri) {
-    return null;
+  const handleGroupSelect = (group) => {
+    setSelectedGroup(group);
+    setShowGroupSelection(false);
+    if (onAddToGroup) {
+      onAddToGroup(group);
+    }
+  };
+
+  // Early return if no media - but only after all hooks are called
+  if (!media || !media.uri) {
+    return (
+      <>
+        {/* Group Selection Modal - can still be shown even if main preview is closed */}
+        <Modal 
+          visible={showGroupSelection} 
+          animationType="slide" 
+          transparent 
+          onRequestClose={() => setShowGroupSelection(false)}
+        >
+          <View style={styles.overlay}>
+            <View style={styles.groupModal}>
+              <View style={styles.groupModalHeader}>
+                <Text style={styles.groupModalTitle}>Select Group</Text>
+                <TouchableOpacity onPress={() => setShowGroupSelection(false)}>
+                  <MaterialCommunityIcons name="close" size={24} color="#000000" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.groupModalList}>
+                {groups && groups.length > 0 ? (
+                  groups.map((group) => (
+                    <TouchableOpacity
+                      key={group.id}
+                      style={styles.groupModalItem}
+                      onPress={() => handleGroupSelect(group)}
+                    >
+                      <Text style={styles.groupModalItemText}>{group.name}</Text>
+                      <MaterialCommunityIcons name="chevron-right" size={24} color="#8A90A6" />
+                    </TouchableOpacity>
+                  ))
+                ) : (
+                  <View style={styles.groupModalEmpty}>
+                    <Text style={styles.groupModalEmptyText}>No groups available</Text>
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      </>
+    );
   }
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
-      <View style={styles.overlay}>
-        <View style={styles.modal}>
+    <>
+      <Modal visible={visible && !!media?.uri} animationType="slide" transparent onRequestClose={onCancel}>
+        <View style={styles.overlay}>
+          <View style={styles.modal}>
           {/* Media Preview */}
           <View style={styles.previewContainer}>
             {isVideo ? (
               <Video
-                source={{ uri: media.uri }}
+                source={{ uri: media?.uri }}
                 style={styles.media}
                 useNativeControls
                 resizeMode="contain"
               />
             ) : (
-              <Image source={{ uri: media.uri }} style={styles.media} resizeMode="contain" />
+              <Image source={{ uri: media?.uri }} style={styles.media} resizeMode="contain" />
             )}
           </View>
 
           {/* Actions */}
           <View style={styles.actions}>
-            <TouchableOpacity style={styles.deleteButton} onPress={onDelete}>
-              <MaterialCommunityIcons name="delete-outline" size={24} color="#FF6B6B" />
-              <Text style={styles.deleteText}>Delete</Text>
-            </TouchableOpacity>
-
             {onPostPublicly && (
-              <TouchableOpacity style={styles.postButton} onPress={onPostPublicly}>
+              <TouchableOpacity style={styles.actionButton} onPress={onPostPublicly}>
                 <MaterialCommunityIcons name="share-outline" size={24} color="#FFFFFF" />
-                <Text style={[styles.postText, { marginLeft: 8 }]}>Post</Text>
+                <Text style={styles.actionText}>Post</Text>
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity style={styles.saveButton} onPress={() => onAddToGroup(selectedGroup)}>
+            <TouchableOpacity 
+              style={styles.actionButton} 
+              onPress={() => {
+                if (navigation && media?.uri) {
+                  // Navigate to group selection screen
+                  navigation.navigate('Groups', {
+                    screen: 'SelectGroup',
+                    params: {
+                      mediaUri: media.uri,
+                      mediaType: media.type || 'image',
+                    }
+                  });
+                  // Close the preview
+                  if (onCancel) {
+                    onCancel();
+                  }
+                } else {
+                  // Fallback to modal if navigation not available
+                  setShowGroupSelection(true);
+                }
+              }}
+            >
               <MaterialCommunityIcons name="account-group" size={24} color="#FFFFFF" />
-              <Text style={[styles.saveText, { marginLeft: 8 }]}>Add to Group</Text>
+              <Text style={styles.actionText}>Post to Group</Text>
             </TouchableOpacity>
-          </View>
-
-          {/* Group Selection */}
-          <View style={styles.groupSelection}>
-            <Text style={[styles.groupSelectionTitle, { color: IU_CRIMSON }]}>Select Group:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.groupList}>
-              {groups && groups.length > 0 ? (
-                groups.map((group) => (
-                  <TouchableOpacity
-                    key={group.id}
-                    style={[
-                      styles.groupChip,
-                      selectedGroup?.id === group.id && styles.groupChipSelected,
-                    ]}
-                    onPress={() => setSelectedGroup(group)}
-                  >
-                    <Text
-                      style={[
-                        styles.groupChipText,
-                        selectedGroup?.id === group.id && styles.groupChipTextSelected,
-                      ]}
-                    >
-                      {group.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))
-              ) : (
-                <Text style={{ color: '#8A90A6', padding: 12 }}>Empty</Text>
-              )}
-            </ScrollView>
           </View>
 
           <View style={styles.footer}>
@@ -100,6 +137,44 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
         </View>
       </View>
     </Modal>
+
+    {/* Group Selection Modal */}
+    <Modal 
+      visible={showGroupSelection} 
+      animationType="slide" 
+      transparent 
+      onRequestClose={() => setShowGroupSelection(false)}
+    >
+      <View style={styles.overlay}>
+        <View style={styles.groupModal}>
+          <View style={styles.groupModalHeader}>
+            <Text style={styles.groupModalTitle}>Select Group</Text>
+            <TouchableOpacity onPress={() => setShowGroupSelection(false)}>
+              <MaterialCommunityIcons name="close" size={24} color="#000000" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.groupModalList}>
+            {groups && groups.length > 0 ? (
+              groups.map((group) => (
+                <TouchableOpacity
+                  key={group.id}
+                  style={styles.groupModalItem}
+                  onPress={() => handleGroupSelect(group)}
+                >
+                  <Text style={styles.groupModalItemText}>{group.name}</Text>
+                  <MaterialCommunityIcons name="chevron-right" size={24} color="#8A90A6" />
+                </TouchableOpacity>
+              ))
+            ) : (
+              <View style={styles.groupModalEmpty}>
+                <Text style={styles.groupModalEmptyText}>No groups available</Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+    </>
   );
 }
 
@@ -130,81 +205,68 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#23283B',
+    gap: 12,
   },
-  deleteButton: {
+  actionButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     padding: 12,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+    backgroundColor: IU_CRIMSON,
+    minHeight: 48,
   },
-  deleteText: {
-    color: '#FF6B6B',
+  actionText: {
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
   },
-  postButton: {
+  groupModal: {
+    width: '90%',
+    maxHeight: '80%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  groupModalHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: IU_CRIMSON,
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
   },
-  postText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
+  groupModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#000000',
   },
-  saveButton: {
+  groupModalList: {
+    maxHeight: 400,
+  },
+  groupModalItem: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: IU_CRIMSON,
-  },
-  saveText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  groupSelection: {
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#23283B',
+    borderBottomColor: '#F0F0F0',
   },
-  groupSelectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 12,
+  groupModalItemText: {
+    fontSize: 16,
+    color: '#000000',
   },
-  groupList: {
-    paddingRight: 8,
+  groupModalEmpty: {
+    padding: 40,
+    alignItems: 'center',
   },
-  groupChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#151823',
-    borderWidth: 1,
-    borderColor: '#23283B',
-    marginRight: 8,
-  },
-  groupChipSelected: {
-    backgroundColor: IU_CRIMSON,
-    borderColor: IU_CRIMSON,
-  },
-  groupChipText: {
+  groupModalEmptyText: {
+    fontSize: 16,
     color: '#8A90A6',
-    fontSize: 14,
-  },
-  groupChipTextSelected: {
-    color: '#FFFFFF',
-    fontWeight: '600',
   },
   footer: {
     flexDirection: 'row',

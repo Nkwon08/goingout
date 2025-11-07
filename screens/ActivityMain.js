@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { ScrollView, View, TouchableOpacity, Alert } from 'react-native';
 import { Text } from 'react-native-paper';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import TonightSelector from '../components/TonightSelector';
 import EventCard from '../components/EventCard';
@@ -10,6 +11,7 @@ import CreateEventModal from '../components/CreateEventModal';
 import { events, feedPosts } from '../data/mock';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { createEvent, subscribeToUpcomingEvents, joinEvent, updateEvent, deleteEvent, checkEventJoinStatus } from '../services/eventsService';
 import { checkFriendship } from '../services/friendsService';
 import { useNavigation } from '@react-navigation/native';
@@ -27,6 +29,7 @@ export default function ActivityMain() {
   const [loadingEvents, setLoadingEvents] = React.useState(true);
   const [joinedEventIds, setJoinedEventIds] = React.useState(new Set());
   const { background, text, subText } = useThemeColors();
+  const { isDarkMode } = useTheme();
   const { user, userData } = useAuth();
   const navigation = useNavigation();
 
@@ -150,7 +153,11 @@ export default function ActivityMain() {
   }, []);
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: background }} contentContainerStyle={{ padding: 16 }}>
+    <LinearGradient
+      colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+      style={{ flex: 1 }}
+    >
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
       <TonightSelector />
 
       <View style={{ height: 24 }} />
@@ -172,7 +179,7 @@ export default function ActivityMain() {
             width: 36,
             height: 36,
             borderRadius: 18,
-            backgroundColor: '#DC143C',
+            backgroundColor: '#CC0000',
             justifyContent: 'center',
             alignItems: 'center',
           }}
@@ -333,6 +340,7 @@ export default function ActivityMain() {
         }}
       />
     </ScrollView>
+    </LinearGradient>
   );
 }
 

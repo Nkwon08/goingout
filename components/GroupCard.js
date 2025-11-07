@@ -4,10 +4,10 @@ import { Text, Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeColors } from '../hooks/useThemeColors';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 export default function GroupCard({ group, onPress, onMenuPress, onAvatarPress, showMenu = false, latestMessage = null, isExpired = false }) {
-  const { surface, text, subText, divider, background } = useThemeColors();
+  const { surface, text, subText, divider, background, isDarkMode } = useThemeColors();
   
   // Handle both array and number for members (backward compatibility)
   const memberCount = group.memberCount || (Array.isArray(group.members) ? group.members.length : group.members || 0);
@@ -81,20 +81,22 @@ export default function GroupCard({ group, onPress, onMenuPress, onAvatarPress, 
     );
   }
   
-  // New style for active groups
+  // New style for active groups with liquid glass effect
   return (
     <TouchableOpacity 
       onPress={onPress} 
       style={{ 
-        backgroundColor: surface, 
-        borderRadius: 16, 
+        backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+        borderRadius: 20, 
         marginBottom: 16, 
         overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.3,
+        shadowRadius: 16,
+        elevation: 8,
       }}
       activeOpacity={0.8}
     >

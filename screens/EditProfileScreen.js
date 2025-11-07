@@ -13,7 +13,7 @@ import { auth, db } from '../config/firebase';
 import { uploadImages } from '../services/storageService';
 import { getCurrentUserData } from '../services/authService';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 export default function EditProfileScreen({ navigation }) {
   // Get current user data

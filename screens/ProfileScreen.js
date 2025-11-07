@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { View, ScrollView, FlatList, RefreshControl, TouchableOpacity, Image, Modal, Dimensions, StyleSheet, Platform, StatusBar, TextInput, Alert } from 'react-native';
 import { Appbar, Avatar, Text, Button, Switch, List, Divider, TextInput as PaperTextInput } from 'react-native-paper';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -13,7 +14,7 @@ import { subscribeToUserPosts } from '../services/postsService';
 import FeedPost from '../components/FeedPost';
 import { useThemeColors } from '../hooks/useThemeColors';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 // Header height: Appbar.Header is typically 56px on Android, 44px on iOS, plus status bar
 const HEADER_HEIGHT = Platform.OS === 'ios' ? 44 : 56;
 const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 0 : StatusBar.currentHeight || 0;
@@ -245,7 +246,7 @@ function FriendsListModal({ visible, onClose, friendsList, navigation }) {
                   alignItems: 'center',
                   paddingVertical: 12,
                   borderBottomWidth: 1,
-                  borderBottomColor: isDarkMode ? '#3A3A3A' : '#D0CFCD',
+                  borderBottomColor: isDarkMode ? '#2A2A2A' : '#E0E0E0',
                 }}
               >
                 <Avatar.Image 
@@ -318,7 +319,19 @@ function SettingsTab({ navigation, user, userData, isDarkMode, toggleTheme, publ
     <>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
       {/* Settings section */}
-      <View style={{ backgroundColor: surfaceColor, borderRadius: 16, padding: 12, marginBottom: 16 }}>
+      <View style={{ 
+        backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+        borderRadius: 20,
+        padding: 12,
+        marginBottom: 16,
+        borderWidth: 1,
+        borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 4,
+      }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <Text style={{ color: textColor }}>Show Public Albums</Text>
           <Switch value={publicAlbums} onValueChange={setPublicAlbums} />
@@ -331,7 +344,17 @@ function SettingsTab({ navigation, user, userData, isDarkMode, toggleTheme, publ
       </View>
 
       {/* Menu items */}
-      <View style={{ backgroundColor: surfaceColor, borderRadius: 16 }}>
+      <View style={{ 
+        backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 4,
+      }}>
         <List.Item 
           title="Location" 
           description={loadingLocation ? 'Getting location...' : (location || 'Location not available')}
@@ -390,7 +413,18 @@ function SettingsTab({ navigation, user, userData, isDarkMode, toggleTheme, publ
       onRequestClose={() => !deletingAccount && setShowDeleteAccountModal(false)}
     >
       <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', padding: 20 }}>
-        <View style={{ backgroundColor: surfaceColor, borderRadius: 16, padding: 24 }}>
+        <View style={{ 
+          backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+          borderRadius: 20,
+          padding: 24,
+          borderWidth: 1,
+          borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.2,
+          shadowRadius: 8,
+          elevation: 4,
+        }}>
           <Text style={{ color: textColor, fontSize: 20, fontWeight: '600', marginBottom: 8 }}>
             Delete Account
           </Text>
@@ -523,11 +557,11 @@ export default function ProfileScreen({ navigation }) {
   }, []);
   
   // Theme colors based on dark/light mode
-  const bgColor = isDarkMode ? '#1A1A1A' : '#EEEDEB';
-  const surfaceColor = isDarkMode ? '#2A2A2A' : '#F5F4F2';
+  const bgColor = isDarkMode ? '#121212' : '#FAFAFA';
+  const surfaceColor = isDarkMode ? '#1E1E1E' : '#FFFFFF';
   const textColor = isDarkMode ? '#E6E8F0' : '#1A1A1A';
   const subTextColor = isDarkMode ? '#8A90A6' : '#666666';
-  const dividerColor = isDarkMode ? '#3A3A3A' : '#D0CFCD';
+  const dividerColor = isDarkMode ? '#2A2A2A' : '#E0E0E0';
 
   // Get GPS location on mount and when screen comes into focus
   React.useEffect(() => {
@@ -654,9 +688,13 @@ export default function ProfileScreen({ navigation }) {
 
 
   return (
-    <View style={{ flex: 1 }}>
-      {/* Header */}
-      <Appbar.Header mode="center-aligned" style={{ backgroundColor: 'transparent', elevation: 0 }}>
+    <LinearGradient
+      colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+      style={{ flex: 1 }}
+    >
+      <View style={{ flex: 1 }}>
+        {/* Header */}
+        <Appbar.Header mode="center-aligned" style={{ backgroundColor: 'transparent', elevation: 0 }}>
         <View style={{ width: 40 }} />
         <View style={{ flex: 1 }} />
         <View style={{ width: 40 }} />
@@ -670,9 +708,9 @@ export default function ProfileScreen({ navigation }) {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Dark Grey Profile Card */}
+        {/* Dark Profile Card */}
         <View style={{
-          backgroundColor: '#2A2A2A',
+          backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
           marginHorizontal: 16,
           marginTop: 20,
           borderTopLeftRadius: 20,
@@ -682,22 +720,14 @@ export default function ProfileScreen({ navigation }) {
           paddingHorizontal: 20,
           marginBottom: 0,
           alignItems: 'center',
+          borderWidth: 1,
+          borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.3,
+          shadowRadius: 16,
+          elevation: 8,
         }}>
-          {/* Grey Curved Line Above Profile Picture */}
-          <View style={{
-            position: 'absolute',
-            top: -60,
-            width: 140,
-            height: 140,
-            borderRadius: 70,
-            borderWidth: 2,
-            borderColor: '#2A2A2A',
-            borderBottomWidth: 0,
-            borderBottomLeftRadius: 0,
-            borderBottomRightRadius: 0,
-            backgroundColor: 'transparent',
-          }} />
-          
           {/* Profile Picture - Overlapping with background */}
           <View style={{
             position: 'absolute',
@@ -814,12 +844,17 @@ export default function ProfileScreen({ navigation }) {
               onPress={() => setShowSettings(true)}
               style={{
                 flex: 1,
-                backgroundColor: '#2A2A2A',
+                backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
                 paddingVertical: 12,
-                borderRadius: 8,
+                borderRadius: 20,
                 alignItems: 'center',
                 borderWidth: 1.5,
                 borderColor: IU_CRIMSON,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.2,
+                shadowRadius: 8,
+                elevation: 4,
               }}
             >
               <Text style={{
@@ -892,11 +927,18 @@ export default function ProfileScreen({ navigation }) {
           <View style={{
             marginHorizontal: 16,
             marginBottom: 24,
-            backgroundColor: '#2A2A2A',
+            backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
             borderBottomLeftRadius: 20,
             borderBottomRightRadius: 20,
             padding: 16,
             paddingTop: 0,
+            borderWidth: 1,
+            borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.3,
+            shadowRadius: 16,
+            elevation: 8,
           }}>
             <View style={{
               flexDirection: 'row',
@@ -939,7 +981,7 @@ export default function ProfileScreen({ navigation }) {
                       height: 200,
                       borderRadius: 12,
                       overflow: 'hidden',
-                      backgroundColor: '#1A1A1A',
+                      backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
                     }}
                   >
                     <Image
@@ -995,7 +1037,7 @@ export default function ProfileScreen({ navigation }) {
               Social media
             </Text>
             <View style={{
-              backgroundColor: '#2A2A2A',
+              backgroundColor: '#1E1E1E',
               borderRadius: 20,
               padding: 16,
             }}>
@@ -1102,10 +1144,10 @@ export default function ProfileScreen({ navigation }) {
           left: 0, 
           right: 0, 
           bottom: 0, 
-          backgroundColor: isDarkMode ? '#1A1A1A' : '#EEEDEB',
+          backgroundColor: isDarkMode ? '#121212' : '#FAFAFA',
           zIndex: 1000
         }}>
-          <Appbar.Header mode="center-aligned" style={{ backgroundColor: isDarkMode ? '#1A1A1A' : '#EEEDEB' }}>
+          <Appbar.Header mode="center-aligned" style={{ backgroundColor: isDarkMode ? '#121212' : '#FAFAFA' }}>
             <Appbar.Action 
               icon="arrow-left" 
               color={isDarkMode ? '#E6E8F0' : '#1A1A1A'} 
@@ -1125,14 +1167,15 @@ export default function ProfileScreen({ navigation }) {
             loadingLocation={loadingLocation}
             loggingOut={loggingOut}
             handleLogout={handleLogout}
-            bgColor={isDarkMode ? '#1A1A1A' : '#EEEDEB'}
-            surfaceColor={isDarkMode ? '#2A2A2A' : '#F5F4F2'}
+            bgColor={isDarkMode ? '#121212' : '#FAFAFA'}
+            surfaceColor={isDarkMode ? '#1E1E1E' : '#FFFFFF'}
             textColor={isDarkMode ? '#E6E8F0' : '#1A1A1A'}
             subTextColor={isDarkMode ? '#8A90A6' : '#666666'}
-            dividerColor={isDarkMode ? '#3A3A3A' : '#D0CFCD'}
+            dividerColor={isDarkMode ? '#2A2A2A' : '#E0E0E0'}
           />
         </View>
       )}
-    </View>
+      </View>
+    </LinearGradient>
   );
 }

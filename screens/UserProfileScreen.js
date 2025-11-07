@@ -12,7 +12,7 @@ import { blockUser, unblockUser, isUserBlocked } from '../services/blockService'
 import FeedPost from '../components/FeedPost';
 import { useThemeColors } from '../hooks/useThemeColors';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 // Posts Tab Component
 function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
@@ -333,7 +333,7 @@ export default function UserProfileScreen({ route, navigation }) {
   const themeColors = useThemeColors();
   
   // Theme colors based on dark/light mode
-  const bgColor = isDarkMode ? '#1A1A1A' : '#EEEDEB';
+  const bgColor = isDarkMode ? '#121212' : '#FAFAFA';
   const surfaceColor = isDarkMode ? '#2A2A2A' : '#F5F4F2';
   const textColor = isDarkMode ? '#E6E8F0' : '#1A1A1A';
   const subTextColor = isDarkMode ? '#8A90A6' : '#666666';

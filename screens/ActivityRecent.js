@@ -2,12 +2,14 @@
 import * as React from 'react';
 import { View, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { FAB, Text, Snackbar, Card } from 'react-native-paper';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FeedPost from '../components/FeedPost';
 import ComposePost from '../components/ComposePost';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { subscribeToPosts, createPost } from '../services/postsService';
 import { uploadImages } from '../services/storageService';
 import { getCurrentUserData } from '../services/authService';
@@ -15,7 +17,7 @@ import { getCurrentLocation } from '../services/locationService';
 import { subscribeToVotesForLocation } from '../services/votesService';
 import { subscribeToBlockedUsers } from '../services/blockService';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 export default function ActivityRecent() {
   // State management
@@ -40,12 +42,13 @@ export default function ActivityRecent() {
   
   // Get current user from auth context (friendsList is managed centrally in AuthContext)
   const { user, userData, loading: authLoading, friendsList } = useAuth();
+  const { isDarkMode } = useTheme();
   const { background, subText, text, surface, divider } = useThemeColors();
   const insets = useSafeAreaInsets();
   
   // Calculate bottom position for FAB - position in bottom right corner
-  // Account for bottom tab bar height (~70px) - lowered further
-  const fabBottom = insets.bottom - 17;
+  // Account for bottom tab bar height (~70px) plus some padding
+  const fabBottom = insets.bottom + 60;
 
   // Get poll results for current location
   React.useEffect(() => {
@@ -313,7 +316,11 @@ export default function ActivityRecent() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: background, overflow: 'visible' }}>
+    <LinearGradient
+      colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+      style={{ flex: 1 }}
+    >
+      <View style={{ flex: 1, overflow: 'visible' }}>
       {/* Scrollable list of posts with pull-to-refresh */}
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -328,7 +335,19 @@ export default function ActivityRecent() {
       >
         {/* Poll Results Component */}
         {sortedBars.length > 0 && (
-          <Card style={{ marginHorizontal: 16, marginBottom: 16, backgroundColor: surface, borderRadius: 16 }}>
+          <Card style={{ 
+            marginHorizontal: 16, 
+            marginBottom: 16, 
+            backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+            borderRadius: 20,
+            borderWidth: 1,
+            borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.3,
+            shadowRadius: 16,
+            elevation: 8,
+          }}>
             <Card.Content>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <Text style={{ fontSize: 16, fontWeight: '600', color: text }}>
@@ -479,5 +498,6 @@ export default function ActivityRecent() {
         {error || 'An error occurred'}
       </Snackbar>
     </View>
+    </LinearGradient>
   );
 }

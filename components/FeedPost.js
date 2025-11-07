@@ -15,7 +15,7 @@ import { createGroup } from '../services/groupsService';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const IMAGE_WIDTH = SCREEN_WIDTH * 0.92 - 12; // Narrower by 12 pixels
 const IMAGE_HEIGHT = IMAGE_WIDTH * (4 / 3); // 3:4 aspect ratio (width:height = 3:4)
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 export default function FeedPost({ post, onDelete }) {
       // Get current user and userData to check if they own this post and get current profile picture
@@ -472,7 +472,17 @@ export default function FeedPost({ post, onDelete }) {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: surface, borderColor: isDarkMode ? '#333333' : '#E0E0E0' }]}>
+    <View style={[styles.container, { 
+      backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+      borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+      borderWidth: 1,
+      borderRadius: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.3,
+      shadowRadius: 16,
+      elevation: 8,
+    }]}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.userInfo}>
@@ -896,7 +906,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 3,
   },
   dotActive: {
-    backgroundColor: '#DC143C',
+    backgroundColor: '#CC0000',
     width: 8,
     height: 8,
     borderRadius: 4,

@@ -25,10 +25,11 @@ import { createGroupPoll, voteOnGroupPoll, subscribeToGroupPolls } from '../serv
 import { subscribeToGroupPhotos, addPhotoToAlbum, addVideoToAlbum } from '../services/groupPhotosService';
 import { uploadImage } from '../services/storageService';
 import { getUserById } from '../services/usersService';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const TopTab = createMaterialTopTabNavigator();
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 function MapTab({ groupId }) {
   const { background, subText, text } = useThemeColors();
@@ -439,8 +440,9 @@ function MapTab({ groupId }) {
 }
 
 function ChatTab({ groupId }) {
-  const { background, subText, surface, text } = useThemeColors();
-  const { isDarkMode } = useTheme();
+  const { background, subText, surface, text, isDarkMode: themeIsDarkMode } = useThemeColors();
+  const theme = useTheme();
+  const isDarkMode = theme?.isDarkMode ?? themeIsDarkMode ?? false;
   const { user, userData } = useAuth();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -1340,7 +1342,7 @@ function ChatTab({ groupId }) {
                 borderTopColor: 'transparent',
                 paddingHorizontal: 8,
                 paddingTop: 4,
-                paddingBottom: shouldApplyKeyboardOffset ? 0 : 12,
+                paddingBottom: shouldApplyKeyboardOffset ? 0 : Math.max(insets.bottom, 12),
                 marginBottom: shouldApplyKeyboardOffset ? -80 : 0,
               }}
             >
@@ -1541,8 +1543,15 @@ function ChatTab({ groupId }) {
                     flexDirection: 'row',
                     alignItems: 'center',
                     padding: 16,
-                    backgroundColor: isDarkMode ? '#2C2C2E' : surface,
-                    borderRadius: 12,
+                    backgroundColor: isDarkMode ? 'rgba(44, 44, 46, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 16,
+                    elevation: 8,
                     marginBottom: 12,
                   }}
                 >
@@ -1561,8 +1570,15 @@ function ChatTab({ groupId }) {
                     flexDirection: 'row',
                     alignItems: 'center',
                     padding: 16,
-                    backgroundColor: isDarkMode ? '#2C2C2E' : surface,
-                    borderRadius: 12,
+                    backgroundColor: isDarkMode ? 'rgba(44, 44, 46, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 16,
+                    elevation: 8,
                     marginBottom: 12,
                   }}
                 >
@@ -1581,8 +1597,15 @@ function ChatTab({ groupId }) {
                     flexDirection: 'row',
                     alignItems: 'center',
                     padding: 16,
-                    backgroundColor: isDarkMode ? '#2C2C2E' : surface,
-                    borderRadius: 12,
+                    backgroundColor: isDarkMode ? 'rgba(44, 44, 46, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 16,
+                    elevation: 8,
                   }}
                 >
                   <MaterialCommunityIcons name="video" size={24} color={IU_CRIMSON} />
@@ -1901,7 +1924,9 @@ function AlbumTab({ groupId }) {
 }
 
 function PollsTab({ groupId }) {
-  const { background, subText, text, surface } = useThemeColors();
+  const { background, subText, text, surface, isDarkMode: themeIsDarkMode } = useThemeColors();
+  const theme = useTheme();
+  const isDarkMode = theme?.isDarkMode ?? themeIsDarkMode ?? false;
   const { user, userData } = useAuth();
   const [polls, setPolls] = React.useState([]);
   const [showCreatePoll, setShowCreatePoll] = React.useState(false);
@@ -2077,8 +2102,15 @@ function PollsTab({ groupId }) {
                     <Text style={{ color: text, fontSize: 16, marginBottom: 8 }}>Question</Text>
                     <TextInput
                       style={{
-                        backgroundColor: surface,
-                        borderRadius: 8,
+                        backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                        borderRadius: 20,
+                        borderWidth: 1,
+                        borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 4 },
+                        shadowOpacity: 0.2,
+                        shadowRadius: 8,
+                        elevation: 4,
                         padding: 12,
                         color: text,
                         marginBottom: 20,
@@ -2152,10 +2184,91 @@ function PollsTab({ groupId }) {
 }
 
 function GroupDetail({ group: initialGroup, onBack }) {
-  const { background, text, subText, surface } = useThemeColors();
+  const { background, text, subText, surface, isDarkMode: themeIsDarkMode } = useThemeColors();
+  const theme = useTheme();
+  const isDarkMode = theme?.isDarkMode ?? themeIsDarkMode ?? false;
   const { user, friendsList: friendsListFromContext } = useAuth();
   const navigation = useNavigation();
   const [group, setGroup] = React.useState(initialGroup);
+  
+  // Hide bottom tab bar when entering group detail
+  React.useEffect(() => {
+    // Get the parent tab navigator
+    const parent = navigation.getParent();
+    if (parent) {
+      // Hide the tab bar
+      parent.setOptions({
+        tabBarStyle: { display: 'none' },
+      });
+    }
+    
+    // Show tab bar again when component unmounts
+    return () => {
+      const parentNav = navigation.getParent();
+      if (parentNav) {
+        parentNav.setOptions({
+          tabBarStyle: {
+            backgroundColor: '#000000',
+            borderTopColor: 'transparent',
+            borderTopWidth: 0,
+            borderWidth: 0,
+            paddingBottom: 20,
+            paddingTop: 8,
+            elevation: 8,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.1,
+            shadowRadius: 8,
+            borderRadius: 30,
+            marginHorizontal: 16,
+            marginBottom: 16,
+            height: 70,
+            position: 'absolute',
+          },
+        });
+      }
+    };
+  }, [navigation]);
+  
+  // Also restore tab bar when screen loses focus (e.g., user switches tabs)
+  useFocusEffect(
+    React.useCallback(() => {
+      // When screen gains focus, ensure tab bar is hidden if we're in group detail
+      const parent = navigation.getParent();
+      if (parent) {
+        parent.setOptions({
+          tabBarStyle: { display: 'none' },
+        });
+      }
+      
+      return () => {
+        // When screen loses focus, restore tab bar
+        const parentNav = navigation.getParent();
+        if (parentNav) {
+          parentNav.setOptions({
+            tabBarStyle: {
+              backgroundColor: '#000000',
+              borderTopColor: 'transparent',
+              borderTopWidth: 0,
+              borderWidth: 0,
+              paddingBottom: 20,
+              paddingTop: 8,
+              elevation: 8,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: -2 },
+              shadowOpacity: 0.1,
+              shadowRadius: 8,
+              borderRadius: 30,
+              marginHorizontal: 16,
+              marginBottom: 16,
+              height: 70,
+              position: 'absolute',
+            },
+          });
+        }
+      };
+    }, [navigation])
+  );
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
   const [showMembersModal, setShowMembersModal] = React.useState(false);
@@ -2677,7 +2790,20 @@ function GroupDetail({ group: initialGroup, onBack }) {
         onRequestClose={() => setShowDeleteConfirm(false)}
       >
         <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-          <View style={{ backgroundColor: background, borderRadius: 16, padding: 20, width: '100%', maxWidth: 400 }}>
+          <View style={{ 
+            backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.9)' : 'rgba(255, 255, 255, 0.95)',
+            borderRadius: 20,
+            padding: 20,
+            width: '100%',
+            maxWidth: 400,
+            borderWidth: 1,
+            borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.3,
+            shadowRadius: 16,
+            elevation: 8,
+          }}>
             <Text style={{ color: text, fontSize: 20, fontWeight: 'bold', marginBottom: 12 }}>
               Delete Group
             </Text>
@@ -2904,7 +3030,20 @@ function GroupDetail({ group: initialGroup, onBack }) {
         }}
       >
         <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', alignItems: 'center', padding: 20, zIndex: 9999 }}>
-          <View style={{ backgroundColor: background, borderRadius: 16, padding: 20, width: '100%', maxWidth: 400 }}>
+          <View style={{ 
+            backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.9)' : 'rgba(255, 255, 255, 0.95)',
+            borderRadius: 20,
+            padding: 20,
+            width: '100%',
+            maxWidth: 400,
+            borderWidth: 1,
+            borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.3,
+            shadowRadius: 16,
+            elevation: 8,
+          }}>
             <Text style={{ color: text, fontSize: 20, fontWeight: 'bold', marginBottom: 12 }}>
               Leave Group
             </Text>
@@ -3044,13 +3183,15 @@ export default function GroupsScreen({ navigation }) {
   const [showCoverPhotoMenu, setShowCoverPhotoMenu] = React.useState(false);
   const [uploadingCoverPhoto, setUploadingCoverPhoto] = React.useState(false);
   const [latestMessages, setLatestMessages] = React.useState({}); // Map of groupId -> latest message
-  const { background, text, subText, surface } = useThemeColors();
+  const { background, text, subText, surface, isDarkMode: themeIsDarkMode } = useThemeColors();
+  const theme = useTheme();
+  const isDarkMode = theme?.isDarkMode ?? themeIsDarkMode ?? false;
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   
   // Calculate bottom position for FAB - position in bottom right corner
-  // Account for bottom tab bar height (~70px)
-  const fabBottom = insets.bottom - 17;
+  // Account for bottom tab bar height (~70px) plus some padding
+  const fabBottom = insets.bottom + 60;
 
   // Subscribe to user groups from Firebase
   React.useEffect(() => {
@@ -3355,11 +3496,19 @@ export default function GroupsScreen({ navigation }) {
   }
   
   return (
-    <View style={{ flex: 1, backgroundColor: background }}>
-      <Appbar.Header mode="center-aligned" style={{ backgroundColor: background }}>
-        <Appbar.Content title="Groups" color={text} />
-      </Appbar.Header>
-      <ScrollView contentContainerStyle={{ padding: 16 }}>
+    <LinearGradient
+      colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+      style={{ flex: 1 }}
+    >
+      <View style={{ flex: 1, overflow: 'visible' }}>
+        <Appbar.Header mode="center-aligned" style={{ backgroundColor: 'transparent' }}>
+          <Appbar.Content title="Groups" color={text} />
+        </Appbar.Header>
+        <ScrollView 
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+          showsVerticalScrollIndicator={true}
+        >
         {loading ? (
           <View style={{ padding: 20, alignItems: 'center' }}>
             <ActivityIndicator size="small" color={IU_CRIMSON} />
@@ -3368,24 +3517,44 @@ export default function GroupsScreen({ navigation }) {
         ) : activeGroups.length > 0 || sortedMonthKeys.length > 0 ? (
           <>
             {/* Active Groups */}
-            {activeGroups.map((g) => {
-              const isOwner = g?.creator === user?.uid;
-              return (
-                <GroupCard 
-                  key={g.id} 
-                  group={g} 
-                  onPress={() => setSelected(g)} 
-                  onMenuPress={handleGroupMenuPress}
-                  onAvatarPress={handleAvatarPress}
-                  showMenu={isOwner}
-                  latestMessage={latestMessages[g.id] || null}
-                />
-              );
-            })}
+            {activeGroups.length > 0 && (
+              <>
+                <Text style={{ 
+                  color: text, 
+                  fontSize: 20, 
+                  fontWeight: '700', 
+                  marginBottom: 16 
+                }}>
+                  Active Groups
+                </Text>
+                {activeGroups.map((g) => {
+                  const isOwner = g?.creator === user?.uid;
+                  return (
+                    <GroupCard 
+                      key={g.id} 
+                      group={g} 
+                      onPress={() => setSelected(g)} 
+                      onMenuPress={handleGroupMenuPress}
+                      onAvatarPress={handleAvatarPress}
+                      showMenu={isOwner}
+                      latestMessage={latestMessages[g.id] || null}
+                    />
+                  );
+                })}
+              </>
+            )}
             
             {/* Expired Groups by Month/Year */}
             {sortedMonthKeys.length > 0 && (
-              <View style={{ marginTop: activeGroups.length > 0 ? 24 : 0 }}>
+              <View style={{ marginTop: activeGroups.length > 0 ? 32 : 0 }}>
+                <Text style={{ 
+                  color: text, 
+                  fontSize: 20, 
+                  fontWeight: '700', 
+                  marginBottom: 16 
+                }}>
+                  Expired Groups
+                </Text>
                 {sortedMonthKeys.map((monthKey) => {
                   const monthData = expiredGroupsByMonth[monthKey];
                   const isExpanded = expandedMonths.has(monthKey);
@@ -3401,8 +3570,15 @@ export default function GroupsScreen({ navigation }) {
                           justifyContent: 'space-between',
                           paddingVertical: 12,
                           paddingHorizontal: 16,
-                          backgroundColor: surface,
-                          borderRadius: 12,
+                          backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                          borderRadius: 20,
+                          borderWidth: 1,
+                          borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 4 },
+                          shadowOpacity: 0.2,
+                          shadowRadius: 8,
+                          elevation: 4,
                           marginBottom: 8,
                         }}
                         activeOpacity={0.7}
@@ -3524,7 +3700,7 @@ export default function GroupsScreen({ navigation }) {
                 {/* Join Group Button */}
                 <TouchableOpacity
                   style={{
-                    backgroundColor: surface,
+                    backgroundColor: isDarkMode ? '#1E1E1E' : '#FFFFFF',
                     borderRadius: 12,
                     padding: 16,
                     borderWidth: 2,
@@ -3677,7 +3853,8 @@ export default function GroupsScreen({ navigation }) {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
-    </View>
+      </View>
+    </LinearGradient>
   );
 }
 

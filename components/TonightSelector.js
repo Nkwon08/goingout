@@ -10,7 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { voteForOption, subscribeToVotesForLocation, getUserVoteForLocation } from '../services/votesService';
 import { getCurrentLocation } from '../services/locationService';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 // Predefined bar options
 const PREDEFINED_BARS = [

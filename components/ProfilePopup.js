@@ -5,7 +5,7 @@ import { Text, Avatar, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeColors } from '../hooks/useThemeColors';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 export default function ProfilePopup({ visible, onClose, userProfile, onAddFriend, isFriend }) {
   const { background, text, subText, surface } = useThemeColors();

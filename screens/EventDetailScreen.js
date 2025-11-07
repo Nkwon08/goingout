@@ -12,7 +12,7 @@ import { getGroupById } from '../services/groupsService';
 import CreateEventModal from '../components/CreateEventModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 export default function EventDetailScreen({ route, navigation }) {
   const { eventId, event } = route.params || {};
@@ -35,7 +35,7 @@ export default function EventDetailScreen({ route, navigation }) {
   const isCreator = user?.uid && eventData?.userId && String(user.uid) === String(eventData.userId);
   
   // Theme colors based on dark/light mode
-  const bgColor = isDarkMode ? '#1A1A1A' : '#EEEDEB';
+  const bgColor = isDarkMode ? '#121212' : '#FAFAFA';
   const surfaceColor = isDarkMode ? '#2A2A2A' : '#F5F4F2';
   const textColor = isDarkMode ? '#E6E8F0' : '#1A1A1A';
   const subTextColor = isDarkMode ? '#8A90A6' : '#666666';

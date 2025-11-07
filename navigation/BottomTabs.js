@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { subscribeToNotifications } from '../services/notificationsService';
 
 const Tab = createBottomTabNavigator();
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 // Custom Bell Icon Component with shake animation and badge
 function NotificationBellIcon({ color, size, focused }) {
@@ -135,7 +135,8 @@ export default function BottomTabs() {
   const { background, border, subText } = useThemeColors();
   
   return (
-    <Tab.Navigator
+    <View style={{ flex: 1, backgroundColor: '#000000' }}>
+      <Tab.Navigator
       screenOptions={({ route }) => {
         const routeName = route?.name || '';
         
@@ -146,6 +147,7 @@ export default function BottomTabs() {
             backgroundColor: '#000000',
             borderTopColor: 'transparent',
             borderTopWidth: 0,
+            borderWidth: 0,
             paddingBottom: 20,
             paddingTop: 8,
             elevation: 8,
@@ -157,7 +159,15 @@ export default function BottomTabs() {
             marginHorizontal: 16,
             marginBottom: 16,
             height: 70,
+            position: 'absolute',
           },
+          tabBarBackground: () => (
+            <View style={{ 
+              flex: 1, 
+              backgroundColor: '#000000',
+              borderRadius: 30,
+            }} />
+          ),
           // Active/inactive tab colors
           tabBarActiveTintColor: IU_CRIMSON,
           tabBarInactiveTintColor: subText,
@@ -231,7 +241,8 @@ export default function BottomTabs() {
           },
         })}
       />
-    </Tab.Navigator>
+      </Tab.Navigator>
+    </View>
   );
 }
 

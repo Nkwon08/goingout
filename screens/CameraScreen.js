@@ -15,7 +15,7 @@ import { createPost } from '../services/postsService';
 import { subscribeToUserGroups } from '../services/groupsService';
 import { sendImageMessage, sendVideoMessage } from '../services/groupChatService';
 
-const IU_CRIMSON = '#DC143C';
+const IU_CRIMSON = '#CC0000';
 
 export default function CameraScreen() {
   const [facing, setFacing] = React.useState('back');
@@ -715,6 +715,7 @@ export default function CameraScreen() {
         onAddToGroup={handleAddToGroup}
         onPostPublicly={handlePostPublicly}
         onCancel={handleCancelPreview}
+        navigation={navigation}
       />
 
       {/* Compose Post Modal */}
@@ -810,7 +811,7 @@ const styles = StyleSheet.create({
     margin: 20,
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    paddingBottom: 20, // Position between viewfinder and bottom nav
+    paddingBottom: 80, // Position above bottom tab bar
     paddingHorizontal: 0,
     position: 'relative',
   },
@@ -839,7 +840,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'absolute',
     left: '50%',
-    bottom: 20, // Position between viewfinder and bottom nav
+    bottom: 75, // Position above bottom tab bar
     transform: [{ translateX: -35 }], // Half of width (70/2) to center perfectly
   },
   captureButtonInner: {
