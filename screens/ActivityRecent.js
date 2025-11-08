@@ -5,6 +5,7 @@ import { FAB, Text, Snackbar } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRoute, useFocusEffect } from '@react-navigation/native';
 import FeedPost from '../components/FeedPost';
 import ComposePost from '../components/ComposePost';
 import { useThemeColors } from '../hooks/useThemeColors';
@@ -19,6 +20,8 @@ import { subscribeToBlockedUsers } from '../services/blockService';
 const IU_CRIMSON = '#CC0000';
 
 export default function ActivityRecent() {
+  const route = useRoute();
+  
   // State management
   const [posts, setPosts] = React.useState([]);
   const [refreshing, setRefreshing] = React.useState(false);
@@ -39,6 +42,10 @@ export default function ActivityRecent() {
   const { isDarkMode } = useTheme();
   const { background, subText, text, surface, divider } = useThemeColors();
   const insets = useSafeAreaInsets();
+  
+  // ScrollView ref for scrolling to highlighted post
+  const scrollViewRef = React.useRef(null);
+  const postRefs = React.useRef({});
   
   // Calculate bottom position for FAB - position in bottom right corner
   // Account for bottom tab bar height (~70px) plus some padding
@@ -87,6 +94,35 @@ export default function ActivityRecent() {
           setError(null);
         }
       }, [composeVisible]);
+
+  // Handle scrolling to highlighted post when route params change
+  useFocusEffect(
+    React.useCallback(() => {
+      const highlightPostId = route.params?.highlightPostId;
+      
+      if (highlightPostId && posts.length > 0) {
+        // Wait a bit for posts to render
+        setTimeout(() => {
+          const postRef = postRefs.current[highlightPostId];
+          if (postRef && scrollViewRef.current) {
+            postRef.measureLayout(
+              scrollViewRef.current,
+              (x, y) => {
+                scrollViewRef.current?.scrollTo({
+                  y: y - 20, // Add some padding above the post
+                  animated: true,
+                });
+              },
+              () => {
+                // If measureLayout fails, try scrollToEnd and then scroll back
+                console.warn('Could not measure post layout');
+              }
+            );
+          }
+        }, 300);
+      }
+    }, [route.params?.highlightPostId, posts])
+  );
 
   // Subscribe to posts in real-time with account location filtering
   React.useEffect(() => {
@@ -278,6 +314,7 @@ export default function ActivityRecent() {
       <View style={{ flex: 1, overflow: 'visible' }}>
       {/* Scrollable list of posts with pull-to-refresh */}
       <ScrollView
+        ref={scrollViewRef}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingTop: 16, paddingBottom: 80 }}
         refreshControl={
@@ -299,13 +336,21 @@ export default function ActivityRecent() {
           </View>
         ) : (
           posts.map((post) => (
-            <FeedPost
+            <View
               key={post.id}
-              post={post}
-              onDelete={(postId) => {
-                // Post will be automatically removed from feed via real-time listener
+              ref={(ref) => {
+                if (ref) {
+                  postRefs.current[post.id] = ref;
+                }
               }}
-            />
+            >
+              <FeedPost
+                post={post}
+                onDelete={(postId) => {
+                  // Post will be automatically removed from feed via real-time listener
+                }}
+              />
+            </View>
           ))
         )}
       </ScrollView>

@@ -13,148 +13,13 @@ import { getCurrentLocation } from '../services/locationService';
 import { subscribeToUserPosts } from '../services/postsService';
 import FeedPost from '../components/FeedPost';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { getCardBorderOnly } from '../utils/cardStyles';
 
 const IU_CRIMSON = '#CC0000';
 // Header height: Appbar.Header is typically 56px on Android, 44px on iOS, plus status bar
 const HEADER_HEIGHT = Platform.OS === 'ios' ? 44 : 56;
 const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 0 : StatusBar.currentHeight || 0;
 const TOTAL_HEADER_HEIGHT = HEADER_HEIGHT + STATUS_BAR_HEIGHT;
-
-// All Posts Screen Component - displays all posts in 3 columns
-function AllPostsScreen({ posts, visible, onClose, navigation }) {
-  const { background, text, subText, surface } = useThemeColors();
-  const { isDarkMode } = useTheme();
-  const [selectedPostIndex, setSelectedPostIndex] = React.useState(null);
-  const flatListRef = React.useRef(null);
-
-  const screenWidth = Dimensions.get('window').width;
-  const gridPadding = 16;
-  const gridGap = 2;
-  const itemSize = (screenWidth - (gridPadding * 2) - (gridGap * 2)) / 3;
-
-  const handlePostPress = (post) => {
-    const index = posts.findIndex(p => p.id === post.id);
-    if (index !== -1) {
-      setSelectedPostIndex(index);
-    }
-  };
-
-  const handleCloseModal = () => {
-    setSelectedPostIndex(null);
-  };
-
-  const postsWithImages = posts.filter(post => (post.images || []).length > 0);
-
-  return (
-    <Modal
-      visible={visible}
-      transparent={false}
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <View style={{ flex: 1, backgroundColor: background }}>
-        <Appbar.Header mode="center-aligned" style={{ backgroundColor: background }}>
-          <Appbar.Action 
-            icon="arrow-left" 
-            color={text} 
-            onPress={onClose}
-          />
-          <Appbar.Content title="All Posts" color={text} />
-        </Appbar.Header>
-        <ScrollView 
-          contentContainerStyle={{
-            padding: gridPadding,
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            gap: gridGap,
-          }}
-        >
-          {postsWithImages.map((post) => {
-            const images = post.images || [];
-            const firstImage = images[0];
-            if (!firstImage) return null;
-            
-            const itemHeight = itemSize * (4 / 3);
-            
-            return (
-              <TouchableOpacity
-                key={post.id}
-                onPress={() => handlePostPress(post)}
-                style={{
-                  width: itemSize,
-                  height: itemHeight,
-                  backgroundColor: surface,
-                  borderRadius: 4,
-                  overflow: 'hidden',
-                }}
-                activeOpacity={0.8}
-              >
-                <Image
-                  source={{ uri: firstImage }}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                  }}
-                  resizeMode="cover"
-                />
-                {images.length > 1 && (
-                  <View style={{
-                    position: 'absolute',
-                    top: 8,
-                    right: 8,
-                    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                    borderRadius: 12,
-                    paddingHorizontal: 8,
-                    paddingVertical: 4,
-                  }}>
-                    <MaterialCommunityIcons 
-                      name="layers" 
-                      size={16} 
-                      color="#FFFFFF" 
-                    />
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        {/* Modal for viewing post */}
-        {selectedPostIndex !== null && postsWithImages.length > 0 && (
-          <Modal
-            visible={selectedPostIndex !== null}
-            transparent={false}
-            animationType="slide"
-            onRequestClose={handleCloseModal}
-          >
-            <View style={{ flex: 1, backgroundColor: background }}>
-              <Appbar.Header mode="center-aligned" style={{ backgroundColor: background }}>
-                <Appbar.Action 
-                  icon="arrow-left" 
-                  color={text} 
-                  onPress={handleCloseModal}
-                />
-                <Appbar.Content title="" color={text} />
-              </Appbar.Header>
-              <FlatList
-                ref={flatListRef}
-                data={postsWithImages}
-                keyExtractor={(item) => item.id}
-                showsVerticalScrollIndicator={true}
-                contentContainerStyle={{ paddingBottom: 20 }}
-                renderItem={({ item }) => (
-                  <View style={{ width: '100%' }}>
-                    <FeedPost post={item} />
-                  </View>
-                )}
-              />
-            </View>
-          </Modal>
-        )}
-      </View>
-    </Modal>
-  );
-}
 
 // Friends List Modal Component
 function FriendsListModal({ visible, onClose, friendsList, navigation }) {
@@ -511,7 +376,6 @@ export default function ProfileScreen({ navigation }) {
   const [showSettings, setShowSettings] = React.useState(false);
   const [posts, setPosts] = React.useState([]);
   const [postsLoading, setPostsLoading] = React.useState(true);
-  const [showAllPosts, setShowAllPosts] = React.useState(false);
   const [showFriendsList, setShowFriendsList] = React.useState(false);
   const [selectedPost, setSelectedPost] = React.useState(null);
   const [avatarKey, setAvatarKey] = React.useState(0);
@@ -683,8 +547,8 @@ export default function ProfileScreen({ navigation }) {
   const followersCount = friendsList?.length || 0;
   const followingCount = friendsList?.length || 0; // Mutual friendships
 
-  // Get work posts (posts with images) for "My works" section
-  const workPosts = posts.filter(post => (post.images || []).length > 0).slice(0, 10);
+  // Get work posts (posts with images) for "My works" section - limit to 9 for 3x3 grid
+  const workPosts = posts.filter(post => (post.images || []).length > 0).slice(0, 9);
 
 
   return (
@@ -703,14 +567,14 @@ export default function ProfileScreen({ navigation }) {
       <ScrollView 
         style={{ flex: 1 }}
         contentContainerStyle={{ 
-          paddingBottom: 20, 
+          paddingBottom: 100, 
           paddingTop: TOTAL_HEADER_HEIGHT // Minimal padding to raise profile section
         }}
         showsVerticalScrollIndicator={false}
       >
         {/* Dark Profile Card */}
         <View style={{
-          backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+          backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
           marginHorizontal: 16,
           marginTop: 20,
           borderTopLeftRadius: 20,
@@ -720,8 +584,7 @@ export default function ProfileScreen({ navigation }) {
           paddingHorizontal: 20,
           marginBottom: 0,
           alignItems: 'center',
-          borderWidth: 1,
-          borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          ...getCardBorderOnly(),
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 8 },
           shadowOpacity: 0.3,
@@ -922,103 +785,103 @@ export default function ProfileScreen({ navigation }) {
           </View>
         </View>
 
-        {/* My works Section */}
+        {/* My works Section - 3x3 Grid */}
         {workPosts.length > 0 && (
           <View style={{
             marginHorizontal: 16,
+            marginTop: 0,
             marginBottom: 24,
-            backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+            backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
             borderBottomLeftRadius: 20,
             borderBottomRightRadius: 20,
-            padding: 16,
-            paddingTop: 0,
-            borderWidth: 1,
-            borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            paddingHorizontal: 20,
+            paddingVertical: 16,
+            ...getCardBorderOnly(),
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 8 },
             shadowOpacity: 0.3,
             shadowRadius: 16,
             elevation: 8,
           }}>
-            <View style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
+            <Text style={{
+              fontSize: 18,
+              fontWeight: '600',
+              color: '#FFFFFF',
               marginBottom: 12,
             }}>
-              <Text style={{
-                fontSize: 18,
-                fontWeight: '600',
-                color: '#FFFFFF',
-              }}>
-                Posts
-              </Text>
-              <TouchableOpacity onPress={() => setShowAllPosts(true)}>
-                <Text style={{
-                  fontSize: 14,
-                  color: '#CCCCCC',
+              Posts
+            </Text>
+            {(() => {
+              const screenWidth = Dimensions.get('window').width;
+              const containerMargin = 16 * 2; // marginHorizontal: 16 on each side (matches profile card)
+              const cardPadding = 20 * 2; // paddingHorizontal: 20 on each side (matches profile card)
+              const gridGap = 2; // 2px gap between items
+              // Calculate item size to ensure exactly 3 fit per row
+              // Total available width = screenWidth - margins - padding
+              const totalAvailableWidth = screenWidth - containerMargin - cardPadding;
+              // For 3 items with 2 gaps between them: itemSize * 3 + gap * 2 = totalAvailableWidth
+              // So: itemSize = (totalAvailableWidth - gap * 2) / 3
+              // Add 1px buffer to ensure they fit
+              const itemSize = (totalAvailableWidth - (gridGap * 2) - 1) / 3;
+              const itemHeight = itemSize * (4 / 3);
+              
+              return (
+                <View style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  width: '100%',
                 }}>
-                  View all
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 12 }}
-            >
-              {workPosts.map((post) => {
-                const images = post.images || [];
-                const firstImage = images[0];
-                if (!firstImage) return null;
+                  {workPosts.map((post, index) => {
+                    const images = post.images || [];
+                    const firstImage = images[0];
+                    if (!firstImage) return null;
                 
-                return (
-                  <TouchableOpacity
-                    key={post.id}
-                    onPress={() => setSelectedPost(post)}
-                    style={{
-                      width: 160,
-                      height: 200,
-                      borderRadius: 12,
-                      overflow: 'hidden',
-                      backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                    }}
-                  >
-                    <Image
-                      source={{ uri: firstImage }}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                      }}
-                      resizeMode="cover"
-                    />
-                    <View style={{
-                      position: 'absolute',
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                      padding: 12,
-                    }}>
-                      <Text style={{
-                        color: '#FFFFFF',
-                        fontWeight: '600',
-                        fontSize: 14,
-                      }}>
-                        {post.text || 'Post'}
-                      </Text>
-                      <Text style={{
-                        color: '#FFFFFF',
-                        fontSize: 12,
-                        marginTop: 4,
-                      }}>
-                        {images.length} {images.length === 1 ? 'photo' : 'photos'}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+                    return (
+                      <TouchableOpacity
+                        key={post.id}
+                        onPress={() => setSelectedPost(post)}
+                        style={{
+                          width: itemSize,
+                          height: itemHeight,
+                          marginRight: index % 3 < 2 ? gridGap : 0, // Add gap after first and second item in each row
+                          marginBottom: gridGap,
+                          borderRadius: 4,
+                          overflow: 'hidden',
+                          backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Image
+                          source={{ uri: firstImage }}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                          }}
+                          resizeMode="cover"
+                        />
+                        {images.length > 1 && (
+                          <View style={{
+                            position: 'absolute',
+                            top: 8,
+                            right: 8,
+                            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                            borderRadius: 12,
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                          }}>
+                            <MaterialCommunityIcons 
+                              name="layers" 
+                              size={16} 
+                              color="#FFFFFF" 
+                            />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              );
+            })()}
           </View>
         )}
 
@@ -1092,14 +955,6 @@ export default function ProfileScreen({ navigation }) {
           </View>
         )}
       </ScrollView>
-
-      {/* All Posts Modal */}
-      <AllPostsScreen 
-        posts={posts} 
-        visible={showAllPosts}
-        onClose={() => setShowAllPosts(false)}
-        navigation={navigation}
-      />
 
       {/* Friends List Modal */}
       <FriendsListModal

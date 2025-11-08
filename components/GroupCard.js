@@ -82,12 +82,12 @@ export default function GroupCard({ group, onPress, onMenuPress, onAvatarPress, 
     );
   }
   
-  // New style for active groups with liquid glass effect
+  // New style for active groups with liquid glass effect (matching FeedPost)
   return (
     <TouchableOpacity 
       onPress={onPress} 
       style={{ 
-        backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+        backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
         borderRadius: 20, 
         marginBottom: 16, 
         overflow: 'hidden',

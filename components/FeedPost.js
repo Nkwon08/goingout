@@ -12,6 +12,7 @@ import { addComment, subscribeToComments, deleteComment } from '../services/comm
 import { subscribeToUserGroups } from '../services/groupsService';
 import { sendImageMessage, sendImageMessageWithUrl, sendMessage } from '../services/groupChatService';
 import { createGroup } from '../services/groupsService';
+import { parseMentions } from '../utils/mentionUtils';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const IMAGE_WIDTH = SCREEN_WIDTH * 0.92 - 12; // Narrower by 12 pixels
@@ -548,7 +549,39 @@ export default function FeedPost({ post, onDelete }) {
       {/* Caption - shown first under the name */}
       {post.text && (
         <View style={styles.captionContainer}>
-          <Text style={[styles.caption, { color: text }]}>{post.text}</Text>
+          <Text style={[styles.caption, { color: text }]}>
+            {parseMentions(post.text).map((segment, index) => {
+              if (segment.type === 'mention') {
+                return (
+                  <Text
+                    key={index}
+                    style={[styles.caption, { color: text, fontWeight: '700' }]}
+                    onPress={() => {
+                      // Navigate to user profile
+                      let rootNavigator = navigation;
+                      let parent = navigation.getParent();
+                      
+                      while (parent) {
+                        rootNavigator = parent;
+                        parent = parent.getParent();
+                      }
+                      
+                      rootNavigator.navigate('UserProfileModal', { 
+                        username: segment.username 
+                      });
+                    }}
+                  >
+                    {segment.content}
+                  </Text>
+                );
+              }
+              return (
+                <Text key={index} style={[styles.caption, { color: text }]}>
+                  {segment.content}
+                </Text>
+              );
+            })}
+          </Text>
         </View>
       )}
 

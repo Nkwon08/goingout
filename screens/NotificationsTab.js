@@ -122,7 +122,7 @@ export default function NotificationsTab() {
       setGroupInvitations(invitations);
 
       const postNotifs = (result.notifications || []).filter(
-        (notif) => (notif.type === 'like' || notif.type === 'comment') && notif.postId
+        (notif) => (notif.type === 'like' || notif.type === 'comment' || notif.type === 'tag') && notif.postId
       );
       
       // Only update if the list actually changed (to prevent unnecessary re-renders)
@@ -296,7 +296,32 @@ export default function NotificationsTab() {
     }
   }, [user?.uid, clearingPostNotifications, selectedNotifications]);
 
-  // Handle notification tap - navigate to own profile and highlight post
+  const handleClearAllNotifications = React.useCallback(async () => {
+    if (!user?.uid || clearingPostNotifications || postNotifications.length === 0) return;
+
+    setClearingPostNotifications(true);
+    const allNotificationIds = postNotifications.map(n => n.id);
+    
+    try {
+      // Delete all notifications from Firestore
+      const result = await deleteNotifications(user.uid, allNotificationIds);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to delete notifications');
+      }
+      
+      // Clear selection mode if active
+      setSelectionMode(false);
+      setSelectedNotifications(new Set());
+    } catch (error) {
+      console.error('Error deleting all notifications:', error);
+      Alert.alert('Error', 'Failed to delete notifications. Please try again.', [{ text: 'OK' }]);
+    } finally {
+      setClearingPostNotifications(false);
+    }
+  }, [user?.uid, clearingPostNotifications, postNotifications]);
+
+  // Handle notification tap - navigate to post
   const handleNotificationTap = React.useCallback(async (notification) => {
     if (!user?.uid || !notification?.postId) return;
 
@@ -309,10 +334,12 @@ export default function NotificationsTab() {
       }
     }
 
-    // Navigate to the current user's profile (Profile tab) with the post highlighted
+    // For tag notifications, navigate to Activity/Feed tab to show the post
+    // For other notifications (like, comment), navigate to profile with post highlighted
+    const isTagNotification = notification.type === 'tag';
+    
     try {
       // Try multiple navigation approaches to find the right navigator
-      // Approach 1: Try to get RootNavigator and navigate through MainTabs
       let currentNav = navigation;
       let rootNavigator = null;
       let parent = navigation.getParent();
@@ -328,20 +355,68 @@ export default function NotificationsTab() {
           break;
         }
         
-        // Check if this navigator has 'Profile' (BottomTabs)
+        // Check if this navigator has 'Activity' or 'Profile' (BottomTabs)
+        if (routeNames && routeNames.includes('Activity')) {
+          // This is BottomTabs, navigate directly
+          if (isTagNotification) {
+            // Navigate to Activity -> Feed (Recent) with postId
+            parent.dispatch(
+              CommonActions.navigate({
+                name: 'Activity',
+                params: {
+                  screen: 'Feed',
+                  params: {
+                    highlightPostId: notification.postId,
+                  },
+                },
+              })
+            );
+          } else {
+            // Navigate to Profile with post highlighted
+            parent.dispatch(
+              CommonActions.navigate({
+                name: 'Profile',
+                params: {
+                  screen: 'ProfileMain',
+                  params: {
+                    highlightPostId: notification.postId,
+                  },
+                },
+              })
+            );
+          }
+          return;
+        }
+        
         if (routeNames && routeNames.includes('Profile')) {
           // This is BottomTabs, navigate directly
-          parent.dispatch(
-            CommonActions.navigate({
-              name: 'Profile',
-              params: {
-                screen: 'ProfileMain',
+          if (isTagNotification) {
+            // Navigate to Activity -> Feed (Recent) with postId
+            parent.dispatch(
+              CommonActions.navigate({
+                name: 'Activity',
                 params: {
-                  highlightPostId: notification.postId,
+                  screen: 'Feed',
+                  params: {
+                    highlightPostId: notification.postId,
+                  },
                 },
-              },
-            })
-          );
+              })
+            );
+          } else {
+            // Navigate to Profile with post highlighted
+            parent.dispatch(
+              CommonActions.navigate({
+                name: 'Profile',
+                params: {
+                  screen: 'ProfileMain',
+                  params: {
+                    highlightPostId: notification.postId,
+                  },
+                },
+              })
+            );
+          }
           return;
         }
         
@@ -351,39 +426,66 @@ export default function NotificationsTab() {
       
       // If we found RootNavigator, navigate through MainTabs
       if (rootNavigator) {
-        rootNavigator.dispatch(
-          CommonActions.navigate({
-            name: 'MainTabs',
-            params: {
-              screen: 'Profile',
+        if (isTagNotification) {
+          // Navigate to Activity -> Feed (Recent) with postId
+          rootNavigator.dispatch(
+            CommonActions.navigate({
+              name: 'MainTabs',
               params: {
-                screen: 'ProfileMain',
+                screen: 'Activity',
                 params: {
-                  highlightPostId: notification.postId,
+                  screen: 'Feed',
+                  params: {
+                    highlightPostId: notification.postId,
+                  },
                 },
               },
-            },
-          })
-        );
+            })
+          );
+        } else {
+          // Navigate to Profile with post highlighted
+          rootNavigator.dispatch(
+            CommonActions.navigate({
+              name: 'MainTabs',
+              params: {
+                screen: 'Profile',
+                params: {
+                  screen: 'ProfileMain',
+                  params: {
+                    highlightPostId: notification.postId,
+                  },
+                },
+              },
+            })
+          );
+        }
         return;
       }
       
       // Fallback: Try using the current navigation's navigate method
-      // This might work if we're already in the right context
       try {
-        navigation.navigate('Profile', {
-          screen: 'ProfileMain',
-          params: {
-            highlightPostId: notification.postId,
-          },
-        });
+        if (isTagNotification) {
+          navigation.navigate('Activity', {
+            screen: 'Feed',
+            params: {
+              highlightPostId: notification.postId,
+            },
+          });
+        } else {
+          navigation.navigate('Profile', {
+            screen: 'ProfileMain',
+            params: {
+              highlightPostId: notification.postId,
+            },
+          });
+        }
       } catch (fallbackError) {
         console.error('Fallback navigation also failed:', fallbackError);
-        Alert.alert('Error', 'Failed to open profile. Please try again.', [{ text: 'OK' }]);
+        Alert.alert('Error', 'Failed to open post. Please try again.', [{ text: 'OK' }]);
       }
     } catch (error) {
-      console.error('Error navigating to profile:', error);
-      Alert.alert('Error', 'Failed to open profile. Please try again.', [{ text: 'OK' }]);
+      console.error('Error navigating to post:', error);
+      Alert.alert('Error', 'Failed to open post. Please try again.', [{ text: 'OK' }]);
     }
   }, [user?.uid, navigation]);
 
@@ -469,16 +571,17 @@ export default function NotificationsTab() {
                 </View>
               ) : (
                 <TouchableOpacity
-                  onPress={handleToggleSelectionMode}
+                  onPress={handleClearAllNotifications}
+                  disabled={clearingPostNotifications || postNotifications.length === 0}
                   style={{
                     paddingHorizontal: 12,
                     paddingVertical: 6,
                     borderRadius: 8,
-                    backgroundColor: primaryColor,
+                    backgroundColor: (clearingPostNotifications || postNotifications.length === 0) ? dividerColor : primaryColor,
                   }}
                 >
                   <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>
-                    Clear
+                    {clearingPostNotifications ? 'Clearing...' : 'Clear'}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -532,7 +635,11 @@ export default function NotificationsTab() {
                         {notification.fromUserName || notification.fromUser?.name || 'Someone'}
                       </Text>
                       <Text style={{ color: subTextColor, fontSize: 14, marginTop: 2 }}>
-                        {notification.message || (notification.type === 'like' ? 'liked your post' : 'commented on your post')}
+                        {notification.message || 
+                          (notification.type === 'like' ? 'liked your post' : 
+                           notification.type === 'comment' ? 'commented on your post' :
+                           notification.type === 'tag' ? 'tagged you in a post' : 
+                           'interacted with your post')}
                       </Text>
                     </View>
                     {!notification.read && !selectionMode && (

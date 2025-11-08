@@ -6,6 +6,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { addFriend, checkFriendship, getFriends, sendFriendRequest, cancelFriendRequest, subscribeToOutgoingFriendRequests, getAuthUidFromUsername, getUsernameFromAuthUid } from '../services/friendsService';
+import { getCardBorderOnly } from '../utils/cardStyles';
 import { getCurrentUserData as getUserData } from '../services/authService';
 import { searchUsersByUsername, getAllUsers, getUserById } from '../services/usersService';
 
@@ -22,8 +23,10 @@ export default function FriendsTab() {
   const [searchResultsWithStatus, setSearchResultsWithStatus] = React.useState([]);
   const [loading, setLoading] = React.useState(false); // Start with false to show UI immediately
   
-  // All users list state (for displaying all users)
-  const [allUsers, setAllUsers] = React.useState([]);
+  // Suggested profiles state - always show 3 users
+  const [suggestedUsers, setSuggestedUsers] = React.useState([]); // Currently displayed 3 users
+  const [allAvailableUsers, setAllAvailableUsers] = React.useState([]); // Pool of available users
+  const [clickedUserIds, setClickedUserIds] = React.useState(new Set()); // Track clicked users
   const [allUsersLoading, setAllUsersLoading] = React.useState(false);
   const [allUsersLastId, setAllUsersLastId] = React.useState(null);
   const [allUsersHasMore, setAllUsersHasMore] = React.useState(true);
@@ -411,9 +414,10 @@ export default function FriendsTab() {
       setAllUsersLoading(true);
       
       try {
-        // Force fresh data from server (bypasses cache)
-        // Limit to 3 users for "Find Friends" section
-        const result = await getAllUsers(user.uid, 3, null);
+        // Load more users to build a pool (load 20 at a time for better pool)
+        // On initial load, use null to start from the beginning
+        const lastId = allUsersLastId || null;
+        const result = await getAllUsers(user.uid, 20, lastId);
         
         if (result.error) {
           // If network error and retries remaining, retry after delay
@@ -431,10 +435,9 @@ export default function FriendsTab() {
           const pendingUsernames = pendingFriendsWithData.map((p) => p.username).filter(Boolean);
           const excludedUsernames = new Set([...friendsUsernames, ...pendingUsernames]);
           
-          // Filter out current user, friends, and pending friends from the list
+          // Filter out current user, friends, pending friends, and already clicked users
           const filteredUsers = result.users.filter((u) => {
             // Exclude current user by comparing UID
-            // Note: u.uid might be a username (document ID), so we need to check both
             if (u.uid === user.uid) return false;
             // Also check if username matches current user's username
             if (userData?.username && u.username === userData.username) return false;
@@ -442,14 +445,38 @@ export default function FriendsTab() {
             if (u.username && excludedUsernames.has(u.username)) return false;
             // Also check by UID if username not available
             if (u.uid && friendsUsernames.includes(u.uid)) return false;
+            // Exclude if already clicked
+            const uId = u.uid || u.username;
+            if (clickedUserIds.has(uId)) return false;
+            // Exclude if already in suggested users
+            const isAlreadySuggested = suggestedUsers.some(su => (su.uid || su.username) === uId);
+            if (isAlreadySuggested) return false;
             return true;
           });
           
-          // Limit to 3 users maximum
-          const limitedUsers = filteredUsers.slice(0, 3);
-          setAllUsers(limitedUsers);
+          // Add to available users pool
+          setAllAvailableUsers((prev) => {
+            // Avoid duplicates
+            const existingIds = new Set(prev.map(u => u.uid || u.username));
+            const newUsers = filteredUsers.filter(u => !existingIds.has(u.uid || u.username));
+            return [...prev, ...newUsers];
+          });
+          
           setAllUsersLastId(result.lastUserId);
-          setAllUsersHasMore(false); // Don't show "Load More" since we only show 3
+          setAllUsersHasMore(result.hasMore);
+          
+          // If we don't have 3 suggested users yet, fill them from the pool
+          setSuggestedUsers((prev) => {
+            if (prev.length >= 3) return prev;
+            
+            // Get users from filtered results that aren't already suggested
+            const existingIds = new Set(prev.map(u => u.uid || u.username));
+            const newSuggested = filteredUsers
+              .filter(u => !existingIds.has(u.uid || u.username))
+              .slice(0, 3 - prev.length);
+            
+            return [...prev, ...newSuggested].slice(0, 3);
+          });
         }
       } catch (err) {
         // Retry on error if retries remaining
@@ -474,6 +501,77 @@ export default function FriendsTab() {
       loadAllUsers();
     }
   }, [user, searchQuery, authLoading, friendsListFromContext, pendingFriendsWithData]);
+
+  // Ensure we always have 3 suggested users when possible
+  React.useEffect(() => {
+    if (!user?.uid || searchQuery.trim() || suggestedUsers.length >= 3) return;
+
+    // If we have available users in pool, fill up to 3
+    if (allAvailableUsers.length > 0 && suggestedUsers.length < 3) {
+      const existingIds = new Set(suggestedUsers.map(u => u.uid || u.username));
+      const newSuggested = allAvailableUsers
+        .filter(u => !existingIds.has(u.uid || u.username))
+        .slice(0, 3 - suggestedUsers.length);
+      
+      if (newSuggested.length > 0) {
+        setSuggestedUsers((prev) => [...prev, ...newSuggested].slice(0, 3));
+        setAllAvailableUsers((prev) => {
+          const newIds = new Set(newSuggested.map(u => u.uid || u.username));
+          return prev.filter(u => !newIds.has(u.uid || u.username));
+        });
+      }
+    }
+
+    // If we still don't have 3 and there are more users to load, load more
+    if (suggestedUsers.length < 3 && allUsersHasMore && !allUsersLoading) {
+      const loadMore = async () => {
+        try {
+          const result = await getAllUsers(user.uid, 20, allUsersLastId);
+          if (!result.error && result.users.length > 0) {
+            const friendsUsernames = friendsListFromContext || [];
+            const pendingUsernames = pendingFriendsWithData.map((p) => p.username).filter(Boolean);
+            const excludedUsernames = new Set([...friendsUsernames, ...pendingUsernames]);
+            
+            const filteredUsers = result.users.filter((u) => {
+              if (u.uid === user.uid) return false;
+              if (userData?.username && u.username === userData.username) return false;
+              if (u.username && excludedUsernames.has(u.username)) return false;
+              if (u.uid && friendsUsernames.includes(u.uid)) return false;
+              const uId = u.uid || u.username;
+              if (clickedUserIds.has(uId)) return false;
+              const isAlreadySuggested = suggestedUsers.some(su => (su.uid || su.username) === uId);
+              if (isAlreadySuggested) return false;
+              return true;
+            });
+
+            if (filteredUsers.length > 0) {
+              setAllAvailableUsers((prev) => {
+                const existingIds = new Set(prev.map(u => u.uid || u.username));
+                const newUsers = filteredUsers.filter(u => !existingIds.has(u.uid || u.username));
+                return [...prev, ...newUsers];
+              });
+              
+              // Fill up to 3 suggested users
+              setSuggestedUsers((prev) => {
+                if (prev.length >= 3) return prev;
+                const existingIds = new Set(prev.map(u => u.uid || u.username));
+                const newSuggested = filteredUsers
+                  .filter(u => !existingIds.has(u.uid || u.username))
+                  .slice(0, 3 - prev.length);
+                return [...prev, ...newSuggested].slice(0, 3);
+              });
+            }
+            
+            setAllUsersLastId(result.lastUserId);
+            setAllUsersHasMore(result.hasMore);
+          }
+        } catch (error) {
+          console.error('Error loading more users to fill suggestions:', error);
+        }
+      };
+      loadMore();
+    }
+  }, [suggestedUsers.length, allAvailableUsers.length, allUsersHasMore, allUsersLoading, user, userData, friendsListFromContext, pendingFriendsWithData, clickedUserIds, allUsersLastId, searchQuery]);
 
   /** Load more users (pagination) */
   const loadMoreUsers = React.useCallback(async (retryCount = 0) => {
@@ -541,8 +639,8 @@ export default function FriendsTab() {
         setSearchResultsWithStatus((prev) =>
           prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: true } : u))
         );
-        // Also update allUsers list
-        setAllUsers((prev) =>
+        // Also update suggestedUsers list
+        setSuggestedUsers((prev) =>
           prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: true } : u))
         );
       } else {
@@ -564,8 +662,8 @@ export default function FriendsTab() {
         setSearchResultsWithStatus((prev) =>
           prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: false } : u))
         );
-        // Also update allUsers list
-        setAllUsers((prev) =>
+        // Also update suggestedUsers list
+        setSuggestedUsers((prev) =>
           prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: false } : u))
         );
       } else {
@@ -602,10 +700,97 @@ export default function FriendsTab() {
   }, [navigation]);
 
   /** Handle user profile tap from Discover Users or search results */
-  const handleUserProfileTap = React.useCallback((user) => {
-    if (!user || !user.username) {
+  const handleUserProfileTap = React.useCallback((clickedUser) => {
+    if (!clickedUser || !clickedUser.username) {
       return;
     }
+
+    // Mark user as clicked
+    const userId = clickedUser.uid || clickedUser.username;
+    setClickedUserIds((prev) => new Set([...prev, userId]));
+
+    // Remove clicked user from suggested users
+    setSuggestedUsers((prev) => {
+      return prev.filter(u => (u.uid || u.username) !== userId);
+    });
+
+    // Try to replace from available pool immediately
+    setAllAvailableUsers((prevAvailable) => {
+      // Find a user that's not already suggested and not clicked
+      const availableUser = prevAvailable.find(u => {
+        const uId = u.uid || u.username;
+        const isClicked = clickedUserIds.has(uId) || userId === uId;
+        return !isClicked;
+      });
+
+      if (availableUser) {
+        // Add to suggested users immediately
+        setSuggestedUsers((prevSuggested) => {
+          const filtered = prevSuggested.filter(su => (su.uid || su.username) !== userId);
+          const existingIds = new Set(filtered.map(u => u.uid || u.username));
+          if (!existingIds.has(availableUser.uid || availableUser.username) && filtered.length < 3) {
+            return [...filtered, availableUser].slice(0, 3);
+          }
+          return filtered;
+        });
+
+        // Remove from available pool
+        return prevAvailable.filter(u => (u.uid || u.username) !== (availableUser.uid || availableUser.username));
+      }
+
+      // If no available user in pool, try to load more in background
+      if (allUsersHasMore && !allUsersLoading) {
+        setTimeout(() => {
+          const loadMore = async () => {
+            try {
+              const result = await getAllUsers(user.uid, 10, allUsersLastId);
+              if (!result.error && result.users.length > 0) {
+                // Get friends and pending friends usernames to filter them out
+                const friendsUsernames = friendsListFromContext || [];
+                const pendingUsernames = pendingFriendsWithData.map((p) => p.username).filter(Boolean);
+                const excludedUsernames = new Set([...friendsUsernames, ...pendingUsernames]);
+                
+                const filteredUsers = result.users.filter((u) => {
+                  if (u.uid === user.uid) return false;
+                  if (userData?.username && u.username === userData.username) return false;
+                  if (u.username && excludedUsernames.has(u.username)) return false;
+                  if (u.uid && friendsUsernames.includes(u.uid)) return false;
+                  const uId = u.uid || u.username;
+                  const currentClickedIds = new Set([...clickedUserIds, userId]);
+                  if (currentClickedIds.has(uId)) return false;
+                  return true;
+                });
+
+                if (filteredUsers.length > 0) {
+                  const replacementUser = filteredUsers[0];
+                  setSuggestedUsers((prevSuggested) => {
+                    const filtered = prevSuggested.filter(su => (su.uid || su.username) !== userId);
+                    const existingIds = new Set(filtered.map(u => u.uid || u.username));
+                    if (!existingIds.has(replacementUser.uid || replacementUser.username) && filtered.length < 3) {
+                      return [...filtered, replacementUser].slice(0, 3);
+                    }
+                    return filtered;
+                  });
+                  setAllAvailableUsers((prev) => {
+                    const existingIds = new Set(prev.map(u => u.uid || u.username));
+                    const newUsers = filteredUsers.filter(u => !existingIds.has(u.uid || u.username));
+                    return [...prev, ...newUsers];
+                  });
+                }
+                
+                setAllUsersLastId(result.lastUserId);
+                setAllUsersHasMore(result.hasMore);
+              }
+            } catch (error) {
+              console.error('Error loading more users for replacement:', error);
+            }
+          };
+          loadMore();
+        }, 100);
+      }
+
+      return prevAvailable;
+    });
 
     // Navigate to UserProfileModal in the root navigator
     // This keeps the current tab active
@@ -621,9 +806,9 @@ export default function FriendsTab() {
     
     // Navigate to the root modal
     rootNavigator.navigate('UserProfileModal', { 
-      username: user.username 
+      username: clickedUser.username 
     });
-  }, [navigation]);
+  }, [navigation, user, userData, friendsListFromContext, pendingFriendsWithData, clickedUserIds, allUsersHasMore, allUsersLoading, allUsersLastId]);
 
   if (!user) {
     return (
@@ -655,11 +840,10 @@ export default function FriendsTab() {
           onChangeText={setSearchQuery}
           value={searchQuery}
           style={{ 
-            backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+            backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
             marginBottom: 12,
             borderRadius: 20,
-            borderWidth: 1,
-            borderColor: colors.isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            ...getCardBorderOnly(),
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 8 },
             shadowOpacity: 0.3,
@@ -681,11 +865,10 @@ export default function FriendsTab() {
               </View>
             ) : searchResultsWithStatus.length ? (
               <View style={{ 
-                backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
                 borderRadius: 20,
                 overflow: 'hidden',
-                borderWidth: 1,
-                borderColor: colors.isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                ...getCardBorderOnly(),
                 shadowColor: '#000',
                 shadowOffset: { width: 0, height: 8 },
                 shadowOpacity: 0.3,
@@ -729,26 +912,25 @@ export default function FriendsTab() {
           // All Users List (when search is empty)
           <View style={{ marginBottom: 24 }}>
             <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Suggested Profiles</Text>
-            {allUsersLoading && allUsers.length === 0 ? (
+            {allUsersLoading && suggestedUsers.length === 0 ? (
               <View style={{ padding: 20, alignItems: 'center' }}>
                 <ActivityIndicator size="small" color={colors.primary} />
                 <Text style={{ color: colors.subText, marginTop: 8, fontSize: 14 }}>Loading users...</Text>
               </View>
-            ) : allUsers.length > 0 ? (
+            ) : suggestedUsers.length > 0 ? (
               <View style={{ 
-                backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
                 borderRadius: 20,
                 overflow: 'hidden',
-                borderWidth: 1,
-                borderColor: colors.isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                ...getCardBorderOnly(),
                 shadowColor: '#000',
                 shadowOffset: { width: 0, height: 8 },
                 shadowOpacity: 0.3,
                 shadowRadius: 16,
                 elevation: 8,
               }}>
-                {allUsers.map((u, idx) => (
-                  <View key={`all-${u.uid || u.username || idx}`}>
+                {suggestedUsers.map((u, idx) => (
+                  <View key={`suggested-${u.uid || u.username || idx}`}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}>
                       <TouchableOpacity 
                         style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
@@ -791,7 +973,7 @@ export default function FriendsTab() {
                         }
                       })()}
                     </View>
-                    {idx < allUsers.length - 1 && <Divider style={{ backgroundColor: colors.divider }} />}
+                    {idx < suggestedUsers.length - 1 && <Divider style={{ backgroundColor: colors.divider }} />}
                   </View>
                 ))}
               </View>
@@ -808,11 +990,10 @@ export default function FriendsTab() {
           <>
             <Text style={{ color: colors.subText, marginVertical: 6, fontSize: 14, fontWeight: '600' }}>Pending Friends ({pendingFriendsWithData.length})</Text>
             <View style={{ 
-              backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+              backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
               borderRadius: 20,
               marginBottom: 16,
-              borderWidth: 1,
-              borderColor: colors.isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              ...getCardBorderOnly(),
               shadowColor: '#000',
               shadowOffset: { width: 0, height: 8 },
               shadowOpacity: 0.3,
@@ -855,10 +1036,9 @@ export default function FriendsTab() {
         <Text style={{ color: colors.subText, marginVertical: 6, fontSize: 14, fontWeight: '600' }}>Friends ({friendsWithData.length})</Text>
         {friendsWithData.length ? (
           <View style={{ 
-            backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+            backgroundColor: colors.isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
             borderRadius: 20,
-            borderWidth: 1,
-            borderColor: colors.isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            ...getCardBorderOnly(),
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 8 },
             shadowOpacity: 0.3,

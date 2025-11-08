@@ -53,6 +53,10 @@ export const createPost = async (userId, userData, postData) => {
     // Get avatar from userData - check photoURL first (new field), then avatar (backward compatibility)
     const userAvatar = userData.photoURL || userData.avatar || null;
     
+    // Extract @mentions from post text
+    const { extractMentions } = await import('../utils/mentionUtils');
+    const mentionedUsernames = extractMentions(postData.text || '');
+    
     const postToCreate = {
       userId,
       name: userData.name || 'User',
@@ -65,6 +69,7 @@ export const createPost = async (userId, userData, postData) => {
       image: postData.image || (imagesArray && imagesArray.length > 0 ? imagesArray[0] : null), // Backwards compatibility
       images: imagesArray, // Carousel post images array
       bar: postData.bar || null, // Bar name (optional)
+      mentions: mentionedUsernames, // Array of mentioned usernames (lowercase)
       likes: 0,
       likedBy: [], // Array of user IDs who liked this post
       retweets: 0,
@@ -77,9 +82,67 @@ export const createPost = async (userId, userData, postData) => {
     };
     
     console.log('📝 Creating post with location:', postLocation, 'GPS:', postLat, postLng);
+    if (mentionedUsernames.length > 0) {
+      console.log('📝 Post contains mentions:', mentionedUsernames);
+    }
 
     // Create the post in Firestore
     const postRef = await addDoc(collection(db, 'posts'), postToCreate);
+    
+    // Send notifications to mentioned users (in background, don't block post creation)
+    if (mentionedUsernames.length > 0) {
+      (async () => {
+        try {
+          const { createNotification } = await import('./notificationsService');
+          const { getAuthUidFromUsername } = await import('./friendsService');
+          
+          // Get the post creator's name for the notification
+          const fromUserName = userData.name || userData.username || 'Someone';
+          
+          // Send notification to each mentioned user
+          const notificationPromises = mentionedUsernames.map(async (username) => {
+            try {
+              // Convert username to authUid
+              const mentionedUserId = await getAuthUidFromUsername(username);
+              
+              if (!mentionedUserId) {
+                console.warn(`⚠️ User not found for mention: @${username}`);
+                return { success: false, error: `User @${username} not found` };
+              }
+              
+              // Don't notify if user mentioned themselves
+              if (mentionedUserId === userId) {
+                return { success: true, skipped: true };
+              }
+              
+              // Send notification
+              const result = await createNotification(mentionedUserId, {
+                type: 'tag',
+                postId: postRef.id,
+                fromUserId: userId,
+                message: 'tagged you in a post',
+              });
+              
+              if (result.error) {
+                console.error(`❌ Failed to send tag notification to @${username}:`, result.error);
+              } else {
+                console.log(`✅ Sent tag notification to @${username}`);
+              }
+              
+              return result;
+            } catch (error) {
+              console.error(`❌ Error sending tag notification to @${username}:`, error);
+              return { success: false, error: error.message };
+            }
+          });
+          
+          await Promise.all(notificationPromises);
+        } catch (error) {
+          console.error('❌ Error sending tag notifications:', error);
+          // Don't fail post creation if notifications fail
+        }
+      })();
+    }
     
     return { postId: postRef.id, error: null };
   } catch (error) {
