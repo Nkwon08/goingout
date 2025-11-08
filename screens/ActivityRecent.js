@@ -1,7 +1,7 @@
 // Activity Recent screen - shows feed of posts and allows creating new posts with Firebase
 import * as React from 'react';
 import { View, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, StyleSheet, Alert } from 'react-native';
-import { FAB, Text, Snackbar, Card } from 'react-native-paper';
+import { FAB, Text, Snackbar } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +14,6 @@ import { subscribeToPosts, createPost } from '../services/postsService';
 import { uploadImages } from '../services/storageService';
 import { getCurrentUserData } from '../services/authService';
 import { getCurrentLocation } from '../services/locationService';
-import { subscribeToVotesForLocation } from '../services/votesService';
 import { subscribeToBlockedUsers } from '../services/blockService';
 
 const IU_CRIMSON = '#CC0000';
@@ -27,11 +26,6 @@ export default function ActivityRecent() {
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState(null);
   const [snackbarVisible, setSnackbarVisible] = React.useState(false);
-  
-  // Poll results state
-  const [voteCounts, setVoteCounts] = React.useState({});
-  const [selectedBarFilter, setSelectedBarFilter] = React.useState(null);
-  const [pollExpanded, setPollExpanded] = React.useState(false);
   
   // GPS location state
   const [userLat, setUserLat] = React.useState(null);
@@ -50,45 +44,6 @@ export default function ActivityRecent() {
   // Account for bottom tab bar height (~70px) plus some padding
   const fabBottom = insets.bottom + 60;
 
-  // Get poll results for current location
-  React.useEffect(() => {
-    if (!user || !userData) {
-      return;
-    }
-
-    const accountLocation = userData?.location || userLocation || null;
-    if (!accountLocation) {
-      return;
-    }
-
-    const unsubscribe = subscribeToVotesForLocation(accountLocation, (result) => {
-      if (result.error) {
-        console.error('Error loading poll results:', result.error);
-      } else {
-        setVoteCounts(result.voteCounts || {});
-      }
-    });
-
-    return () => unsubscribe();
-  }, [user, userData, userLocation]);
-
-  // Get sorted bars by votes
-  const sortedBars = React.useMemo(() => {
-    const barsWithVotes = Object.keys(voteCounts).filter(bar => voteCounts[bar] > 0);
-    return barsWithVotes.sort((a, b) => voteCounts[b] - voteCounts[a]);
-  }, [voteCounts]);
-
-  const totalVotes = React.useMemo(() => {
-    return Object.values(voteCounts).reduce((sum, count) => sum + count, 0);
-  }, [voteCounts]);
-
-  // Filter posts based on selected bar
-  const filteredPosts = React.useMemo(() => {
-    if (!selectedBarFilter) {
-      return posts;
-    }
-    return posts.filter(post => post.bar === selectedBarFilter);
-  }, [posts, selectedBarFilter]);
   
   // Get GPS location on mount and when user changes
   React.useEffect(() => {
@@ -333,94 +288,7 @@ export default function ActivityRecent() {
           />
         }
       >
-        {/* Poll Results Component */}
-        {sortedBars.length > 0 && (
-          <Card style={{ 
-            marginHorizontal: 16, 
-            marginBottom: 16, 
-            backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-            borderRadius: 20,
-            borderWidth: 1,
-            borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: 0.3,
-            shadowRadius: 16,
-            elevation: 8,
-          }}>
-            <Card.Content>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <Text style={{ fontSize: 16, fontWeight: '600', color: text }}>
-                  Tonight's Poll ({totalVotes} {totalVotes === 1 ? 'vote' : 'votes'})
-                </Text>
-                {selectedBarFilter && (
-                  <TouchableOpacity
-                    onPress={() => setSelectedBarFilter(null)}
-                    style={{ paddingHorizontal: 8, paddingVertical: 4 }}
-                  >
-                    <Text style={{ color: IU_CRIMSON, fontSize: 14 }}>Clear filter</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-              
-              {(pollExpanded ? sortedBars : sortedBars.slice(0, 3)).map((bar) => {
-                const voteCount = voteCounts[bar] || 0;
-                const ratio = totalVotes > 0 ? voteCount / totalVotes : 0;
-                const isSelected = selectedBarFilter === bar;
-                
-                return (
-                  <TouchableOpacity
-                    key={bar}
-                    onPress={() => setSelectedBarFilter(isSelected ? null : bar)}
-                    style={{
-                      marginBottom: 12,
-                      padding: 12,
-                      borderRadius: 0,
-                      backgroundColor: isSelected ? IU_CRIMSON + '20' : 'transparent',
-                      borderWidth: isSelected ? 2 : 1,
-                      borderColor: isSelected ? IU_CRIMSON : divider,
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <Text style={{ fontSize: 14, fontWeight: '500', color: text, flex: 1 }}>{bar}</Text>
-                      <Text style={{ fontSize: 12, color: subText }}>
-                        {voteCount} vote{voteCount !== 1 ? 's' : ''}
-                      </Text>
-                    </View>
-                    <View style={{ height: 6, backgroundColor: divider, borderRadius: 0, overflow: 'hidden' }}>
-                      <View 
-                        style={{
-                          height: '100%',
-                          width: `${ratio * 100}%`,
-                          backgroundColor: IU_CRIMSON,
-                        }}
-                      />
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-              
-              {sortedBars.length > 3 && (
-                <TouchableOpacity
-                  onPress={() => setPollExpanded(!pollExpanded)}
-                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8 }}
-                >
-                  <Text style={{ color: subText, fontSize: 14, marginRight: 4 }}>
-                    {pollExpanded ? 'Show less' : `Show ${sortedBars.length - 3} more`}
-                  </Text>
-                  <MaterialCommunityIcons
-                    name={pollExpanded ? 'chevron-up' : 'chevron-down'}
-                    size={20}
-                    color={subText}
-                  />
-                </TouchableOpacity>
-              )}
-            </Card.Content>
-          </Card>
-        )}
-
-        {filteredPosts.length === 0 ? (
+        {posts.length === 0 ? (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', minHeight: 400, padding: 20 }}>
             <Text style={{ color: subText, fontSize: 16, textAlign: 'center' }}>Empty</Text>
             {error && (
@@ -430,7 +298,7 @@ export default function ActivityRecent() {
             )}
           </View>
         ) : (
-          filteredPosts.map((post) => (
+          posts.map((post) => (
             <FeedPost
               key={post.id}
               post={post}

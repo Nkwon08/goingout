@@ -3,6 +3,8 @@ import * as React from 'react';
 import { View, Modal, TextInput, StyleSheet, TouchableOpacity, Image, ScrollView, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform, ActivityIndicator, Alert } from 'react-native';
 import { Text, Avatar, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useThemeColors } from '../hooks/useThemeColors';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
@@ -23,6 +25,9 @@ const PREDEFINED_BARS = [
 ];
 
 export default function ComposePost({ visible, onClose, onSubmit, currentUser, submitting = false, initialImages = [] }) {
+  // Get theme colors
+  const { isDarkMode, text: textColor, subText, surface, border, divider, background } = useThemeColors();
+  
   // State for post content
   const [text, setText] = React.useState('');
   const [location, setLocation] = React.useState(''); // City name from GPS
@@ -196,13 +201,16 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.overlay}>
           <TouchableWithoutFeedback onPress={() => {}}>
-            <View style={styles.modal}>
-              <View style={styles.header}>
+            <LinearGradient
+              colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+              style={[styles.modal, { backgroundColor: 'transparent' }]}
+            >
+              <View style={[styles.header, { borderBottomColor: divider, backgroundColor: 'transparent' }]}>
                   <TouchableOpacity onPress={handleClose} style={styles.cancelButton}>
-                  <Text style={styles.cancelText}>Cancel</Text>
+                  <Text style={[styles.cancelText, { color: textColor }]}>Cancel</Text>
                 </TouchableOpacity>
                   <View style={styles.titleContainer}>
-            <Text style={styles.title}>New Post</Text>
+            <Text style={[styles.title, { color: textColor }]}>New Post</Text>
                   </View>
                       <TouchableOpacity
               onPress={handleSubmit}
@@ -221,17 +229,17 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
           </View>
 
                 <ScrollView
-                  style={styles.scrollContent}
+                  style={[styles.scrollContent, { backgroundColor: 'transparent' }]}
                   keyboardShouldPersistTaps="handled"
                   showsVerticalScrollIndicator={false}
                 >
-          <View style={styles.content}>
+          <View style={[styles.content, { backgroundColor: 'transparent' }]}>
             <Avatar.Image size={48} source={{ uri: currentUser?.avatar || 'https://i.pravatar.cc/100?img=12' }} />
-            <View style={styles.inputContainer}>
+              <View style={styles.inputContainer}>
               <TextInput
-                style={styles.textInput}
+                style={[styles.textInput, { color: textColor }]}
                 placeholder="What's happening?"
-                placeholderTextColor="#666666"
+                placeholderTextColor={subText}
                 multiline
                 value={text}
                 onChangeText={setText}
@@ -240,7 +248,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
               />
               {images.length > 0 && (
                         <View style={styles.imagesPreviewContainer}>
-                          <Text style={styles.imagesPreviewTitle}>{images.length} photo{images.length > 1 ? 's' : ''} selected</Text>
+                          <Text style={[styles.imagesPreviewTitle, { color: textColor }]}>{images.length} photo{images.length > 1 ? 's' : ''} selected</Text>
                           <ScrollView 
                             horizontal 
                             showsHorizontalScrollIndicator={false} 
@@ -267,35 +275,36 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                     </View>
                   ))}
                 </ScrollView>
-                          <Text style={styles.imagesPreviewHint}>Swipe left/right to see all photos • All photos will be in one post</Text>
+                          <Text style={[styles.imagesPreviewHint, { color: subText }]}>Swipe left/right to see all photos • All photos will be in one post</Text>
                         </View>
               )}
               {/* Bar Location Selector (replaces location field) */}
-              <View style={styles.locationRow}>
-                <MaterialCommunityIcons name="map-marker-outline" size={20} color={bar.trim() ? "#CC0000" : "#666666"} />
+              <View style={[styles.locationRow, { borderTopColor: divider }]}>
+                <MaterialCommunityIcons name="map-marker-outline" size={20} color={bar.trim() ? IU_CRIMSON : subText} />
                 <TouchableOpacity
                   style={styles.locationInputTouchable}
                   onPress={() => setBarDropdownVisible(true)}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.locationInputText, !bar.trim() && styles.locationInputPlaceholder]}>
+                  <Text style={[styles.locationInputText, { color: bar.trim() ? textColor : subText }]}>
                     {bar.trim() || 'Select a bar (required)'}
                   </Text>
                   <MaterialCommunityIcons 
                     name={barDropdownVisible ? 'chevron-up' : 'chevron-down'} 
                     size={20} 
-                    color="#666666" 
+                    color={subText} 
                   />
                 </TouchableOpacity>
               </View>
                       
                       {/* Privacy/Visibility Selector */}
-                      <View style={styles.visibilityRow}>
-                        <Text style={styles.visibilityLabel}>Who can see this?</Text>
+                      <View style={[styles.visibilityRow, { borderTopColor: divider }]}>
+                        <Text style={[styles.visibilityLabel, { color: textColor }]}>Who can see this?</Text>
                         <View style={styles.visibilityButtons}>
                           <TouchableOpacity
                             style={[
                               styles.visibilityButton,
+                              { backgroundColor: surface, borderColor: border },
                               visibility === 'friends' && styles.visibilityButtonActive,
                             ]}
                             onPress={() => setVisibility('friends')}
@@ -303,11 +312,12 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                             <MaterialCommunityIcons
                               name={visibility === 'friends' ? 'account-group' : 'account-group-outline'}
                               size={20}
-                              color={visibility === 'friends' ? '#FFFFFF' : '#666666'}
+                              color={visibility === 'friends' ? '#FFFFFF' : subText}
                             />
                             <Text
                               style={[
                                 styles.visibilityButtonText,
+                                { color: subText },
                                 visibility === 'friends' && styles.visibilityButtonTextActive,
                               ]}
                             >
@@ -317,6 +327,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                           <TouchableOpacity
                             style={[
                               styles.visibilityButton,
+                              { backgroundColor: surface, borderColor: border },
                               visibility === 'location' && styles.visibilityButtonActive,
                             ]}
                             onPress={() => setVisibility('location')}
@@ -324,11 +335,12 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                             <MaterialCommunityIcons
                               name={visibility === 'location' ? 'earth' : 'earth-outline'}
                               size={20}
-                              color={visibility === 'location' ? '#FFFFFF' : '#666666'}
+                              color={visibility === 'location' ? '#FFFFFF' : subText}
                             />
                             <Text
                               style={[
                                 styles.visibilityButtonText,
+                                { color: subText },
                                 visibility === 'location' && styles.visibilityButtonTextActive,
                               ]}
                             >
@@ -341,22 +353,22 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
           </View>
                 </ScrollView>
 
-          <View style={styles.footer}>
+          <View style={[styles.footer, { borderTopColor: divider, backgroundColor: 'transparent' }]}>
                   <TouchableOpacity style={styles.actionButton} onPress={handlePickMedia}>
-                    <MaterialCommunityIcons name="image-outline" size={24} color="#CC0000" />
-                    <Text style={styles.actionButtonLabel}>Album</Text>
+                    <MaterialCommunityIcons name="image-outline" size={24} color={IU_CRIMSON} />
+                    <Text style={[styles.actionButtonLabel, { color: IU_CRIMSON }]}>Album</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.actionButton} onPress={handleTakePhoto}>
-                    <MaterialCommunityIcons name="camera-outline" size={24} color="#CC0000" />
-                    <Text style={styles.actionButtonLabel}>Camera</Text>
+                    <MaterialCommunityIcons name="camera-outline" size={24} color={IU_CRIMSON} />
+                    <Text style={[styles.actionButtonLabel, { color: IU_CRIMSON }]}>Camera</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionButton} onPress={() => setChooseFromOutlink(true)}>
-                    <MaterialCommunityIcons name="image-multiple-outline" size={24} color="#CC0000" />
-                    <Text style={styles.actionButtonLabel}>Multiple</Text>
+                    <MaterialCommunityIcons name="image-multiple-outline" size={24} color={IU_CRIMSON} />
+                    <Text style={[styles.actionButtonLabel, { color: IU_CRIMSON }]}>Multiple</Text>
             </TouchableOpacity>
-            <Text style={styles.charCount}>{text.length}/280</Text>
+            <Text style={[styles.charCount, { color: subText }]}>{text.length}/280</Text>
           </View>
-            </View>
+            </LinearGradient>
           </TouchableWithoutFeedback>
         </View>
       </TouchableWithoutFeedback>
@@ -365,28 +377,31 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       {/* OutLink Albums Picker */}
       <Modal visible={chooseFromOutlink} animationType="slide" transparent onRequestClose={() => setChooseFromOutlink(false)}>
         <View style={styles.overlay}>
-          <View style={styles.gridModal}>
-            <View style={styles.gridHeader}>
+          <LinearGradient
+            colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+            style={[styles.gridModal, { backgroundColor: 'transparent' }]}
+          >
+            <View style={[styles.gridHeader, { borderBottomColor: divider, backgroundColor: 'transparent' }]}>
               <TouchableOpacity onPress={() => setChooseFromOutlink(false)}>
-                <Text style={styles.cancelText}>Close</Text>
+                <Text style={[styles.cancelText, { color: textColor }]}>Close</Text>
               </TouchableOpacity>
-              <Text style={styles.title}>Choose from your albums</Text>
+              <Text style={[styles.title, { color: textColor }]}>Choose from your albums</Text>
               <View style={{ width: 64 }} />
             </View>
             <ScrollView contentContainerStyle={styles.gridContent}>
               {appImages.length > 0 ? (
                 appImages.map((uri, idx) => (
-                <TouchableOpacity key={idx} style={styles.gridItem} onPress={() => { setImages((prev) => [...prev, uri]); }}>
+                <TouchableOpacity key={idx} style={[styles.gridItem, { backgroundColor: surface }]} onPress={() => { setImages((prev) => [...prev, uri]); }}>
                   <Image source={{ uri }} style={styles.gridImage} />
                 </TouchableOpacity>
                 ))
               ) : (
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
-                  <Text style={{ color: '#666666' }}>Empty</Text>
+                  <Text style={{ color: subText }}>Empty</Text>
                 </View>
               )}
             </ScrollView>
-          </View>
+          </LinearGradient>
         </View>
       </Modal>
 
@@ -402,32 +417,32 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
           activeOpacity={1}
           onPress={() => setBarDropdownVisible(false)}
         >
-          <View style={styles.barDropdownContainer}>
+          <View style={[styles.barDropdownContainer, { backgroundColor: surface, borderColor: border }]}>
             <ScrollView style={styles.barDropdownScroll} keyboardShouldPersistTaps="handled">
               {PREDEFINED_BARS.map((barOption) => (
                 <TouchableOpacity
                   key={barOption}
-                  style={[styles.barDropdownItem, bar === barOption && styles.barDropdownItemSelected]}
+                  style={[styles.barDropdownItem, { borderBottomColor: divider }, bar === barOption && { backgroundColor: isDarkMode ? 'rgba(58, 58, 58, 0.3)' : 'rgba(224, 224, 224, 0.3)' }]}
                   onPress={() => {
                     setBar(barOption);
                     setBarDropdownVisible(false);
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.barDropdownItemText, bar === barOption && styles.barDropdownItemTextSelected]}>
+                  <Text style={[styles.barDropdownItemText, { color: textColor }, bar === barOption && { color: IU_CRIMSON, fontWeight: '600' }]}>
                     {barOption}
                   </Text>
                 </TouchableOpacity>
               ))}
               <TouchableOpacity
-                style={styles.barDropdownItem}
+                style={[styles.barDropdownItem, { borderBottomColor: divider }]}
                 onPress={() => {
                   setBar('');
                   setBarDropdownVisible(false);
                 }}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.barDropdownItemText, { color: '#666666' }]}>Clear</Text>
+                <Text style={[styles.barDropdownItemText, { color: subText }]}>Clear</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -444,22 +459,34 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modal: {
-    backgroundColor: '#EEEDEB',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 16,
     maxHeight: '90%',
     flex: 1,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   scrollContent: {
     flexGrow: 1,
   },
   gridModal: {
-    backgroundColor: '#EEEDEB',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '90%',
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   header: {
     flexDirection: 'row',
@@ -468,7 +495,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#D0CFCD',
   },
   cancelButton: {
     width: 64,
@@ -480,7 +506,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: {
-    color: '#1A1A1A',
     fontSize: 18,
     fontWeight: '700',
   },
@@ -491,10 +516,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#D0CFCD',
   },
   cancelText: {
-    color: '#1A1A1A',
     fontSize: 16,
   },
   postButtonTouchable: {
@@ -528,7 +551,6 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   textInput: {
-    color: '#1A1A1A',
     fontSize: 16,
     lineHeight: 24,
     minHeight: 100,
@@ -543,7 +565,6 @@ const styles = StyleSheet.create({
   imagesPreviewTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1A1A1A',
     marginBottom: 8,
   },
   imagesPreview: {
@@ -589,7 +610,6 @@ const styles = StyleSheet.create({
   },
   imagesPreviewHint: {
     fontSize: 12,
-    color: '#666666',
     fontStyle: 'italic',
     marginTop: 4,
   },
@@ -623,7 +643,6 @@ const styles = StyleSheet.create({
     paddingTop: 28,
     paddingBottom: 8,
     borderTopWidth: 1,
-    borderTopColor: '#D0CFCD',
   },
   locationInputTouchable: {
     flex: 1,
@@ -635,11 +654,10 @@ const styles = StyleSheet.create({
   },
   locationInputText: {
     flex: 1,
-    color: '#1A1A1A',
     fontSize: 14,
   },
   locationInputPlaceholder: {
-    color: '#666666',
+    // Removed - using dynamic color
   },
   locationLoading: {
     flex: 1,
@@ -686,11 +704,14 @@ const styles = StyleSheet.create({
   barDropdownContainer: {
     width: '80%',
     maxHeight: '60%',
-    backgroundColor: '#EEEDEB',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#D0CFCD',
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   barDropdownScroll: {
     maxHeight: 400,
@@ -698,30 +719,25 @@ const styles = StyleSheet.create({
   barDropdownItem: {
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
   },
   barDropdownItemSelected: {
-    backgroundColor: '#F5F4F2',
+    // Removed - using dynamic color
   },
   barDropdownItemText: {
     fontSize: 16,
-    color: '#1A1A1A',
   },
   barDropdownItemTextSelected: {
-    color: IU_CRIMSON,
-    fontWeight: '600',
+    // Removed - using dynamic color
   },
   visibilityRow: {
     marginTop: 12,
     paddingTop: 12,
     paddingBottom: 8,
     borderTopWidth: 1,
-    borderTopColor: '#D0CFCD',
   },
   visibilityLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1A1A1A',
     marginBottom: 12,
   },
   visibilityButtons: {
@@ -736,9 +752,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: '#F5F4F2',
     borderWidth: 1,
-    borderColor: '#D0CFCD',
     gap: 8,
   },
   visibilityButtonActive: {
@@ -748,7 +762,6 @@ const styles = StyleSheet.create({
   visibilityButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#666666',
   },
   visibilityButtonTextActive: {
     color: '#FFFFFF',
@@ -760,8 +773,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: '#D0CFCD',
-    backgroundColor: '#EEEDEB',
   },
   actionButton: {
     padding: 8,
@@ -770,13 +781,11 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   actionButtonLabel: {
-    color: '#CC0000',
     fontSize: 12,
     marginTop: 4,
     fontWeight: '500',
   },
   charCount: {
-    color: '#666666',
     fontSize: 14,
     marginLeft: 'auto',
   },

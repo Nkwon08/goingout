@@ -2,12 +2,13 @@ import * as React from 'react';
 import { View, TouchableOpacity } from 'react-native';
 import { Card, Text, Button, ProgressBar } from 'react-native-paper';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { getCardBorderOnly } from '../utils/cardStyles';
 
 const IU_CRIMSON = '#CC0000';
 
 export default function PollCard({ poll, onVote, currentUserId, showVoteButton = true }) {
   const totalVotes = poll.options.reduce((sum, o) => sum + (o.votes || 0), 0) || 1;
-  const { surface, text, subText, divider, isDarkMode } = useThemeColors();
+  const { surface, text, subText, divider, isDarkMode, cardBorder } = useThemeColors();
   
   // Find which option the current user voted for
   const userVotedOptionId = React.useMemo(() => {
@@ -31,8 +32,7 @@ export default function PollCard({ poll, onVote, currentUserId, showVoteButton =
       backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
       marginBottom: 12, 
       borderRadius: 20,
-      borderWidth: 1,
-      borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+      ...getCardBorderOnly(),
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 8 },
       shadowOpacity: 0.3,

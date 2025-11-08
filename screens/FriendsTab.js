@@ -693,7 +693,7 @@ export default function FriendsTab() {
                 elevation: 8,
               }}>
                 {searchResultsWithStatus.map((u, idx) => (
-                  <View key={u.uid}>
+                  <View key={`search-${u.uid || u.username || idx}`}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}>
                       <TouchableOpacity 
                         style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
@@ -748,7 +748,7 @@ export default function FriendsTab() {
                 elevation: 8,
               }}>
                 {allUsers.map((u, idx) => (
-                  <View key={u.uid}>
+                  <View key={`all-${u.uid || u.username || idx}`}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}>
                       <TouchableOpacity 
                         style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
@@ -820,7 +820,7 @@ export default function FriendsTab() {
               elevation: 8,
             }}>
               {pendingFriendsWithData.map((p, idx) => (
-                  <View key={p.uid || idx}>
+                  <View key={`pending-${p.uid || p.username || p.authUid || idx}`}>
                   <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}
                     onPress={() => handleUserProfileTap(p)}
@@ -866,7 +866,7 @@ export default function FriendsTab() {
             elevation: 8,
           }}>
             {friendsWithData.map((f, idx) => (
-              <View key={f.uid || idx}>
+              <View key={`friend-${f.uid || f.username || f.authUid || idx}`}>
                 <TouchableOpacity
                   style={{ flexDirection: 'row', alignItems: 'center', padding: 16 }}
                   onPress={() => handleFriendProfileTap(f)}

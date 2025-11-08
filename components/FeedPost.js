@@ -4,6 +4,7 @@ import { View, Image, TouchableOpacity, StyleSheet, ScrollView, Dimensions, Moda
 import { Text, Avatar, Button, ActivityIndicator } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { getCardBorderOnly } from '../utils/cardStyles';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
 import { deletePost, likePost, checkIfLiked } from '../services/postsService';
@@ -473,10 +474,9 @@ export default function FeedPost({ post, onDelete }) {
 
   return (
     <View style={[styles.container, { 
-      backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-      borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-      borderWidth: 1,
+      backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
       borderRadius: 20,
+      ...getCardBorderOnly(),
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 8 },
       shadowOpacity: 0.3,
@@ -839,15 +839,15 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
     paddingBottom: 16,
-    borderWidth: 0.5,
+    borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 4,
+      height: 8,
     },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 5,
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   header: {
     flexDirection: 'row',
@@ -887,6 +887,7 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
+    opacity: 1,
     backgroundColor: '#D0CFCD',
   },
   dotsContainer: {

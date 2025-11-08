@@ -3,6 +3,7 @@ import * as React from 'react';
 import { View, Alert, TouchableOpacity, Image, Modal, Dimensions, FlatList } from 'react-native';
 import { Appbar, Avatar, Text, IconButton } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToUserPosts } from '../services/postsService';
@@ -143,7 +144,7 @@ function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: background }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' }}>
         <Text style={{ color: text }}>Loading posts...</Text>
       </View>
     );
@@ -151,7 +152,7 @@ function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
 
   if (posts.length === 0) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: background, padding: 20 }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent', padding: 20 }}>
         <Text style={{ color: subText, fontSize: 16, textAlign: 'center' }}>
           No posts yet.
         </Text>
@@ -196,8 +197,8 @@ function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
           paddingHorizontal: 16,
           paddingVertical: 12,
           borderBottomWidth: 1,
-          borderBottomColor: isDarkMode ? '#3A3A3A' : '#D0CFCD',
-          backgroundColor: background,
+          borderBottomColor: isDarkMode ? 'rgba(58, 58, 58, 0.3)' : 'rgba(208, 207, 205, 0.3)',
+          backgroundColor: 'transparent',
         }}>
           <Text style={{
             color: text,
@@ -282,8 +283,8 @@ function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
           animationType="slide"
           onRequestClose={handleCloseModal}
         >
-          <View style={{ flex: 1, backgroundColor: background }}>
-            <Appbar.Header mode="center-aligned" style={{ backgroundColor: background }}>
+          <View style={{ flex: 1, backgroundColor: 'transparent' }}>
+            <Appbar.Header mode="center-aligned" style={{ backgroundColor: 'transparent' }}>
               <Appbar.Action 
                 icon="arrow-left" 
                 color={text} 
@@ -676,30 +677,44 @@ export default function UserProfileScreen({ route, navigation }) {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: bgColor, justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ color: textColor }}>Loading profile...</Text>
-      </View>
+      <LinearGradient
+        colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+        style={{ flex: 1 }}
+      >
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: textColor }}>Loading profile...</Text>
+        </View>
+      </LinearGradient>
     );
   }
 
   if (!userProfile) {
     return (
-      <View style={{ flex: 1, backgroundColor: bgColor }}>
-        <Appbar.Header mode="center-aligned" style={{ backgroundColor: bgColor }}>
-          <Appbar.Action icon="arrow-left" onPress={() => navigation.goBack()} color={textColor} />
-          <Appbar.Content title="Profile" color={textColor} />
-        </Appbar.Header>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <Text style={{ color: textColor }}>User not found</Text>
+      <LinearGradient
+        colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+        style={{ flex: 1 }}
+      >
+        <View style={{ flex: 1 }}>
+          <Appbar.Header mode="center-aligned" style={{ backgroundColor: 'transparent' }}>
+            <Appbar.Action icon="arrow-left" onPress={() => navigation.goBack()} color={textColor} />
+            <Appbar.Content title="Profile" color={textColor} />
+          </Appbar.Header>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <Text style={{ color: textColor }}>User not found</Text>
+          </View>
         </View>
-      </View>
+      </LinearGradient>
     );
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: bgColor }}>
+    <LinearGradient
+      colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+      style={{ flex: 1 }}
+    >
+      <View style={{ flex: 1 }}>
       {/* Header */}
-      <Appbar.Header mode="center-aligned" style={{ backgroundColor: bgColor }}>
+      <Appbar.Header mode="center-aligned" style={{ backgroundColor: 'transparent' }}>
         <Appbar.Action 
           icon="arrow-left" 
           onPress={() => {
@@ -774,14 +789,16 @@ export default function UserProfileScreen({ route, navigation }) {
             position: 'absolute',
             top: menuPosition.top,
             right: menuPosition.right,
-            backgroundColor: isDarkMode ? '#2A2A2A' : '#F5F4F2',
+            backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
             borderRadius: 8,
             minWidth: 180,
+            borderWidth: 1,
+            borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
             shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 3.84,
-            elevation: 5,
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.3,
+            shadowRadius: 16,
+            elevation: 8,
           }}
         >
           <TouchableOpacity
@@ -809,7 +826,7 @@ export default function UserProfileScreen({ route, navigation }) {
       </Modal>
       
       {/* Profile Header Section */}
-      <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 20, backgroundColor: bgColor }}>
+      <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 20, backgroundColor: 'transparent' }}>
         {/* Profile Photo on the left */}
         <Avatar.Image 
           size={96} 
@@ -897,7 +914,8 @@ export default function UserProfileScreen({ route, navigation }) {
       <View style={{ flex: 1 }}>
         <UserPostsTab userId={userId} username={targetUsername} themeColors={themeColors} highlightPostId={highlightPostId} />
       </View>
-    </View>
+      </View>
+    </LinearGradient>
   );
 }
 

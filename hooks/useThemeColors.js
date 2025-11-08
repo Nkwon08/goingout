@@ -1,5 +1,7 @@
 // Hook to get theme colors based on dark/light mode
 import { useTheme } from '../context/ThemeContext';
+import { StyleSheet, Platform, PlatformColor } from 'react-native';
+import { getCardBorderColor, getCardBorderStyles, getCardBorderOnly } from '../utils/cardStyles';
 
 export function useThemeColors() {
   let isDarkMode = false;
@@ -30,6 +32,11 @@ export function useThemeColors() {
     accent4: '#CC0000',
     accent5: '#CC0000',
     accent6: '#CC0000',
+    // Card border styles using PlatformColor for adaptive borders
+    cardBorder: getCardBorderStyles(16), // Default 16px radius
+    cardBorderOnly: getCardBorderOnly(), // Border only (no borderRadius) - use when borderRadius is set separately
+    cardBorderColor: getCardBorderColor(),
+    cardBorderWidth: StyleSheet.hairlineWidth,
   };
 }
 

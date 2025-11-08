@@ -36,6 +36,8 @@ export const createGroup = async (groupData) => {
       members, // Array of invited member UIDs (not including creator)
       startTime,
       endTime,
+      coverPhoto, // Optional cover photo URL
+      profilePicture, // Optional profile picture URL
     } = groupData;
 
     // Creator is automatically a member, invited friends will be added after accepting
@@ -61,6 +63,8 @@ export const createGroup = async (groupData) => {
       endTime: endTimeTimestamp,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
+      coverPhoto: coverPhoto || null, // Set cover photo if provided
+      profilePicture: profilePicture || null, // Set profile picture if provided
     };
 
     console.log('📝 Creating group:', groupToCreate.name);
@@ -536,6 +540,20 @@ export const deleteGroup = async (groupId, userId) => {
       deleteDoc(doc(db, 'groups', groupId, 'polls', pollDoc.id))
     );
     await Promise.all(deletePollPromises);
+
+    // Check if this group is associated with an event and delete the event
+    const eventsRef = collection(db, 'events');
+    const eventsQuery = query(eventsRef, where('groupId', '==', groupId));
+    const eventsSnapshot = await getDocs(eventsQuery);
+    
+    if (!eventsSnapshot.empty) {
+      // Delete all associated events
+      const deleteEventPromises = eventsSnapshot.docs.map((eventDoc) => 
+        deleteDoc(doc(db, 'events', eventDoc.id))
+      );
+      await Promise.all(deleteEventPromises);
+      console.log(`✅ Deleted ${eventsSnapshot.docs.length} associated event(s)`);
+    }
 
     // Delete the group document
     await deleteDoc(groupRef);

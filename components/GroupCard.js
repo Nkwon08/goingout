@@ -3,6 +3,7 @@ import { TouchableOpacity, View, Image } from 'react-native';
 import { Text, Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { getCardBorderOnly } from '../utils/cardStyles';
 
 const IU_CRIMSON = '#CC0000';
 
@@ -90,8 +91,7 @@ export default function GroupCard({ group, onPress, onMenuPress, onAvatarPress, 
         borderRadius: 20, 
         marginBottom: 16, 
         overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+        ...getCardBorderOnly(),
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.3,

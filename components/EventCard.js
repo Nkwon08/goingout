@@ -2,13 +2,14 @@ import * as React from 'react';
 import { Image, TouchableOpacity } from 'react-native';
 import { Card, Text, Button } from 'react-native-paper';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { getCardBorderOnly } from '../utils/cardStyles';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 
 const IU_CRIMSON = '#CC0000';
 
 export default function EventCard({ event, onJoin, onEdit, style }) {
-  const { surface, text, subText, isDarkMode } = useThemeColors();
+  const { surface, text, subText, isDarkMode, cardBorder } = useThemeColors();
   const navigation = useNavigation();
   const { user } = useAuth();
   
@@ -47,10 +48,9 @@ export default function EventCard({ event, onJoin, onEdit, style }) {
     <TouchableOpacity activeOpacity={0.8} onPress={handlePress}>
       <Card mode="contained" style={[{ 
         width: 280, 
-        backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+        backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
         borderRadius: 20,
-        borderWidth: 1,
-        borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+        ...getCardBorderOnly(),
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.3,

@@ -130,7 +130,7 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
           </View>
 
           <View style={styles.footer}>
-            <Button mode="outlined" textColor="#000000" onPress={onCancel}>
+            <Button mode="outlined" textColor="#FFFFFF" onPress={onCancel}>
               Cancel
             </Button>
           </View>
@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
   modal: {
     width: '95%',
     maxHeight: '90%',
-    backgroundColor: '#EEEDEB',
+    backgroundColor: '#2A2A2A',
     borderRadius: 20,
     overflow: 'hidden',
   },

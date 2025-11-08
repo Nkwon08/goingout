@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, ScrollView, Image, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform, PanResponder, Animated, StyleSheet, InteractionManager } from 'react-native';
+import { View, ScrollView, Image, ImageBackground, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform, PanResponder, Animated, StyleSheet, InteractionManager } from 'react-native';
 import { Appbar, FAB, Text, Button, Avatar, Checkbox } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
@@ -452,9 +452,31 @@ function ChatTab({ groupId }) {
   const [polls, setPolls] = React.useState([]);
   const [votingPoll, setVotingPoll] = React.useState(null);
   const [selectedImage, setSelectedImage] = React.useState(null);
+  const [group, setGroup] = React.useState(null);
   const inputRef = React.useRef(null);
   const panY = React.useRef(new Animated.Value(0)).current;
   const [keyboardHeight, setKeyboardHeight] = React.useState(0);
+  
+  // Subscribe to group data to get cover photo
+  React.useEffect(() => {
+    if (!groupId) {
+      setGroup(null);
+      return;
+    }
+    
+    const unsubscribe = subscribeToGroup(groupId, ({ group: groupData, error }) => {
+      if (error) {
+        console.error('Error loading group:', error);
+        setGroup(null);
+      } else {
+        setGroup(groupData);
+      }
+    });
+    
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [groupId]);
 
   // Reset keyboard height when media picker closes
   React.useEffect(() => {
@@ -627,40 +649,41 @@ function ChatTab({ groupId }) {
         };
         
         return (
-          <View
-            style={{
-              backgroundColor: isOwnMessage ? bubbleOwn : bubbleOther,
-              borderRadius: 20,
-              padding: 14,
-              borderTopLeftRadius: isOwnMessage ? 20 : 4,
-              borderTopRightRadius: isOwnMessage ? 4 : 20,
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.15,
-              shadowRadius: 4,
-              elevation: 4,
-            minWidth: '80%',
-            maxWidth: '85%',
-            marginLeft: 0, // Ensure no left margin
-            marginRight: 0, // Ensure no right margin
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-            <Text style={{ fontSize: 20, marginRight: 8 }}>📊</Text>
+          <View style={{ alignItems: 'center', width: '100%' }}>
+            <View
+              style={{
+                backgroundColor: bubbleOther,
+                borderRadius: 20,
+                padding: 14,
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.15,
+                shadowRadius: 4,
+                elevation: 4,
+                minWidth: '80%',
+                maxWidth: '85%',
+                alignSelf: 'center',
+                marginLeft: 0,
+                marginRight: 0,
+              }}
+            >
+          <View style={{ marginBottom: 14 }}>
             <Text
               style={{
-                color: isOwnMessage ? textOwn : textOther,
+                color: textOther,
                 fontSize: 17,
                 fontWeight: '700',
-                flex: 1,
               }}
             >
               {fallbackPoll.question}
             </Text>
           </View>
-            <Text style={{ color: isOwnMessage ? textOwn : textOther, fontSize: 14, opacity: 0.7, textAlign: 'center', padding: 8 }}>
+            <Text style={{ color: textOther, fontSize: 14, opacity: 0.7, textAlign: 'center', padding: 8 }}>
               Loading poll data...
             </Text>
+            </View>
           </View>
         );
       }
@@ -670,32 +693,32 @@ function ChatTab({ groupId }) {
       const totalVotes = pollData.options.reduce((sum, o) => sum + (o.votes || 0), 0);
       
       return (
-        <View
-          style={{
-            backgroundColor: isOwnMessage ? bubbleOwn : bubbleOther,
-            borderRadius: 20,
-            padding: 14,
-            borderTopLeftRadius: isOwnMessage ? 20 : 4,
-            borderTopRightRadius: isOwnMessage ? 4 : 20,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.15,
-            shadowRadius: 4,
-            elevation: 4,
-            minWidth: '80%',
-            maxWidth: '85%',
-            marginLeft: 0, // Ensure no left margin
-            marginRight: 0, // Ensure no right margin
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-            <Text style={{ fontSize: 20, marginRight: 8 }}>📊</Text>
+        <View style={{ alignItems: 'center', width: '100%' }}>
+          <View
+            style={{
+              backgroundColor: bubbleOther,
+              borderRadius: 20,
+              padding: 14,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.15,
+              shadowRadius: 4,
+              elevation: 4,
+              minWidth: '80%',
+              maxWidth: '85%',
+              alignSelf: 'center',
+              marginLeft: 0,
+              marginRight: 0,
+            }}
+          >
+          <View style={{ marginBottom: 14 }}>
             <Text
               style={{
-                color: isOwnMessage ? textOwn : textOther,
+                color: textOther,
                 fontSize: 17,
                 fontWeight: '700',
-                flex: 1,
               }}
             >
               {pollData.question}
@@ -719,18 +742,18 @@ function ChatTab({ groupId }) {
                   padding: 12,
                   borderRadius: 10,
                   backgroundColor: isVoted 
-                    ? (isOwnMessage ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.15)') 
-                    : (isOwnMessage ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'),
+                    ? 'rgba(0,0,0,0.15)' 
+                    : 'rgba(0,0,0,0.05)',
                   borderWidth: isVoted ? 2 : 1,
                   borderColor: isVoted 
                     ? IU_CRIMSON 
-                    : (isOwnMessage ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'),
+                    : 'rgba(0,0,0,0.1)',
                 }}
               >
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <Text
                     style={{
-                      color: isOwnMessage ? textOwn : textOther,
+                      color: textOther,
                       fontSize: 15,
                       fontWeight: isVoted ? '600' : '400',
                       flex: 1,
@@ -754,7 +777,7 @@ function ChatTab({ groupId }) {
                     )}
                     <Text
                       style={{
-                        color: isOwnMessage ? textOwn : textOther,
+                        color: textOther,
                         fontSize: 14,
                         fontWeight: '600',
                         minWidth: 45,
@@ -766,7 +789,7 @@ function ChatTab({ groupId }) {
                     {totalVotes > 0 && (
                       <Text
                         style={{
-                          color: isOwnMessage ? textOwn : textOther,
+                          color: textOther,
                           fontSize: 12,
                           opacity: 0.7,
                           marginLeft: 6,
@@ -783,7 +806,7 @@ function ChatTab({ groupId }) {
                   style={{
                     height: 5,
                     borderRadius: 3,
-                    backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)',
+                    backgroundColor: 'rgba(0,0,0,0.1)',
                     overflow: 'hidden',
                   }}
                 >
@@ -803,7 +826,7 @@ function ChatTab({ groupId }) {
           {totalVotes > 0 && (
             <Text
               style={{
-                color: isOwnMessage ? textOwn : textOther,
+                color: textOther,
                 fontSize: 11,
                 opacity: 0.7,
                 marginTop: 6,
@@ -813,6 +836,7 @@ function ChatTab({ groupId }) {
               {totalVotes} total {totalVotes === 1 ? 'vote' : 'votes'}
             </Text>
           )}
+          </View>
         </View>
       );
     }
@@ -1220,16 +1244,32 @@ function ChatTab({ groupId }) {
   }, [handleVideoPicker]);
 
   if (!groupId || !user?.uid) {
+    const groupPhoto = group?.coverPhoto || group?.profilePicture || null;
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: chatBackground }}>
-        <Text style={{ color: textSecondary }}>Select a group to view chat</Text>
-      </View>
+      <ImageBackground
+        source={groupPhoto ? { uri: groupPhoto } : null}
+        style={{ flex: 1 }}
+        imageStyle={{ opacity: 0.3, resizeMode: 'cover' }}
+      >
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: groupPhoto ? 'rgba(0, 0, 0, 0.4)' : chatBackground }}>
+          <Text style={{ color: textSecondary }}>Select a group to view chat</Text>
+        </View>
+      </ImageBackground>
     );
   }
   
+  // Get group photo for background (coverPhoto > profilePicture > fallback)
+  const groupPhoto = group?.coverPhoto || group?.profilePicture || null;
+  
   return (
-    <View style={{ flex: 1, backgroundColor: chatBackground }}>
-      <GiftedChat
+    <ImageBackground
+      source={groupPhoto ? { uri: groupPhoto } : null}
+      style={{ flex: 1 }}
+      imageStyle={{ opacity: 0.3, resizeMode: 'cover' }}
+      defaultSource={null}
+    >
+      <View style={{ flex: 1, backgroundColor: groupPhoto ? 'rgba(0, 0, 0, 0.4)' : chatBackground }}>
+        <GiftedChat
         messages={messages}
         onSend={onSend}
         user={{
@@ -1282,6 +1322,7 @@ function ChatTab({ groupId }) {
           const messageUserId = String(props.currentMessage?.user?._id || '');
           const currentUserId = String(user?.uid || '');
           const isOwnMessage = messageUserId === currentUserId;
+          const isPoll = props.currentMessage.type === 'poll' && props.currentMessage.pollId;
           
           // Check if previous message is from same user (consecutive message)
           const previousMessage = props.previousMessage;
@@ -1293,7 +1334,7 @@ function ChatTab({ groupId }) {
               style={{
                 width: '100%',
                 flexDirection: 'row',
-                justifyContent: isOwnMessage ? 'flex-end' : 'flex-start',
+                justifyContent: isPoll ? 'center' : (isOwnMessage ? 'flex-end' : 'flex-start'),
                 marginVertical: 8,
                 paddingHorizontal: 12,
                 alignItems: 'flex-start',
@@ -1302,7 +1343,8 @@ function ChatTab({ groupId }) {
               }}
             >
               {/* Show avatar for other users' messages on the left (always show, not just for non-consecutive) */}
-              {!isOwnMessage && (
+              {/* Don't show avatar for polls */}
+              {!isOwnMessage && !isPoll && (
                 <View style={{ marginRight: 8, marginTop: 2 }}>
                   <Image
                     source={{ uri: props.currentMessage.user.avatar || 'https://i.pravatar.cc/100?img=12' }}
@@ -1310,9 +1352,10 @@ function ChatTab({ groupId }) {
                   />
                 </View>
               )}
-              <View style={{ flex: 1, maxWidth: '75%' }}>
+              <View style={{ flex: 1, maxWidth: isPoll ? '100%' : '75%', alignItems: isPoll ? 'center' : 'stretch' }}>
                 {/* Show username above message for other users (only if not consecutive) */}
-                {!isOwnMessage && !isConsecutive && (
+                {/* Don't show username for polls */}
+                {!isOwnMessage && !isConsecutive && !isPoll && (
                   <Text
                     style={{
                       color: textSecondary,
@@ -1696,7 +1739,8 @@ function ChatTab({ groupId }) {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
-    </View>
+      </View>
+    </ImageBackground>
   );
 }
 

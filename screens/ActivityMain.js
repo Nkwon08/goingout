@@ -93,6 +93,16 @@ export default function ActivityMain() {
         const joinStatuses = await Promise.all(joinStatusChecks);
         const joinedIds = new Set(joinStatuses.filter(s => s.joined).map(s => s.eventId));
         setJoinedEventIds(joinedIds);
+        
+        // Debug: Log events and join status
+        console.log('📅 Events loaded:', uniqueEvents.length);
+        console.log('📅 Joined event IDs:', Array.from(joinedIds));
+        console.log('📅 User ID:', user.uid);
+        uniqueEvents.forEach(event => {
+          const isJoined = joinedIds.has(event.id);
+          const isCreator = event.userId === user.uid;
+          console.log(`📅 Event: ${event.title}, ID: ${event.id}, Joined: ${isJoined}, Creator: ${isCreator}, EndTime: ${event.endTime}`);
+        });
       }
       
       setLocalEvents(uniqueEvents);
@@ -109,33 +119,59 @@ export default function ActivityMain() {
   const upcomingEvents = React.useMemo(() => {
     const now = new Date();
     
-    return localEvents.filter((event) => {
-      // Don't show events the user has joined
-      if (joinedEventIds.has(event.id)) {
+    const filtered = localEvents.filter((event) => {
+      // Don't show events the user has joined (except events they created)
+      // Users should still see their own events even if they've joined them
+      if (joinedEventIds.has(event.id) && event.userId !== user?.uid) {
+        console.log(`🚫 Filtered out joined event: ${event.title} (ID: ${event.id})`);
         return false;
       }
       
-      // If event has endTime and endDate/startDate/date fields
-      if (event.endTime && (event.endDate || event.startDate || event.date)) {
-        // Use endDate if available, otherwise fall back to startDate or date for backward compatibility
-        const eventEndDate = event.endDate || event.startDate || event.date;
-        // Combine date and endTime to create full end datetime
-        const endDateTime = new Date(eventEndDate);
-        // Extract time components from endTime (which is a Date object)
-        endDateTime.setHours(event.endTime.getHours());
-        endDateTime.setMinutes(event.endTime.getMinutes());
-        endDateTime.setSeconds(event.endTime.getSeconds());
-        endDateTime.setMilliseconds(0);
+      // If event has endTime, use it directly (endTime is already a full datetime)
+      if (event.endTime) {
+        // Convert endTime to Date if it's a Timestamp or other format
+        let endDateTime;
+        if (event.endTime instanceof Date) {
+          endDateTime = event.endTime;
+        } else if (event.endTime?.toDate) {
+          endDateTime = event.endTime.toDate();
+        } else if (typeof event.endTime === 'string' || typeof event.endTime === 'number') {
+          endDateTime = new Date(event.endTime);
+        } else {
+          // Fallback: try to use endDate + endTime if endTime is just a time
+          if (event.endDate || event.startDate || event.date) {
+            const eventEndDate = event.endDate || event.startDate || event.date;
+            endDateTime = new Date(eventEndDate);
+            if (event.endTime && typeof event.endTime === 'object' && !(event.endTime instanceof Date)) {
+              // If endTime has getHours method, extract time components
+              if (typeof event.endTime.getHours === 'function') {
+                endDateTime.setHours(event.endTime.getHours());
+                endDateTime.setMinutes(event.endTime.getMinutes());
+                endDateTime.setSeconds(event.endTime.getSeconds());
+                endDateTime.setMilliseconds(0);
+              }
+            }
+          } else {
+            // No endTime or endDate available, show the event (legacy data)
+            return true;
+          }
+        }
         
         // Only show if current time is before end time
-        return now < endDateTime;
+        const isUpcoming = now < endDateTime;
+        if (!isUpcoming) {
+          console.log(`🚫 Filtered out expired event: ${event.title} (ID: ${event.id}), EndTime: ${endDateTime.toISOString()}, Now: ${now.toISOString()}`);
+        }
+        return isUpcoming;
       }
       
-      // For events without endTime/date (legacy/mock data), show them
-      // You can remove this fallback if all events will have endTime/date
+      // For events without endTime (legacy/mock data), show them
       return true;
     });
-  }, [localEvents, joinedEventIds]);
+    
+    console.log(`✅ Upcoming events: ${filtered.length} out of ${localEvents.length} total events`);
+    return filtered;
+  }, [localEvents, joinedEventIds, user?.uid]);
 
   // Calculate trending locations from feed posts
   const trendingLocations = React.useMemo(() => {
@@ -157,7 +193,7 @@ export default function ActivityMain() {
       colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
       style={{ flex: 1 }}
     >
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 100 }}>
       <TonightSelector />
 
       <View style={{ height: 24 }} />
@@ -295,8 +331,11 @@ export default function ActivityMain() {
               host: eventData.host,
               photo: eventData.photo,
               date: eventData.date,
+              startDate: eventData.startDate,
+              endDate: eventData.endDate,
               startTime: eventData.startTime,
               endTime: eventData.endTime,
+              friendsOnly: eventData.friendsOnly,
             });
 
             if (result.error) {

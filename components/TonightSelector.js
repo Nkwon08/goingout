@@ -6,6 +6,7 @@ import { Card, Text, Button, Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { getCardBorderOnly } from '../utils/cardStyles';
 import { useAuth } from '../context/AuthContext';
 import { voteForOption, subscribeToVotesForLocation, getUserVoteForLocation } from '../services/votesService';
 import { getCurrentLocation } from '../services/locationService';
@@ -24,7 +25,7 @@ const PREDEFINED_BARS = [
 ];
 
 export default function TonightSelector() {
-  const { surface, text, subText, divider, background, border } = useThemeColors();
+  const { surface, text, subText, divider, background, border, isDarkMode } = useThemeColors();
   const { user, userData } = useAuth();
   const [voteCounts, setVoteCounts] = React.useState({});
   const [voters, setVoters] = React.useState({}); // Who voted for each option
@@ -203,7 +204,16 @@ export default function TonightSelector() {
   if (loading) {
     return (
       <View style={styles.container}>
-        <Card mode="contained" style={{ backgroundColor: surface, borderRadius: 16 }}>
+        <Card mode="contained" style={{ 
+          backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
+          borderRadius: 20,
+          ...getCardBorderOnly(),
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.3,
+          shadowRadius: 16,
+          elevation: 8,
+        }}>
           <Card.Content style={{ padding: 20 }}>
             <ActivityIndicator size="small" color={IU_CRIMSON} />
             <Text style={[styles.loadingText, { color: subText, marginTop: 12 }]}>
@@ -217,7 +227,16 @@ export default function TonightSelector() {
 
   return (
     <View style={styles.container}>
-      <Card mode="contained" style={{ backgroundColor: surface, borderRadius: 16 }}>
+        <Card mode="contained" style={{ 
+          backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
+          borderRadius: 20,
+          ...getCardBorderOnly(),
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.3,
+          shadowRadius: 16,
+          elevation: 8,
+        }}>
         <Card.Title 
           title="Where's everyone going tonight?" 
           titleStyle={{ color: text }}

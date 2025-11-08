@@ -24,6 +24,18 @@ export const createEvent = async (userId, userData, eventData) => {
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
       return { eventId: null, error: 'Firestore not configured. Please check your Firebase configuration and restart the app: expo start --clear' };
     }
+    
+    // Log input data for debugging
+    console.log('📅 Creating event with data:', {
+      startDate: eventData.startDate,
+      startTime: eventData.startTime,
+      endDate: eventData.endDate,
+      endTime: eventData.endTime,
+      startDateType: typeof eventData.startDate,
+      startTimeType: typeof eventData.startTime,
+      endDateType: typeof eventData.endDate,
+      endTimeType: typeof eventData.endTime,
+    });
 
     // Convert Date objects to Firestore Timestamps
     // Handle backward compatibility: if eventData.date exists, use it for both startDate and endDate
@@ -52,13 +64,183 @@ export const createEvent = async (userId, userData, eventData) => {
       endDateTimestamp = now;
     }
     
-    const startTimeTimestamp = eventData.startTime instanceof Date 
-      ? Timestamp.fromDate(eventData.startTime) 
-      : Timestamp.fromMillis(eventData.startTime.getTime ? eventData.startTime.getTime() : eventData.startTime);
+    // Combine startDate with startTime to create full start datetime
+    let startDateTime;
+    if (eventData.startTime && eventData.startDate) {
+      // Get startDate as a Date object
+      let startDateObj;
+      if (eventData.startDate instanceof Date) {
+        startDateObj = new Date(eventData.startDate);
+      } else if (eventData.startDate?.toDate) {
+        startDateObj = eventData.startDate.toDate();
+      } else if (eventData.startDate) {
+        startDateObj = new Date(eventData.startDate);
+      } else {
+        throw new Error('startDate is required');
+      }
+      
+      // Get startTime as a Date object
+      let startTimeObj;
+      if (eventData.startTime instanceof Date) {
+        startTimeObj = new Date(eventData.startTime);
+      } else if (eventData.startTime?.toDate) {
+        startTimeObj = eventData.startTime.toDate();
+      } else if (eventData.startTime) {
+        startTimeObj = new Date(eventData.startTime);
+      } else {
+        throw new Error('startTime is required');
+      }
+      
+      // Validate dates are valid
+      if (isNaN(startDateObj.getTime())) {
+        throw new Error('Invalid startDate');
+      }
+      if (isNaN(startTimeObj.getTime())) {
+        throw new Error('Invalid startTime');
+      }
+      
+      // Combine date and time
+      try {
+        // Create a new Date from the startDate to avoid mutating the original
+        startDateTime = new Date(startDateObj.getTime());
+        
+        // Extract only the time components (hours, minutes, seconds) from startTime
+        // This ensures we're not affected by any date component in startTime
+        const hours = startTimeObj.getHours();
+        const minutes = startTimeObj.getMinutes();
+        const seconds = startTimeObj.getSeconds();
+        
+        // Validate time components are within valid ranges
+        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59) {
+          throw new Error(`Invalid time components: ${hours}:${minutes}:${seconds}`);
+        }
+        
+        startDateTime.setHours(hours);
+        startDateTime.setMinutes(minutes);
+        startDateTime.setSeconds(seconds);
+        startDateTime.setMilliseconds(0);
+        
+        // Validate combined datetime
+        if (isNaN(startDateTime.getTime())) {
+          throw new Error(`Invalid combined startDateTime. startDate: ${startDateObj.toISOString()}, startTime: ${startTimeObj.toISOString()}`);
+        }
+      } catch (error) {
+        console.error('Error combining startDate and startTime:', error);
+        console.error('startDateObj:', startDateObj, 'isValid:', !isNaN(startDateObj.getTime()));
+        console.error('startTimeObj:', startTimeObj, 'isValid:', !isNaN(startTimeObj.getTime()));
+        throw new Error(`Failed to combine startDate and startTime: ${error.message}`);
+      }
+    } else if (eventData.startDate) {
+      // Fallback: use startDate as startTime
+      if (eventData.startDate instanceof Date) {
+        startDateTime = new Date(eventData.startDate);
+      } else if (eventData.startDate?.toDate) {
+        startDateTime = eventData.startDate.toDate();
+      } else {
+        startDateTime = new Date(eventData.startDate);
+      }
+    } else {
+      throw new Error('startDate and startTime are required');
+    }
     
-    const endTimeTimestamp = eventData.endTime instanceof Date 
-      ? Timestamp.fromDate(eventData.endTime) 
-      : Timestamp.fromMillis(eventData.endTime.getTime ? eventData.endTime.getTime() : eventData.endTime);
+    // Combine endDate with endTime to create full end datetime
+    let endDateTime;
+    if (eventData.endTime && eventData.endDate) {
+      // Get endDate as a Date object
+      let endDateObj;
+      if (eventData.endDate instanceof Date) {
+        endDateObj = new Date(eventData.endDate);
+      } else if (eventData.endDate?.toDate) {
+        endDateObj = eventData.endDate.toDate();
+      } else if (eventData.endDate) {
+        endDateObj = new Date(eventData.endDate);
+      } else {
+        throw new Error('endDate is required');
+      }
+      
+      // Get endTime as a Date object
+      let endTimeObj;
+      if (eventData.endTime instanceof Date) {
+        endTimeObj = new Date(eventData.endTime);
+      } else if (eventData.endTime?.toDate) {
+        endTimeObj = eventData.endTime.toDate();
+      } else if (eventData.endTime) {
+        endTimeObj = new Date(eventData.endTime);
+      } else {
+        throw new Error('endTime is required');
+      }
+      
+      // Validate dates are valid
+      if (isNaN(endDateObj.getTime())) {
+        throw new Error('Invalid endDate');
+      }
+      if (isNaN(endTimeObj.getTime())) {
+        throw new Error('Invalid endTime');
+      }
+      
+      // Combine date and time
+      try {
+        // Create a new Date from the endDate to avoid mutating the original
+        endDateTime = new Date(endDateObj.getTime());
+        
+        // Extract only the time components (hours, minutes, seconds) from endTime
+        // This ensures we're not affected by any date component in endTime
+        const hours = endTimeObj.getHours();
+        const minutes = endTimeObj.getMinutes();
+        const seconds = endTimeObj.getSeconds();
+        
+        // Validate time components are within valid ranges
+        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59) {
+          throw new Error(`Invalid time components: ${hours}:${minutes}:${seconds}`);
+        }
+        
+        endDateTime.setHours(hours);
+        endDateTime.setMinutes(minutes);
+        endDateTime.setSeconds(seconds);
+        endDateTime.setMilliseconds(0);
+        
+        // Validate combined datetime
+        if (isNaN(endDateTime.getTime())) {
+          throw new Error(`Invalid combined endDateTime. endDate: ${endDateObj.toISOString()}, endTime: ${endTimeObj.toISOString()}`);
+        }
+      } catch (error) {
+        console.error('Error combining endDate and endTime:', error);
+        console.error('endDateObj:', endDateObj, 'isValid:', !isNaN(endDateObj.getTime()));
+        console.error('endTimeObj:', endTimeObj, 'isValid:', !isNaN(endTimeObj.getTime()));
+        throw new Error(`Failed to combine endDate and endTime: ${error.message}`);
+      }
+    } else if (eventData.endDate) {
+      // Fallback: use endDate as endTime
+      if (eventData.endDate instanceof Date) {
+        endDateTime = new Date(eventData.endDate);
+      } else if (eventData.endDate?.toDate) {
+        endDateTime = eventData.endDate.toDate();
+      } else {
+        endDateTime = new Date(eventData.endDate);
+      }
+    } else {
+      throw new Error('endDate and endTime are required');
+    }
+    
+    // Convert combined datetimes to Firestore Timestamps
+    let startTimeTimestamp, endTimeTimestamp;
+    try {
+      startTimeTimestamp = Timestamp.fromDate(startDateTime);
+      console.log('✅ Created startTimeTimestamp:', startTimeTimestamp.toDate().toISOString());
+    } catch (error) {
+      console.error('❌ Error creating startTimeTimestamp:', error);
+      console.error('startDateTime:', startDateTime, 'isValid:', !isNaN(startDateTime.getTime()));
+      throw new Error(`Failed to create startTimeTimestamp: ${error.message}`);
+    }
+    
+    try {
+      endTimeTimestamp = Timestamp.fromDate(endDateTime);
+      console.log('✅ Created endTimeTimestamp:', endTimeTimestamp.toDate().toISOString());
+    } catch (error) {
+      console.error('❌ Error creating endTimeTimestamp:', error);
+      console.error('endDateTime:', endDateTime, 'isValid:', !isNaN(endDateTime.getTime()));
+      throw new Error(`Failed to create endTimeTimestamp: ${error.message}`);
+    }
 
     const eventToCreate = {
       userId,
@@ -93,8 +275,9 @@ export const createEvent = async (userId, userData, eventData) => {
       description: `Group for ${eventToCreate.title}`,
       creator: userId, // Event creator is group creator
       members: [], // Empty - creator is automatically added by createGroup
-      startTime: eventData.startTime instanceof Date ? eventData.startTime : (eventData.startTime?.toDate ? eventData.startTime.toDate() : eventData.startTime),
-      endTime: eventData.endTime instanceof Date ? eventData.endTime : (eventData.endTime?.toDate ? eventData.endTime.toDate() : eventData.endTime),
+      startTime: startDateTime,
+      endTime: endDateTime,
+      coverPhoto: eventToCreate.image || null, // Use event photo as group cover photo
     });
 
     if (groupResult.error) {
@@ -207,7 +390,10 @@ export const subscribeToUpcomingEvents = (callback, limitCount = 50) => {
             location: data.location,
             host: data.host,
             image: data.image,
-            date: data.date?.toDate ? data.date.toDate() : data.date,
+            // Handle backward compatibility: use startDate/endDate if available, otherwise fall back to date
+            date: data.date?.toDate ? data.date.toDate() : data.date, // Keep for backward compatibility
+            startDate: data.startDate?.toDate ? data.startDate.toDate() : (data.startDate || (data.date?.toDate ? data.date.toDate() : data.date)),
+            endDate: data.endDate?.toDate ? data.endDate.toDate() : (data.endDate || (data.date?.toDate ? data.date.toDate() : data.date)),
             startTime: data.startTime?.toDate ? data.startTime.toDate() : data.startTime,
             endTime: data.endTime?.toDate ? data.endTime.toDate() : data.endTime,
             createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt,
@@ -219,7 +405,7 @@ export const subscribeToUpcomingEvents = (callback, limitCount = 50) => {
             friendsOnly: data.friendsOnly || false,
             // Format time string for display
             time: formatDateTime(
-              data.date?.toDate ? data.date.toDate() : data.date,
+              data.startDate?.toDate ? data.startDate.toDate() : (data.date?.toDate ? data.date.toDate() : data.date),
               data.startTime?.toDate ? data.startTime.toDate() : data.startTime
             ),
           };
@@ -344,13 +530,37 @@ export const joinEvent = async (eventId, userId) => {
       // Create group with event details
       // The event creator is automatically the group creator and first member
       // Note: createGroup automatically adds the creator to members, so we pass empty array
+      // Combine startDate + startTime and endDate + endTime to create full datetimes
+      const startDateObj = eventData.startDate?.toDate ? eventData.startDate.toDate() : (eventData.startDate || (eventData.date?.toDate ? eventData.date.toDate() : eventData.date));
+      const endDateObj = eventData.endDate?.toDate ? eventData.endDate.toDate() : (eventData.endDate || (eventData.date?.toDate ? eventData.date.toDate() : eventData.date));
+      const startTimeObj = eventData.startTime?.toDate ? eventData.startTime.toDate() : eventData.startTime;
+      const endTimeObj = eventData.endTime?.toDate ? eventData.endTime.toDate() : eventData.endTime;
+      
+      // Combine dates and times
+      const startDateTime = new Date(startDateObj);
+      if (startTimeObj) {
+        startDateTime.setHours(startTimeObj.getHours());
+        startDateTime.setMinutes(startTimeObj.getMinutes());
+        startDateTime.setSeconds(startTimeObj.getSeconds());
+        startDateTime.setMilliseconds(0);
+      }
+      
+      const endDateTime = new Date(endDateObj);
+      if (endTimeObj) {
+        endDateTime.setHours(endTimeObj.getHours());
+        endDateTime.setMinutes(endTimeObj.getMinutes());
+        endDateTime.setSeconds(endTimeObj.getSeconds());
+        endDateTime.setMilliseconds(0);
+      }
+      
       const groupResult = await createGroup({
         name: eventData.title,
         description: `Group for ${eventData.title}`,
         creator: eventData.userId, // Event creator is group creator
         members: [], // Empty - creator is automatically added by createGroup
-        startTime: eventData.startTime?.toDate ? eventData.startTime.toDate() : eventData.startTime,
-        endTime: eventData.endTime?.toDate ? eventData.endTime.toDate() : eventData.endTime,
+        startTime: startDateTime,
+        endTime: endDateTime,
+        coverPhoto: eventData.image || null, // Use event photo as group cover photo
       });
 
       if (groupResult.error) {
@@ -487,13 +697,52 @@ export const updateEvent = async (eventId, userId, eventData) => {
       endDateTimestamp = existingEventData.endDate || existingEventData.date;
     }
     
-    const startTimeTimestamp = eventData.startTime instanceof Date 
-      ? Timestamp.fromDate(eventData.startTime) 
-      : Timestamp.fromMillis(eventData.startTime.getTime ? eventData.startTime.getTime() : eventData.startTime);
+    // Combine startDate with startTime to create full start datetime
+    let startDateTime;
+    if (eventData.startTime) {
+      const startDateObj = eventData.startDate instanceof Date 
+        ? new Date(eventData.startDate) 
+        : (eventData.startDate?.toDate ? eventData.startDate.toDate() : (eventData.startDate || (existingEventData.startDate?.toDate ? existingEventData.startDate.toDate() : existingEventData.startDate)));
+      const startTimeObj = eventData.startTime instanceof Date 
+        ? eventData.startTime 
+        : (eventData.startTime?.toDate ? eventData.startTime.toDate() : new Date(eventData.startTime));
+      
+      startDateTime = new Date(startDateObj);
+      startDateTime.setHours(startTimeObj.getHours());
+      startDateTime.setMinutes(startTimeObj.getMinutes());
+      startDateTime.setSeconds(startTimeObj.getSeconds());
+      startDateTime.setMilliseconds(0);
+    } else {
+      // Fallback: use startDate as startTime
+      startDateTime = eventData.startDate instanceof Date 
+        ? eventData.startDate 
+        : (eventData.startDate?.toDate ? eventData.startDate.toDate() : (eventData.startDate || (existingEventData.startDate?.toDate ? existingEventData.startDate.toDate() : existingEventData.startDate)));
+    }
     
-    const endTimeTimestamp = eventData.endTime instanceof Date 
-      ? Timestamp.fromDate(eventData.endTime) 
-      : Timestamp.fromMillis(eventData.endTime.getTime ? eventData.endTime.getTime() : eventData.endTime);
+    // Combine endDate with endTime to create full end datetime
+    let endDateTime;
+    if (eventData.endTime) {
+      const endDateObj = eventData.endDate instanceof Date 
+        ? new Date(eventData.endDate) 
+        : (eventData.endDate?.toDate ? eventData.endDate.toDate() : (eventData.endDate || (existingEventData.endDate?.toDate ? existingEventData.endDate.toDate() : existingEventData.endDate)));
+      const endTimeObj = eventData.endTime instanceof Date 
+        ? eventData.endTime 
+        : (eventData.endTime?.toDate ? eventData.endTime.toDate() : new Date(eventData.endTime));
+      
+      endDateTime = new Date(endDateObj);
+      endDateTime.setHours(endTimeObj.getHours());
+      endDateTime.setMinutes(endTimeObj.getMinutes());
+      endDateTime.setSeconds(endTimeObj.getSeconds());
+      endDateTime.setMilliseconds(0);
+    } else {
+      // Fallback: use endDate as endTime
+      endDateTime = eventData.endDate instanceof Date 
+        ? eventData.endDate 
+        : (eventData.endDate?.toDate ? eventData.endDate.toDate() : (eventData.endDate || (existingEventData.endDate?.toDate ? existingEventData.endDate.toDate() : existingEventData.endDate)));
+    }
+    
+    const startTimeTimestamp = Timestamp.fromDate(startDateTime);
+    const endTimeTimestamp = Timestamp.fromDate(endDateTime);
 
     // Update the event
     await updateDoc(eventRef, {

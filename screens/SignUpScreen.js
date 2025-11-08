@@ -1,7 +1,7 @@
 // Sign up screen - user registration
 import * as React from 'react';
-import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { TextInput, Button, Text, Snackbar, Divider } from 'react-native-paper';
+import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity } from 'react-native';
+import { TextInput, Button, Text, Snackbar, Divider, Checkbox } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { signUp, signInWithGoogle, checkUsernameAvailability } from '../services/authService';
@@ -27,6 +27,7 @@ export default function SignUpScreen({ navigation }) {
   const [usernameTouched, setUsernameTouched] = React.useState(false); // Track if user has interacted with username field
   const [usernameCheckError, setUsernameCheckError] = React.useState(null); // Track errors during username check
   const usernameCheckTimeoutRef = React.useRef(null);
+  const [acceptedTerms, setAcceptedTerms] = React.useState(false);
 
   const { background, text, subText } = useThemeColors();
 
@@ -118,6 +119,13 @@ export default function SignUpScreen({ navigation }) {
     // Validation
     if (!name.trim() || !username.trim() || !email.trim() || !password.trim()) {
       setError('Please fill in all fields');
+      setSnackbarVisible(true);
+      return;
+    }
+
+    // Check if terms and conditions are accepted
+    if (!acceptedTerms) {
+      setError('You must accept the Terms and Conditions to create an account');
       setSnackbarVisible(true);
       return;
     }
@@ -333,11 +341,34 @@ export default function SignUpScreen({ navigation }) {
             disabled={loading}
           />
 
+          {/* Terms and Conditions Checkbox */}
+          <View style={styles.termsContainer}>
+            <Checkbox
+              status={acceptedTerms ? 'checked' : 'unchecked'}
+              onPress={() => setAcceptedTerms(!acceptedTerms)}
+              color={IU_CRIMSON}
+              disabled={loading}
+            />
+            <View style={styles.termsTextContainer}>
+              <Text style={[styles.termsText, { color: text }]}>
+                I agree to the{' '}
+              </Text>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('TermsAndConditions')}
+                disabled={loading}
+              >
+                <Text style={[styles.termsLink, { color: IU_CRIMSON }]}>
+                  Terms and Conditions
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
           <Button
             mode="contained"
             onPress={handleSignUp}
             loading={loading}
-            disabled={loading || googleLoading || usernameAvailable === false || checkingUsername || (username.trim() && usernameAvailable !== true)}
+            disabled={loading || googleLoading || usernameAvailable === false || checkingUsername || (username.trim() && usernameAvailable !== true) || !acceptedTerms}
             buttonColor={IU_CRIMSON}
             textColor="#FFFFFF"
             style={styles.button}
@@ -495,6 +526,28 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginLeft: 16,
     fontStyle: 'italic',
+  },
+  termsContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  termsTextContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginLeft: 8,
+    marginTop: 4,
+  },
+  termsText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  termsLink: {
+    fontSize: 14,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
 });
 
