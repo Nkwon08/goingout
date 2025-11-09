@@ -941,10 +941,8 @@ const styles = StyleSheet.create({
     marginLeft: 'auto',
   },
   mentionSuggestionsContainer: {
-    position: 'absolute',
-    top: 100,
-    left: 60,
-    right: 16,
+    marginTop: 8,
+    marginBottom: 8,
     maxHeight: 200,
     borderRadius: 12,
     borderWidth: 1,
