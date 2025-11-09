@@ -5,9 +5,11 @@ import { Text, Avatar, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { useAuth } from '../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
+import { searchUsersByPrefix } from '../services/usersService';
 // Removed albums import - images will come from user's own photos
 // Removed getCurrentLocation import - using account location instead of GPS
 
@@ -27,6 +29,7 @@ const PREDEFINED_BARS = [
 export default function ComposePost({ visible, onClose, onSubmit, currentUser, submitting = false, initialImages = [] }) {
   // Get theme colors
   const { isDarkMode, text: textColor, subText, surface, border, divider, background } = useThemeColors();
+  const { user, friendsList } = useAuth();
   
   // State for post content
   const [text, setText] = React.useState('');
@@ -40,6 +43,13 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
   const [barDropdownVisible, setBarDropdownVisible] = React.useState(false);
   const [cityLocation, setCityLocation] = React.useState(''); // City location for filtering (hidden)
   const navigation = useNavigation();
+  
+  // State for @mention autocomplete
+  const [mentionSuggestions, setMentionSuggestions] = React.useState([]);
+  const [showMentionSuggestions, setShowMentionSuggestions] = React.useState(false);
+  const [mentionQuery, setMentionQuery] = React.useState('');
+  const [mentionStartIndex, setMentionStartIndex] = React.useState(-1);
+  const [searchingUsers, setSearchingUsers] = React.useState(false);
 
   // Empty - images will come from user's own photos/Firebase in the future
   const appImages = [];
@@ -126,6 +136,49 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
   // Track previous visible state to detect when modal actually closes
   const prevVisibleRef = React.useRef(visible);
   
+  // Search for users when mention query changes
+  React.useEffect(() => {
+    if (!showMentionSuggestions || !mentionQuery || mentionQuery.trim().length === 0) {
+      setMentionSuggestions([]);
+      return;
+    }
+    
+    if (!user?.uid) {
+      return;
+    }
+    
+    const searchUsers = async () => {
+      setSearchingUsers(true);
+      try {
+        const { users, error } = await searchUsersByPrefix(
+          mentionQuery.trim(),
+          user.uid,
+          friendsList || [],
+          10 // Limit to 10 suggestions
+        );
+        
+        if (error) {
+          console.error('Error searching users for mentions:', error);
+          setMentionSuggestions([]);
+        } else {
+          setMentionSuggestions(users || []);
+        }
+      } catch (error) {
+        console.error('Error searching users for mentions:', error);
+        setMentionSuggestions([]);
+      } finally {
+        setSearchingUsers(false);
+      }
+    };
+    
+    // Debounce search to avoid too many requests
+    const timeoutId = setTimeout(() => {
+      searchUsers();
+    }, 300);
+    
+    return () => clearTimeout(timeoutId);
+  }, [mentionQuery, showMentionSuggestions, user?.uid, friendsList]);
+  
   // Set account location when modal opens (use account location, not GPS)
   React.useEffect(() => {
     const prevVisible = prevVisibleRef.current;
@@ -138,6 +191,11 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       // Set initial images if provided (from camera), otherwise reset
       setImages(initialImages && initialImages.length > 0 ? [...initialImages] : []);
       setVisibility('location'); // Reset to default
+      // Reset mention suggestions
+      setShowMentionSuggestions(false);
+      setMentionSuggestions([]);
+      setMentionQuery('');
+      setMentionStartIndex(-1);
       
       // Use account location from userData for filtering (hidden, stored in cityLocation)
       // Get location from currentUser prop (which should be userData from AuthContext)
@@ -179,6 +237,11 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       setImages([]);
       setVisibility('location');
       setBar(''); // Reset bar field
+      // Reset mention suggestions
+      setShowMentionSuggestions(false);
+      setMentionSuggestions([]);
+      setMentionQuery('');
+      setMentionStartIndex(-1);
     }
   }, [visible, currentUser]); // Removed initialImages from dependencies to prevent infinite loop
 
@@ -242,10 +305,98 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                 placeholderTextColor={subText}
                 multiline
                 value={text}
-                onChangeText={setText}
+                onChangeText={(newText) => {
+                  setText(newText);
+                  
+                  // Detect @mention pattern
+                  const lastAtIndex = newText.lastIndexOf('@');
+                  const cursorPos = newText.length;
+                  
+                  // Check if @ is followed by text (not whitespace or end of string)
+                  if (lastAtIndex !== -1) {
+                    const afterAt = newText.substring(lastAtIndex + 1);
+                    const spaceIndex = afterAt.indexOf(' ');
+                    const newlineIndex = afterAt.indexOf('\n');
+                    
+                    // Find the end of the mention query (space, newline, or end of string)
+                    let queryEnd = afterAt.length;
+                    if (spaceIndex !== -1) queryEnd = Math.min(queryEnd, spaceIndex);
+                    if (newlineIndex !== -1) queryEnd = Math.min(queryEnd, newlineIndex);
+                    
+                    const query = afterAt.substring(0, queryEnd);
+                    
+                    // Only show suggestions if there's a query after @
+                    if (query.length > 0 && cursorPos > lastAtIndex) {
+                      setMentionQuery(query);
+                      setMentionStartIndex(lastAtIndex);
+                      setShowMentionSuggestions(true);
+                    } else {
+                      setShowMentionSuggestions(false);
+                      setMentionSuggestions([]);
+                    }
+                  } else {
+                    setShowMentionSuggestions(false);
+                    setMentionSuggestions([]);
+                  }
+                }}
                 maxLength={280}
-                        textAlignVertical="top"
+                textAlignVertical="top"
               />
+              {/* @Mention Suggestions Dropdown */}
+              {showMentionSuggestions && mentionQuery.length > 0 && (
+                <View style={[styles.mentionSuggestionsContainer, { backgroundColor: surface, borderColor: border }]}>
+                  {searchingUsers ? (
+                    <View style={styles.mentionLoadingContainer}>
+                      <ActivityIndicator size="small" color={IU_CRIMSON} />
+                      <Text style={[styles.mentionLoadingText, { color: subText }]}>Searching...</Text>
+                    </View>
+                  ) : mentionSuggestions.length > 0 ? (
+                    <ScrollView 
+                      style={styles.mentionSuggestionsScroll}
+                      keyboardShouldPersistTaps="handled"
+                      nestedScrollEnabled={true}
+                    >
+                      {mentionSuggestions.map((suggestedUser, index) => (
+                        <TouchableOpacity
+                          key={`mention-${suggestedUser.uid || suggestedUser.username || index}`}
+                          style={[styles.mentionSuggestionItem, { borderBottomColor: divider }]}
+                          onPress={() => {
+                            // Insert the username into the text
+                            const beforeMention = text.substring(0, mentionStartIndex);
+                            const afterMention = text.substring(mentionStartIndex + 1 + mentionQuery.length);
+                            const newText = `${beforeMention}@${suggestedUser.username} ${afterMention}`;
+                            setText(newText);
+                            setShowMentionSuggestions(false);
+                            setMentionSuggestions([]);
+                            setMentionQuery('');
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Avatar.Image 
+                            size={40} 
+                            source={{ uri: suggestedUser.avatar || 'https://i.pravatar.cc/100?img=12' }} 
+                          />
+                          <View style={styles.mentionSuggestionInfo}>
+                            <Text style={[styles.mentionSuggestionName, { color: textColor }]}>
+                              {suggestedUser.name || 'User'}
+                            </Text>
+                            <Text style={[styles.mentionSuggestionUsername, { color: subText }]}>
+                              @{suggestedUser.username}
+                            </Text>
+                          </View>
+                          {suggestedUser.isFriend && (
+                            <MaterialCommunityIcons name="account-check" size={16} color={IU_CRIMSON} />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  ) : (
+                    <View style={styles.mentionNoResultsContainer}>
+                      <Text style={[styles.mentionNoResultsText, { color: subText }]}>No users found</Text>
+                    </View>
+                  )}
+                </View>
+              )}
               {images.length > 0 && (
                         <View style={styles.imagesPreviewContainer}>
                           <Text style={[styles.imagesPreviewTitle, { color: textColor }]}>{images.length} photo{images.length > 1 ? 's' : ''} selected</Text>
@@ -788,6 +939,59 @@ const styles = StyleSheet.create({
   charCount: {
     fontSize: 14,
     marginLeft: 'auto',
+  },
+  mentionSuggestionsContainer: {
+    position: 'absolute',
+    top: 100,
+    left: 60,
+    right: 16,
+    maxHeight: 200,
+    borderRadius: 12,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 1000,
+  },
+  mentionSuggestionsScroll: {
+    maxHeight: 200,
+  },
+  mentionSuggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+  },
+  mentionSuggestionInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  mentionSuggestionName: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  mentionSuggestionUsername: {
+    fontSize: 13,
+  },
+  mentionLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    gap: 8,
+  },
+  mentionLoadingText: {
+    fontSize: 14,
+  },
+  mentionNoResultsContainer: {
+    padding: 16,
+    alignItems: 'center',
+  },
+  mentionNoResultsText: {
+    fontSize: 14,
   },
 });
 

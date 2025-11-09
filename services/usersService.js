@@ -404,3 +404,111 @@ export const getAllUsers = async (currentUserId, pageSize = 20, lastUserId = nul
   }
 };
 
+/**
+ * Search users by username prefix (for @mention autocomplete)
+ * Returns users whose username starts with the query string
+ * @param {string} searchQuery - The search query (username prefix)
+ * @param {string} currentUserId - Current user's ID to exclude
+ * @param {Array<string>} friendsList - List of friend usernames to prioritize
+ * @param {number} limitCount - Maximum number of results (default: 15)
+ * @returns {Promise<{ users: Array, error: string|null }>}
+ */
+export const searchUsersByPrefix = async (searchQuery, currentUserId, friendsList = [], limitCount = 15) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { users: [], error: 'Firestore not configured' };
+    }
+
+    if (!searchQuery || searchQuery.trim().length === 0) {
+      return { users: [], error: null };
+    }
+
+    const queryLower = searchQuery.toLowerCase().trim();
+    const queryUpper = queryLower.slice(0, -1) + String.fromCharCode(queryLower.charCodeAt(queryLower.length - 1) + 1);
+
+    const usersRef = collection(db, 'users');
+    
+    // Use range query for prefix matching: >= queryLower and < queryUpper
+    const q = query(
+      usersRef,
+      where('username_lowercase', '>=', queryLower),
+      where('username_lowercase', '<', queryUpper),
+      orderBy('username_lowercase'),
+      limit(limitCount * 2) // Get more to filter out current user and prioritize friends
+    );
+
+    const querySnapshot = await getDocsFromServer(q);
+    
+    const allUsers = querySnapshot.docs
+      .filter((doc) => {
+        const data = doc.data();
+        // Exclude current user
+        return data.authUid !== currentUserId;
+      })
+      .map((doc) => {
+        const data = doc.data();
+        const avatarUrl = data.photoURL || data.avatar || data.photo || 'https://i.pravatar.cc/100';
+        const docId = doc.id.toLowerCase();
+        return {
+          uid: doc.id,
+          username: data.username || 'username',
+          name: data.name || 'User',
+          avatar: avatarUrl,
+          bio: data.bio || null,
+          isFriend: friendsList.includes(docId),
+        };
+      });
+
+    // Prioritize friends first, then others
+    const friends = allUsers.filter(u => u.isFriend);
+    const others = allUsers.filter(u => !u.isFriend);
+    
+    // Combine: friends first, then others, limit to limitCount
+    const users = [...friends, ...others].slice(0, limitCount);
+
+    return { users, error: null };
+  } catch (error) {
+    console.error('❌ searchUsersByPrefix error:', error);
+    
+    // Handle different error types
+    if (error.code === 'unavailable') {
+      return { users: [], error: 'Unable to connect to database. Please check your internet connection and try again.' };
+    }
+    if (error.code === 'permission-denied') {
+      return { users: [], error: 'Permission denied. Please check Firestore security rules.' };
+    }
+    if (error.code === 'failed-precondition') {
+      // Index needed - fallback to client-side filtering
+      try {
+        const { getAllUsers } = await import('./usersService');
+        const result = await getAllUsers(currentUserId, 100, null);
+        
+        if (result.error) {
+          return { users: [], error: result.error };
+        }
+        
+        const queryLower = searchQuery.toLowerCase().trim();
+        const filtered = result.users
+          .filter(u => {
+            const usernameLower = (u.username || '').toLowerCase();
+            return usernameLower.startsWith(queryLower);
+          })
+          .map(u => ({
+            ...u,
+            isFriend: friendsList.includes((u.uid || u.username || '').toLowerCase()),
+          }));
+        
+        const friends = filtered.filter(u => u.isFriend);
+        const others = filtered.filter(u => !u.isFriend);
+        const users = [...friends, ...others].slice(0, limitCount);
+        
+        return { users, error: null };
+      } catch (fallbackError) {
+        return { users: [], error: fallbackError.message || 'Failed to search users' };
+      }
+    }
+    
+    return { users: [], error: error.message || 'Failed to search users' };
+  }
+};
+

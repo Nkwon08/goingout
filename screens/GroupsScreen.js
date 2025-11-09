@@ -1374,9 +1374,6 @@ function ChatTab({ groupId }) {
           );
         }}
         renderInputToolbar={(props) => {
-          // Apply keyboard adjustments when keyboard is open
-          const shouldApplyKeyboardOffset = keyboardHeight > 0;
-          
           return (
             <View
               style={{
@@ -1385,8 +1382,7 @@ function ChatTab({ groupId }) {
                 borderTopColor: 'transparent',
                 paddingHorizontal: 8,
                 paddingTop: 4,
-                paddingBottom: shouldApplyKeyboardOffset ? 0 : Math.max(insets.bottom, 12),
-                marginBottom: shouldApplyKeyboardOffset ? -80 : 0,
+                paddingBottom: Math.max(insets.bottom, 8),
               }}
             >
               {/* Input row with plus button on left */}
@@ -1526,6 +1522,7 @@ function ChatTab({ groupId }) {
           },
         }}
       />
+      </View>
       
       {/* Media Picker Modal */}
       <Modal
@@ -1739,7 +1736,6 @@ function ChatTab({ groupId }) {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
-      </View>
     </ImageBackground>
   );
 }
@@ -2681,9 +2677,15 @@ function GroupDetail({ group: initialGroup, onBack }) {
         );
         
         if (error) {
+          console.error('Error updating profile picture:', error);
           Alert.alert('Error', error);
         } else {
-          Alert.alert('Success', 'Group profile picture updated successfully');
+          console.log('✅ Profile picture updated successfully:', profilePicture);
+          // The subscription should automatically update the group data
+          // Force a small delay to ensure Firestore has updated
+          setTimeout(() => {
+            Alert.alert('Success', 'Group profile picture updated successfully');
+          }, 500);
         }
         setUploadingProfilePicture(false);
       }
@@ -2909,18 +2911,18 @@ function GroupDetail({ group: initialGroup, onBack }) {
               {/* Group Profile Picture */}
               <View style={{ alignItems: 'center', marginBottom: 24 }}>
                 <View style={{ position: 'relative' }}>
-                  {group?.coverPhoto ? (
+                  {group?.profilePicture ? (
                     <Avatar.Image
-                      key={group.coverPhoto}
-                      size={120}
-                      source={{ uri: group.coverPhoto }}
-                      style={{ backgroundColor: surface }}
-                    />
-                  ) : group?.profilePicture ? (
-                    <Avatar.Image
-                      key={group.profilePicture}
+                      key={`profile-${group.profilePicture}-${group.updatedAt || Date.now()}`}
                       size={120}
                       source={{ uri: group.profilePicture }}
+                      style={{ backgroundColor: surface }}
+                    />
+                  ) : group?.coverPhoto ? (
+                    <Avatar.Image
+                      key={`cover-${group.coverPhoto}-${group.updatedAt || Date.now()}`}
+                      size={120}
+                      source={{ uri: group.coverPhoto }}
                       style={{ backgroundColor: surface }}
                     />
                   ) : (
