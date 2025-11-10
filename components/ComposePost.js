@@ -10,6 +10,8 @@ import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { searchUsersByPrefix } from '../services/usersService';
+import { subscribeToUserGroups } from '../services/groupsService';
+import { subscribeToGroupPhotos } from '../services/groupPhotosService';
 // Removed albums import - images will come from user's own photos
 // Removed getCurrentLocation import - using account location instead of GPS
 
@@ -38,6 +40,12 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
   const [lng, setLng] = React.useState(null); // GPS longitude
   const [images, setImages] = React.useState([]);
   const [chooseFromOutlink, setChooseFromOutlink] = React.useState(false);
+  const [showMemoriesModal, setShowMemoriesModal] = React.useState(false);
+  const [showGroupPhotosModal, setShowGroupPhotosModal] = React.useState(false);
+  const [groups, setGroups] = React.useState([]);
+  const [selectedGroup, setSelectedGroup] = React.useState(null);
+  const [groupPhotos, setGroupPhotos] = React.useState([]);
+  const [selectedGroupPhotos, setSelectedGroupPhotos] = React.useState(new Set());
   const [visibility, setVisibility] = React.useState('location'); // 'friends' or 'location' - default to 'location'
   const [bar, setBar] = React.useState(''); // Bar name (used for location field)
   const [barDropdownVisible, setBarDropdownVisible] = React.useState(false);
@@ -192,6 +200,52 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
     
     return () => clearTimeout(timeoutId);
   }, [mentionQuery, showMentionSuggestions, user?.uid, friendsList]);
+  
+  // Subscribe to user groups (both current and expired) when Memories modal is visible
+  React.useEffect(() => {
+    if (!showMemoriesModal || !user?.uid) {
+      setGroups([]);
+      return;
+    }
+    
+    const unsubscribe = subscribeToUserGroups(user.uid, ({ groups: userGroups, error }) => {
+      if (error) {
+        console.error('Error loading groups:', error);
+        setGroups([]);
+      } else {
+        // Show both current and expired groups
+        setGroups(userGroups || []);
+      }
+    });
+    
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [showMemoriesModal, user?.uid]);
+  
+  // Subscribe to group photos when a group is selected
+  React.useEffect(() => {
+    if (!selectedGroup?.id || !showGroupPhotosModal) {
+      setGroupPhotos([]);
+      setSelectedGroupPhotos(new Set());
+      return;
+    }
+    
+    const unsubscribe = subscribeToGroupPhotos(selectedGroup.id, ({ photos, error }) => {
+      if (error) {
+        console.error('Error loading group photos:', error);
+        setGroupPhotos([]);
+      } else {
+        // Filter to only show photos (not videos)
+        const photoItems = photos.filter(photo => photo.type === 'photo' && photo.uri);
+        setGroupPhotos(photoItems);
+      }
+    });
+    
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [selectedGroup?.id, showGroupPhotosModal]);
   
   // Set account location when modal opens (use account location, not GPS)
   React.useEffect(() => {
@@ -415,12 +469,12 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                         
                         <TouchableOpacity 
                           style={[styles.mediaOption, { backgroundColor: surface, borderColor: border }]}
-                          onPress={() => setChooseFromOutlink(true)}
+                          onPress={() => setShowMemoriesModal(true)}
                         >
                           <MaterialCommunityIcons name="image-multiple-outline" size={48} color={IU_CRIMSON} />
-                          <Text style={[styles.mediaOptionLabel, { color: textColor }]}>Multiple</Text>
+                          <Text style={[styles.mediaOptionLabel, { color: textColor }]} numberOfLines={1}>Memories</Text>
                           <Text style={[styles.mediaOptionDescription, { color: subText }]}>
-                            Select multiple photos
+                            Select from your groups
                           </Text>
                         </TouchableOpacity>
                       </View>
@@ -685,6 +739,179 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
               ) : (
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
                   <Text style={{ color: subText }}>Empty</Text>
+                </View>
+              )}
+            </ScrollView>
+          </LinearGradient>
+        </View>
+      </Modal>
+
+      {/* Memories Modal - Show Groups */}
+      <Modal 
+        visible={showMemoriesModal} 
+        animationType="slide" 
+        transparent 
+        onRequestClose={() => setShowMemoriesModal(false)}
+      >
+        <View style={styles.overlay}>
+          <LinearGradient
+            colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+            style={[styles.gridModal, { backgroundColor: 'transparent' }]}
+          >
+            <View style={[styles.gridHeader, { borderBottomColor: divider, backgroundColor: 'transparent' }]}>
+              <TouchableOpacity onPress={() => setShowMemoriesModal(false)}>
+                <Text style={[styles.cancelText, { color: textColor }]}>Close</Text>
+              </TouchableOpacity>
+              <Text style={[styles.title, { color: textColor }]}>Memories</Text>
+              <View style={{ width: 64 }} />
+            </View>
+            <ScrollView contentContainerStyle={styles.groupsListContent}>
+              {groups.length > 0 ? (
+                groups.map((group) => {
+                  const now = new Date();
+                  const endTime = group.endTime instanceof Date ? group.endTime : (group.endTime ? new Date(group.endTime) : null);
+                  const isExpired = endTime && endTime.getTime() <= now.getTime();
+                  
+                  return (
+                    <TouchableOpacity
+                      key={group.id}
+                      style={[styles.groupItem, { backgroundColor: surface, borderColor: border }]}
+                      onPress={() => {
+                        setSelectedGroup(group);
+                        setShowMemoriesModal(false);
+                        setShowGroupPhotosModal(true);
+                      }}
+                    >
+                      <View style={styles.groupItemContent}>
+                        {group.profilePicture ? (
+                          <Image source={{ uri: group.profilePicture }} style={styles.groupItemImage} />
+                        ) : (
+                          <View style={[styles.groupItemImagePlaceholder, { backgroundColor: border }]}>
+                            <MaterialCommunityIcons name="account-group" size={32} color={subText} />
+                          </View>
+                        )}
+                        <View style={styles.groupItemInfo}>
+                          <Text style={[styles.groupItemName, { color: textColor }]} numberOfLines={1}>
+                            {group.name || 'Unnamed Group'}
+                          </Text>
+                          {isExpired && (
+                            <Text style={[styles.groupItemStatus, { color: subText }]}>Expired</Text>
+                          )}
+                        </View>
+                        <MaterialCommunityIcons name="chevron-right" size={24} color={subText} />
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              ) : (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
+                  <Text style={{ color: subText }}>No groups found</Text>
+                </View>
+              )}
+            </ScrollView>
+          </LinearGradient>
+        </View>
+      </Modal>
+
+      {/* Group Photos Modal - Show Photos from Selected Group */}
+      <Modal 
+        visible={showGroupPhotosModal} 
+        animationType="slide" 
+        transparent 
+        onRequestClose={() => {
+          setShowGroupPhotosModal(false);
+          setSelectedGroup(null);
+          setSelectedGroupPhotos(new Set());
+        }}
+      >
+        <View style={styles.overlay}>
+          <LinearGradient
+            colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+            style={[styles.gridModal, { backgroundColor: 'transparent' }]}
+          >
+            <View style={[styles.gridHeader, { borderBottomColor: divider, backgroundColor: 'transparent' }]}>
+              <TouchableOpacity onPress={() => {
+                setShowGroupPhotosModal(false);
+                setSelectedGroup(null);
+                setSelectedGroupPhotos(new Set());
+                setShowMemoriesModal(true);
+              }}>
+                <MaterialCommunityIcons name="arrow-left" size={24} color={textColor} />
+              </TouchableOpacity>
+              <Text style={[styles.title, { color: textColor }]} numberOfLines={1}>
+                {selectedGroup?.name || 'Group Photos'}
+              </Text>
+              <TouchableOpacity 
+                onPress={() => {
+                  // Add selected photos to images
+                  const selectedPhotoUris = Array.from(selectedGroupPhotos)
+                    .map(photoId => {
+                      const photo = groupPhotos.find(p => p.id === photoId);
+                      return photo?.uri;
+                    })
+                    .filter(uri => uri);
+                  
+                  if (selectedPhotoUris.length > 0) {
+                    setImages((prev) => {
+                      const newImages = [...prev, ...selectedPhotoUris];
+                      // If we have images now, move to details step
+                      if (prev.length === 0 && newImages.length > 0) {
+                        setCurrentStep('details');
+                      }
+                      return newImages;
+                    });
+                  }
+                  
+                  setShowGroupPhotosModal(false);
+                  setSelectedGroup(null);
+                  setSelectedGroupPhotos(new Set());
+                }}
+                disabled={selectedGroupPhotos.size === 0}
+              >
+                <Text style={[
+                  styles.doneText, 
+                  { color: selectedGroupPhotos.size > 0 ? IU_CRIMSON : subText }
+                ]}>
+                  Done ({selectedGroupPhotos.size})
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={styles.gridContent}>
+              {groupPhotos.length > 0 ? (
+                groupPhotos.map((photo) => {
+                  const isSelected = selectedGroupPhotos.has(photo.id);
+                  return (
+                    <TouchableOpacity
+                      key={photo.id}
+                      style={[
+                        styles.gridItem, 
+                        { backgroundColor: surface },
+                        isSelected && styles.gridItemSelected
+                      ]}
+                      onPress={() => {
+                        setSelectedGroupPhotos((prev) => {
+                          const newSet = new Set(prev);
+                          if (newSet.has(photo.id)) {
+                            newSet.delete(photo.id);
+                          } else {
+                            newSet.add(photo.id);
+                          }
+                          return newSet;
+                        });
+                      }}
+                    >
+                      <Image source={{ uri: photo.uri }} style={styles.gridImage} />
+                      {isSelected && (
+                        <View style={styles.gridItemCheckmark}>
+                          <MaterialCommunityIcons name="check-circle" size={32} color={IU_CRIMSON} />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              ) : (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
+                  <Text style={{ color: subText }}>No photos in this group</Text>
                 </View>
               )}
             </ScrollView>
@@ -1220,7 +1447,7 @@ const styles = StyleSheet.create({
     minHeight: 180,
   },
   mediaOptionLabel: {
-    fontSize: 16,
+    fontSize: 12,
     fontWeight: '600',
     marginTop: 12,
     marginBottom: 4,
@@ -1234,6 +1461,61 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'center',
     paddingVertical: 8,
+  },
+  groupsListContent: {
+    padding: 16,
+  },
+  groupItem: {
+    marginBottom: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  groupItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+  },
+  groupItemImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    marginRight: 12,
+  },
+  groupItemImagePlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  groupItemInfo: {
+    flex: 1,
+  },
+  groupItemName: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  groupItemStatus: {
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
+  gridItemSelected: {
+    borderWidth: 3,
+    borderColor: IU_CRIMSON,
+  },
+  gridItemCheckmark: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 16,
+  },
+  doneText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 
