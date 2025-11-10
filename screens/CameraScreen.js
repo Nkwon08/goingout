@@ -465,8 +465,6 @@ export default function CameraScreen() {
             AsyncStorage.setItem('pendingGroupId', group.id);
             // Navigate to Groups tab
             navigation.navigate('Groups');
-          } else {
-            Alert.alert('Success!', `Video has been sent to ${group.name}.`);
           }
         }
       } else {
@@ -490,8 +488,6 @@ export default function CameraScreen() {
             AsyncStorage.setItem('pendingGroupId', group.id);
             // Navigate to Groups tab
             navigation.navigate('Groups');
-          } else {
-            Alert.alert('Success!', `Photo has been sent to ${group.name}.`);
           }
         }
       }

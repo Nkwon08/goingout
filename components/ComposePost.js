@@ -50,6 +50,9 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
   const [mentionQuery, setMentionQuery] = React.useState('');
   const [mentionStartIndex, setMentionStartIndex] = React.useState(-1);
   const [searchingUsers, setSearchingUsers] = React.useState(false);
+  
+  // Step state: 'media' or 'details' (caption and location)
+  const [currentStep, setCurrentStep] = React.useState('media');
 
   // Empty - images will come from user's own photos/Firebase in the future
   const appImages = [];
@@ -73,12 +76,23 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
     if (!result.canceled && result.assets) {
       const newMedia = result.assets.map(asset => asset.uri);
       setImages((prev) => [...prev, ...newMedia]);
+      // If we have images now, move to details step
+      if (images.length === 0 && newMedia.length > 0) {
+        setCurrentStep('details');
+      }
     }
   };
 
   const handleTakePhoto = () => {
-    // Navigate to Camera tab instead of using system camera
-    // Close ComposePost modal first
+    // Navigate to Camera tab - the camera will handle adding images back to this modal
+    // Store current state in AsyncStorage so camera can return to this flow
+    AsyncStorage.setItem('composePostState', JSON.stringify({
+      text,
+      bar,
+      visibility,
+      cityLocation,
+    }));
+    // Close ComposePost modal temporarily
     handleClose();
     // Navigate to Camera tab
     navigation.navigate('Camera');
@@ -189,7 +203,33 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       console.log('🔄 Modal opened, resetting form');
       setText('');
       // Set initial images if provided (from camera), otherwise reset
-      setImages(initialImages && initialImages.length > 0 ? [...initialImages] : []);
+      const hasInitialImages = initialImages && initialImages.length > 0;
+      setImages(hasInitialImages ? [...initialImages] : []);
+      
+      // Set step based on whether we have images
+      // If we have initial images (from camera), go to details step
+      // Otherwise, start at media selection step
+      setCurrentStep(hasInitialImages ? 'details' : 'media');
+      
+      // Try to restore state from AsyncStorage (if coming back from camera)
+      AsyncStorage.getItem('composePostState')
+        .then(savedState => {
+          if (savedState) {
+            try {
+              const state = JSON.parse(savedState);
+              if (state.text) setText(state.text);
+              if (state.bar) setBar(state.bar);
+              if (state.visibility) setVisibility(state.visibility);
+              if (state.cityLocation) setCityLocation(state.cityLocation);
+              // Clear saved state after restoring
+              AsyncStorage.removeItem('composePostState');
+            } catch (e) {
+              console.error('Error restoring compose post state:', e);
+            }
+          }
+        })
+        .catch(err => console.error('Error loading compose post state:', err));
+      
       setVisibility('location'); // Reset to default
       // Reset mention suggestions
       setShowMentionSuggestions(false);
@@ -237,6 +277,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       setImages([]);
       setVisibility('location');
       setBar(''); // Reset bar field
+      setCurrentStep('media'); // Reset to media selection step
       // Reset mention suggestions
       setShowMentionSuggestions(false);
       setMentionSuggestions([]);
@@ -273,30 +314,126 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                   <Text style={[styles.cancelText, { color: textColor }]}>Cancel</Text>
                 </TouchableOpacity>
                   <View style={styles.titleContainer}>
-            <Text style={[styles.title, { color: textColor }]}>New Post</Text>
+            <Text style={[styles.title, { color: textColor }]}>
+              {currentStep === 'media' ? 'Select Media' : 'Add Details'}
+            </Text>
                   </View>
-                      <TouchableOpacity
-              onPress={handleSubmit}
-                        disabled={(!text.trim() && images.length === 0) || !bar.trim() || submitting}
-                        style={[
-                          styles.postButtonTouchable,
-                          ((!text.trim() && images.length === 0) || !bar.trim() || submitting) && styles.postButtonDisabled
-                        ]}
-            >
-                        {submitting ? (
-                          <Text style={styles.postButtonText}>Posting...</Text>
-                        ) : (
-                          <Text style={styles.postButtonText}>Post</Text>
-                        )}
-                      </TouchableOpacity>
+                      {currentStep === 'media' ? (
+                        <View style={{ width: 64 }} />
+                      ) : (
+                        <TouchableOpacity
+                          onPress={() => setCurrentStep('media')}
+                          style={styles.backButton}
+                        >
+                          <MaterialCommunityIcons name="arrow-left" size={24} color={textColor} />
+                        </TouchableOpacity>
+                      )}
+                      {currentStep === 'details' && (
+                        <TouchableOpacity
+                          onPress={handleSubmit}
+                          disabled={(!text.trim() && images.length === 0) || !bar.trim() || submitting}
+                          style={[
+                            styles.postButtonTouchable,
+                            ((!text.trim() && images.length === 0) || !bar.trim() || submitting) && styles.postButtonDisabled
+                          ]}
+                        >
+                          {submitting ? (
+                            <Text style={styles.postButtonText}>Posting...</Text>
+                          ) : (
+                            <Text style={styles.postButtonText}>Post</Text>
+                          )}
+                        </TouchableOpacity>
+                      )}
           </View>
 
-                <ScrollView
-                  style={[styles.scrollContent, { backgroundColor: 'transparent' }]}
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={false}
-                >
-          <View style={[styles.content, { backgroundColor: 'transparent' }]}>
+                {currentStep === 'media' ? (
+                  // Step 1: Media Selection Screen
+                  <View style={[styles.mediaSelectionContainer, { backgroundColor: 'transparent' }]}>
+                    <View style={styles.mediaSelectionContent}>
+                      <Text style={[styles.mediaSelectionTitle, { color: textColor }]}>
+                        Add photos to your post
+                      </Text>
+                      <Text style={[styles.mediaSelectionSubtitle, { color: subText }]}>
+                        Choose from your album, take a photo, or select multiple images
+                      </Text>
+                      
+                      {images.length > 0 && (
+                        <View style={styles.selectedMediaPreview}>
+                          <Text style={[styles.selectedMediaTitle, { color: textColor }]}>
+                            {images.length} photo{images.length > 1 ? 's' : ''} selected
+                          </Text>
+                          <ScrollView 
+                            horizontal 
+                            showsHorizontalScrollIndicator={false} 
+                            style={styles.mediaPreview}
+                            contentContainerStyle={styles.mediaPreviewContent}
+                          >
+                            {images.map((img, index) => (
+                              <View key={index} style={styles.mediaPreviewItem}>
+                                <Image source={{ uri: img }} style={styles.mediaPreviewImage} resizeMode="cover" />
+                                <TouchableOpacity 
+                                  style={styles.removeMediaButton} 
+                                  onPress={() => removeImage(index)}
+                                >
+                                  <MaterialCommunityIcons name="close-circle" size={24} color="#FF6B6B" />
+                                </TouchableOpacity>
+                              </View>
+                            ))}
+                          </ScrollView>
+                          <TouchableOpacity
+                            style={[styles.nextButton, { backgroundColor: IU_CRIMSON }]}
+                            onPress={() => setCurrentStep('details')}
+                          >
+                            <Text style={styles.nextButtonText}>Next</Text>
+                            <MaterialCommunityIcons name="arrow-right" size={20} color="#FFFFFF" />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      
+                      <View style={styles.mediaOptionsContainer}>
+                        <TouchableOpacity 
+                          style={[styles.mediaOption, { backgroundColor: surface, borderColor: border }]}
+                          onPress={handlePickMedia}
+                        >
+                          <MaterialCommunityIcons name="image-outline" size={48} color={IU_CRIMSON} />
+                          <Text style={[styles.mediaOptionLabel, { color: textColor }]}>Album</Text>
+                          <Text style={[styles.mediaOptionDescription, { color: subText }]}>
+                            Choose from your photos
+                          </Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                          style={[styles.mediaOption, { backgroundColor: surface, borderColor: border }]}
+                          onPress={handleTakePhoto}
+                        >
+                          <MaterialCommunityIcons name="camera-outline" size={48} color={IU_CRIMSON} />
+                          <Text style={[styles.mediaOptionLabel, { color: textColor }]}>Camera</Text>
+                          <Text style={[styles.mediaOptionDescription, { color: subText }]}>
+                            Take a new photo
+                          </Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                          style={[styles.mediaOption, { backgroundColor: surface, borderColor: border }]}
+                          onPress={() => setChooseFromOutlink(true)}
+                        >
+                          <MaterialCommunityIcons name="image-multiple-outline" size={48} color={IU_CRIMSON} />
+                          <Text style={[styles.mediaOptionLabel, { color: textColor }]}>Multiple</Text>
+                          <Text style={[styles.mediaOptionDescription, { color: subText }]}>
+                            Select multiple photos
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                ) : (
+                  // Step 2: Details Screen (Caption and Location)
+                  <ScrollView
+                    style={[styles.scrollContent, { backgroundColor: 'transparent' }]}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                  >
+            <View style={[styles.content, { backgroundColor: 'transparent' }]}>
             <Avatar.Image size={48} source={{ uri: currentUser?.avatar || 'https://i.pravatar.cc/100?img=12' }} />
               <View style={styles.inputContainer}>
               <TextInput
@@ -429,6 +566,10 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                           <Text style={[styles.imagesPreviewHint, { color: subText }]}>Swipe left/right to see all photos • All photos will be in one post</Text>
                         </View>
               )}
+              {/* Character count */}
+              <View style={[styles.charCountContainer, { borderTopColor: divider }]}>
+                <Text style={[styles.charCount, { color: subText }]}>{text.length}/280</Text>
+              </View>
               {/* Bar Location Selector (replaces location field) */}
               <View style={[styles.locationRow, { borderTopColor: divider }]}>
                 <MaterialCommunityIcons name="map-marker-outline" size={20} color={bar.trim() ? IU_CRIMSON : subText} />
@@ -503,22 +644,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
             </View>
           </View>
                 </ScrollView>
-
-          <View style={[styles.footer, { borderTopColor: divider, backgroundColor: 'transparent' }]}>
-                  <TouchableOpacity style={styles.actionButton} onPress={handlePickMedia}>
-                    <MaterialCommunityIcons name="image-outline" size={24} color={IU_CRIMSON} />
-                    <Text style={[styles.actionButtonLabel, { color: IU_CRIMSON }]}>Album</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionButton} onPress={handleTakePhoto}>
-                    <MaterialCommunityIcons name="camera-outline" size={24} color={IU_CRIMSON} />
-                    <Text style={[styles.actionButtonLabel, { color: IU_CRIMSON }]}>Camera</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton} onPress={() => setChooseFromOutlink(true)}>
-                    <MaterialCommunityIcons name="image-multiple-outline" size={24} color={IU_CRIMSON} />
-                    <Text style={[styles.actionButtonLabel, { color: IU_CRIMSON }]}>Multiple</Text>
-            </TouchableOpacity>
-            <Text style={[styles.charCount, { color: subText }]}>{text.length}/280</Text>
-          </View>
+                )}
             </LinearGradient>
           </TouchableWithoutFeedback>
         </View>
@@ -542,7 +668,17 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
             <ScrollView contentContainerStyle={styles.gridContent}>
               {appImages.length > 0 ? (
                 appImages.map((uri, idx) => (
-                <TouchableOpacity key={idx} style={[styles.gridItem, { backgroundColor: surface }]} onPress={() => { setImages((prev) => [...prev, uri]); }}>
+                <TouchableOpacity key={idx} style={[styles.gridItem, { backgroundColor: surface }]} onPress={() => { 
+                  setImages((prev) => {
+                    const newImages = [...prev, uri];
+                    // If we have images now, move to details step
+                    if (prev.length === 0 && newImages.length > 0) {
+                      setCurrentStep('details');
+                    }
+                    return newImages;
+                  });
+                  setChooseFromOutlink(false);
+                }}>
                   <Image source={{ uri }} style={styles.gridImage} />
                 </TouchableOpacity>
                 ))
@@ -936,9 +1072,14 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontWeight: '500',
   },
+  charCountContainer: {
+    paddingTop: 12,
+    marginTop: 12,
+    borderTopWidth: 1,
+    alignItems: 'flex-end',
+  },
   charCount: {
     fontSize: 14,
-    marginLeft: 'auto',
   },
   mentionSuggestionsContainer: {
     marginTop: 8,
@@ -990,6 +1131,109 @@ const styles = StyleSheet.create({
   },
   mentionNoResultsText: {
     fontSize: 14,
+  },
+  mediaSelectionContainer: {
+    flex: 1,
+    padding: 16,
+  },
+  mediaSelectionContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mediaSelectionTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  mediaSelectionSubtitle: {
+    fontSize: 16,
+    marginBottom: 32,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+  },
+  selectedMediaPreview: {
+    width: '100%',
+    marginBottom: 32,
+  },
+  selectedMediaTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  mediaPreview: {
+    marginBottom: 16,
+    height: 200,
+  },
+  mediaPreviewContent: {
+    flexDirection: 'row',
+    paddingRight: 12,
+  },
+  mediaPreviewItem: {
+    width: 200,
+    height: 200,
+    marginRight: 12,
+    position: 'relative',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  mediaPreviewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  removeMediaButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 1,
+  },
+  nextButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 24,
+    gap: 8,
+  },
+  nextButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  mediaOptionsContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    gap: 16,
+    paddingHorizontal: 16,
+  },
+  mediaOption: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    borderRadius: 16,
+    borderWidth: 1,
+    minHeight: 180,
+  },
+  mediaOptionLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  mediaOptionDescription: {
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  backButton: {
+    width: 64,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    paddingVertical: 8,
   },
 });
 

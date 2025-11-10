@@ -2535,7 +2535,6 @@ function GroupDetail({ group: initialGroup, onBack }) {
       const errorCount = results.filter(r => r.error).length;
 
       if (successCount > 0) {
-        Alert.alert('Success', `Sent ${successCount} invitation${successCount > 1 ? 's' : ''} to join the group.`);
         setShowAddMembersModal(false);
         setSelectedFriends(new Set());
       } else {
@@ -2579,7 +2578,6 @@ function GroupDetail({ group: initialGroup, onBack }) {
               } else {
                 // Update members list by removing the member
                 setMembersData(prev => prev.filter(m => m.uid !== memberUid));
-                Alert.alert('Success', `${memberName} has been removed from the group`);
               }
             } catch (error) {
               console.error('Error removing member:', error);
@@ -2646,11 +2644,6 @@ function GroupDetail({ group: initialGroup, onBack }) {
         // The group will automatically be removed from the list because
         // subscribeToUserGroups will update when the user is removed from members
         onBack();
-        
-        // Show success message after navigation
-        setTimeout(() => {
-          Alert.alert('Success', 'You have left the group');
-        }, 300);
       }
     } catch (error) {
       console.error('Error leaving group:', error);
@@ -2695,10 +2688,6 @@ function GroupDetail({ group: initialGroup, onBack }) {
         } else {
           console.log('✅ Profile picture updated successfully:', profilePicture);
           // The subscription should automatically update the group data
-          // Force a small delay to ensure Firestore has updated
-          setTimeout(() => {
-            Alert.alert('Success', 'Group profile picture updated successfully');
-          }, 500);
         }
         setUploadingProfilePicture(false);
       }
@@ -2751,14 +2740,7 @@ function GroupDetail({ group: initialGroup, onBack }) {
       if (error) {
         Alert.alert('Error', error);
       } else {
-        Alert.alert('Success', 'Group deleted successfully', [
-          {
-            text: 'OK',
-            onPress: () => {
-              onBack();
-            },
-          },
-        ]);
+        onBack();
       }
     } catch (error) {
       console.error('Error deleting group:', error);
@@ -3519,7 +3501,6 @@ export default function GroupsScreen({ navigation }) {
             Alert.alert('Error', error);
           } else {
             console.log('Cover photo uploaded successfully');
-            Alert.alert('Success', 'Group cover photo updated successfully');
           }
         } catch (uploadError) {
           console.error('Exception during upload:', uploadError);
@@ -3550,7 +3531,6 @@ export default function GroupsScreen({ navigation }) {
       if (error) {
         Alert.alert('Error', error);
       } else {
-        Alert.alert('Success', 'Group deleted successfully');
         setSelectedGroupForDelete(null);
       }
     } catch (error) {

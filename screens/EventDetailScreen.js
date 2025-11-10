@@ -242,7 +242,6 @@ export default function EventDetailScreen({ route, navigation }) {
           setEventData(updatedEvent);
         }
         setShowEditModal(false);
-        Alert.alert('Success', 'Event updated successfully!');
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to update event. Please try again.');
@@ -266,14 +265,7 @@ export default function EventDetailScreen({ route, navigation }) {
       if (result.error) {
         Alert.alert('Error', result.error);
       } else {
-        Alert.alert('Success', 'Event deleted successfully', [
-          {
-            text: 'OK',
-            onPress: () => {
-              navigation.goBack();
-            },
-          },
-        ]);
+        navigation.goBack();
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to delete event. Please try again.');

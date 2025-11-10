@@ -12,6 +12,7 @@ import { getUserById } from '../services/usersService';
 import { blockUser, unblockUser, isUserBlocked } from '../services/blockService';
 import FeedPost from '../components/FeedPost';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { getCardBorderOnly } from '../utils/cardStyles';
 
 const IU_CRIMSON = '#CC0000';
 
@@ -283,30 +284,57 @@ function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
           animationType="slide"
           onRequestClose={handleCloseModal}
         >
-          <View style={{ flex: 1, backgroundColor: 'transparent' }}>
-            <Appbar.Header mode="center-aligned" style={{ backgroundColor: 'transparent' }}>
-              <Appbar.Action 
-                icon="arrow-left" 
-                color={text} 
-                onPress={handleCloseModal}
-              />
-              <Appbar.Content title="" color={text} />
-            </Appbar.Header>
-            <FlatList
-              ref={flatListRef}
-              data={posts}
-              keyExtractor={(item) => item.id}
-              showsVerticalScrollIndicator={true}
-              onViewableItemsChanged={handleViewableItemsChanged}
-              viewabilityConfig={viewabilityConfig}
-              contentContainerStyle={{ paddingBottom: 20 }}
-              renderItem={({ item }) => (
-                <View style={{ width: '100%' }}>
-                  <FeedPost post={item} onDelete={handlePostDelete} />
+          <LinearGradient
+            colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
+            style={{ flex: 1 }}
+          >
+            <View style={{ flex: 1 }}>
+              <Appbar.Header 
+                mode="center-aligned" 
+                style={{ 
+                  backgroundColor: 'transparent',
+                  ...getCardBorderOnly(),
+                }}
+              >
+                <Appbar.Action 
+                  icon="arrow-left" 
+                  color={text} 
+                  onPress={handleCloseModal}
+                />
+                <Appbar.Content title="" color={text} />
+              </Appbar.Header>
+              <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 8 }}>
+                <View style={{
+                  flex: 1,
+                  backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                  borderRadius: 20,
+                  overflow: 'hidden',
+                  ...getCardBorderOnly(),
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 8 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 16,
+                  elevation: 8,
+                }}>
+                  <FlatList
+                    ref={flatListRef}
+                    data={posts}
+                    keyExtractor={(item) => item.id}
+                    showsVerticalScrollIndicator={true}
+                    onViewableItemsChanged={handleViewableItemsChanged}
+                    viewabilityConfig={viewabilityConfig}
+                    contentContainerStyle={{ paddingBottom: 20, paddingTop: 8 }}
+                    style={{ flex: 1 }}
+                    renderItem={({ item }) => (
+                      <View style={{ width: '100%' }}>
+                        <FeedPost post={item} onDelete={handlePostDelete} />
+                      </View>
+                    )}
+                  />
                 </View>
-              )}
-            />
-          </View>
+              </View>
+            </View>
+          </LinearGradient>
         </Modal>
       )}
     </>

@@ -12,7 +12,8 @@ import { addComment, subscribeToComments, deleteComment } from '../services/comm
 import { subscribeToUserGroups } from '../services/groupsService';
 import { sendImageMessage, sendImageMessageWithUrl, sendMessage } from '../services/groupChatService';
 import { createGroup } from '../services/groupsService';
-import { parseMentions } from '../utils/mentionUtils';
+import { parseMentions, extractMentions } from '../utils/mentionUtils';
+import { searchUsersByPrefix } from '../services/usersService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const IMAGE_WIDTH = SCREEN_WIDTH * 0.92 - 12; // Narrower by 12 pixels
@@ -21,7 +22,7 @@ const IU_CRIMSON = '#CC0000';
 
 export default function FeedPost({ post, onDelete }) {
       // Get current user and userData to check if they own this post and get current profile picture
-  const { user, userData } = useAuth();
+  const { user, userData, friendsList } = useAuth();
   const navigation = useNavigation();
 
   // State for post interactions
@@ -41,6 +42,13 @@ export default function FeedPost({ post, onDelete }) {
   const [selectedGroup, setSelectedGroup] = React.useState(null);
   const [sendingToGroup, setSendingToGroup] = React.useState(false);
   const [showCreateGroup, setShowCreateGroup] = React.useState(false);
+  
+  // State for @mention autocomplete in comments
+  const [mentionSuggestions, setMentionSuggestions] = React.useState([]);
+  const [showMentionSuggestions, setShowMentionSuggestions] = React.useState(false);
+  const [mentionQuery, setMentionQuery] = React.useState('');
+  const [mentionStartIndex, setMentionStartIndex] = React.useState(-1);
+  const [searchingUsers, setSearchingUsers] = React.useState(false);
   
   // Get stable createdAt timestamp for this specific post - each post has its own timer
   // This timestamp is calculated once per post.id and doesn't change when new posts are added
@@ -247,9 +255,57 @@ export default function FeedPost({ post, onDelete }) {
     }
   };
 
+  // Search for users when mention query changes
+  React.useEffect(() => {
+    if (!showMentionSuggestions || !mentionQuery || mentionQuery.trim().length === 0) {
+      setMentionSuggestions([]);
+      return;
+    }
+    
+    if (!user?.uid) {
+      return;
+    }
+    
+    const searchUsers = async () => {
+      setSearchingUsers(true);
+      try {
+        const { users, error } = await searchUsersByPrefix(
+          mentionQuery.trim(),
+          user.uid,
+          friendsList || [],
+          10 // Limit to 10 suggestions
+        );
+        
+        if (error) {
+          console.error('Error searching users for mentions:', error);
+          setMentionSuggestions([]);
+        } else {
+          setMentionSuggestions(users || []);
+        }
+      } catch (error) {
+        console.error('Error searching users for mentions:', error);
+        setMentionSuggestions([]);
+      } finally {
+        setSearchingUsers(false);
+      }
+    };
+    
+    // Debounce search to avoid too many requests
+    const timeoutId = setTimeout(() => {
+      searchUsers();
+    }, 300);
+    
+    return () => clearTimeout(timeoutId);
+  }, [mentionQuery, showMentionSuggestions, user?.uid, friendsList]);
+
   // Handle comment button tap
   const handleCommentPress = () => {
     setCommentsVisible(true);
+    // Reset mention suggestions when opening comments
+    setShowMentionSuggestions(false);
+    setMentionSuggestions([]);
+    setMentionQuery('');
+    setMentionStartIndex(-1);
   };
 
   // Handle submit comment
@@ -274,6 +330,11 @@ export default function FeedPost({ post, onDelete }) {
       if (result.success) {
         setCommentText('');
         setCommentCount((prev) => prev + 1);
+        // Reset mention suggestions
+        setShowMentionSuggestions(false);
+        setMentionSuggestions([]);
+        setMentionQuery('');
+        setMentionStartIndex(-1);
       } else {
         Alert.alert('Error', result.error || 'Failed to add comment');
       }
@@ -414,7 +475,6 @@ export default function FeedPost({ post, onDelete }) {
         return;
       }
 
-      Alert.alert('Success!', `Post sent to ${selectedGroup.name}.`);
       setShowSendToGroupModal(false);
       setSelectedGroup(null);
     } catch (error) {
@@ -460,6 +520,9 @@ export default function FeedPost({ post, onDelete }) {
                   if (onDelete) {
                     onDelete(post.id);
                   }
+                  
+                  // Show success alert for post deletion
+                  Alert.alert('Success', 'Post deleted successfully');
             } catch (error) {
               console.error('❌ Error deleting post:', error);
               Alert.alert('Error', 'Failed to delete post. Please try again.');
@@ -667,7 +730,39 @@ export default function FeedPost({ post, onDelete }) {
                         </TouchableOpacity>
                       )}
                     </View>
-                    <Text style={[styles.commentText, { color: text }]}>{item.text}</Text>
+                    <Text style={[styles.commentText, { color: text }]}>
+                      {parseMentions(item.text).map((segment, index) => {
+                        if (segment.type === 'mention') {
+                          return (
+                            <Text
+                              key={index}
+                              style={[styles.commentText, { color: text, fontWeight: '700' }]}
+                              onPress={() => {
+                                // Navigate to user profile
+                                let rootNavigator = navigation;
+                                let parent = navigation.getParent();
+                                
+                                while (parent) {
+                                  rootNavigator = parent;
+                                  parent = parent.getParent();
+                                }
+                                
+                                rootNavigator.navigate('UserProfileModal', { 
+                                  username: segment.username 
+                                });
+                              }}
+                            >
+                              {segment.content}
+                            </Text>
+                          );
+                        }
+                        return (
+                          <Text key={index} style={[styles.commentText, { color: text }]}>
+                            {segment.content}
+                          </Text>
+                        );
+                      })}
+                    </Text>
                   </View>
                 </View>
               );
@@ -694,17 +789,108 @@ export default function FeedPost({ post, onDelete }) {
                 source={{ uri: currentUserAvatar || 'https://i.pravatar.cc/100?img=12' }}
                 style={styles.commentInputAvatar}
               />
-              <TextInput
-                style={[styles.commentInput, { color: text, backgroundColor: border }]}
-                placeholder="Add a comment..."
-                placeholderTextColor={subText}
-                value={commentText}
-                onChangeText={setCommentText}
-                multiline
-                maxLength={500}
-                returnKeyType="default"
-                blurOnSubmit={false}
-              />
+              <View style={{ flex: 1, position: 'relative' }}>
+                <TextInput
+                  style={[styles.commentInput, { color: text, backgroundColor: border }]}
+                  placeholder="Add a comment..."
+                  placeholderTextColor={subText}
+                  value={commentText}
+                  onChangeText={(newText) => {
+                    setCommentText(newText);
+                    
+                    // Detect @mention pattern
+                    const lastAtIndex = newText.lastIndexOf('@');
+                    if (lastAtIndex !== -1) {
+                      // Check if @ is followed by a space or newline (not a mention)
+                      const afterAt = newText.substring(lastAtIndex + 1);
+                      if (afterAt.length === 0 || afterAt.match(/^[a-zA-Z0-9]/)) {
+                        // Find the end of the mention query (space, newline, or end of string)
+                        const spaceIndex = afterAt.search(/[\s\n]/);
+                        if (spaceIndex === -1) {
+                          // No space found, use the rest of the string
+                          const query = afterAt;
+                          setMentionQuery(query);
+                          setMentionStartIndex(lastAtIndex);
+                          setShowMentionSuggestions(true);
+                        } else if (spaceIndex > 0) {
+                          // Space found after some characters
+                          const query = afterAt.substring(0, spaceIndex);
+                          setMentionQuery(query);
+                          setMentionStartIndex(lastAtIndex);
+                          setShowMentionSuggestions(true);
+                        } else {
+                          // Space immediately after @, hide suggestions
+                          setShowMentionSuggestions(false);
+                          setMentionSuggestions([]);
+                        }
+                      } else {
+                        setShowMentionSuggestions(false);
+                        setMentionSuggestions([]);
+                      }
+                    } else {
+                      setShowMentionSuggestions(false);
+                      setMentionSuggestions([]);
+                    }
+                  }}
+                  multiline
+                  maxLength={500}
+                  returnKeyType="default"
+                  blurOnSubmit={false}
+                />
+                
+                {/* @Mention Suggestions Dropdown */}
+                {showMentionSuggestions && mentionQuery.length > 0 && (
+                  <View style={[styles.mentionSuggestionsContainer, { backgroundColor: surface, borderColor: border }]}>
+                    {searchingUsers ? (
+                      <View style={styles.mentionLoadingContainer}>
+                        <ActivityIndicator size="small" color={IU_CRIMSON} />
+                        <Text style={[styles.mentionLoadingText, { color: subText }]}>Searching...</Text>
+                      </View>
+                    ) : mentionSuggestions.length > 0 ? (
+                      <ScrollView
+                        style={styles.mentionSuggestionsScroll}
+                        keyboardShouldPersistTaps="handled"
+                        nestedScrollEnabled
+                      >
+                        {mentionSuggestions.map((suggestedUser, index) => (
+                          <TouchableOpacity
+                            key={`mention-${suggestedUser.uid || suggestedUser.username || index}`}
+                            style={[styles.mentionSuggestionItem, { borderBottomColor: border }]}
+                            onPress={() => {
+                              const beforeMention = commentText.substring(0, mentionStartIndex);
+                              const afterMention = commentText.substring(mentionStartIndex + 1 + mentionQuery.length);
+                              const newText = `${beforeMention}@${suggestedUser.username} ${afterMention}`;
+                              setCommentText(newText);
+                              setShowMentionSuggestions(false);
+                              setMentionSuggestions([]);
+                              setMentionQuery('');
+                              setMentionStartIndex(-1);
+                            }}
+                          >
+                            <Avatar.Image
+                              size={32}
+                              source={{ uri: suggestedUser.photoURL || suggestedUser.avatar || 'https://i.pravatar.cc/100?img=12' }}
+                              style={styles.mentionSuggestionAvatar}
+                            />
+                            <View style={styles.mentionSuggestionInfo}>
+                              <Text style={[styles.mentionSuggestionName, { color: text }]}>
+                                {suggestedUser.name || 'User'}
+                              </Text>
+                              <Text style={[styles.mentionSuggestionUsername, { color: subText }]}>
+                                @{suggestedUser.username}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    ) : (
+                      <View style={styles.mentionNoResultsContainer}>
+                        <Text style={[styles.mentionNoResultsText, { color: subText }]}>No users found</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
               <TouchableOpacity
                 onPress={handleSubmitComment}
                 disabled={!commentText.trim() || submittingComment}
@@ -1170,5 +1356,64 @@ const styles = StyleSheet.create({
   },
   sendModalButton: {
     flex: 1,
+  },
+  mentionSuggestionsContainer: {
+    position: 'absolute',
+    bottom: '100%',
+    left: 0,
+    right: 0,
+    maxHeight: 200,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 1000,
+  },
+  mentionSuggestionsScroll: {
+    maxHeight: 200,
+  },
+  mentionSuggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  mentionSuggestionAvatar: {
+    marginRight: 12,
+  },
+  mentionSuggestionInfo: {
+    flex: 1,
+  },
+  mentionSuggestionName: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  mentionSuggestionUsername: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  mentionLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+  },
+  mentionLoadingText: {
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  mentionNoResultsContainer: {
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  mentionNoResultsText: {
+    fontSize: 14,
   },
 });

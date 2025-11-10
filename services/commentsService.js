@@ -61,6 +61,10 @@ export const addComment = async (postId, userId, postOwnerId, userData, text) =>
       });
     }
 
+    // Extract @mentions from comment text
+    const { extractMentions } = await import('../utils/mentionUtils');
+    const mentionedUsernames = extractMentions(text.trim());
+
     // Send notification to post owner if not the same user
     if (postOwnerId && postOwnerId !== userId) {
       try {
@@ -76,6 +80,62 @@ export const addComment = async (postId, userId, postOwnerId, userData, text) =>
         console.warn('Failed to send comment notification:', notifError);
         // Don't fail the comment action if notification fails
       }
+    }
+
+    // Send notifications to mentioned users (in background, don't block comment creation)
+    if (mentionedUsernames.length > 0) {
+      console.log('📝 Comment contains mentions:', mentionedUsernames);
+      
+      // Send notifications asynchronously (don't wait for them)
+      (async () => {
+        try {
+          const { createNotification } = await import('./notificationsService');
+          const { getAuthUidFromUsername } = await import('./friendsService');
+          
+          // Send notification to each mentioned user
+          const notificationPromises = mentionedUsernames.map(async (username) => {
+            try {
+              // Get user ID from username
+              const mentionedUserId = await getAuthUidFromUsername(username);
+              
+              if (!mentionedUserId) {
+                console.warn(`⚠️ User not found for mention: @${username}`);
+                return;
+              }
+              
+              // Don't notify if user mentioned themselves
+              if (mentionedUserId === userId) {
+                return;
+              }
+              
+              // Don't notify if user mentioned the post owner (they already get a comment notification)
+              if (mentionedUserId === postOwnerId) {
+                return;
+              }
+              
+              const result = await createNotification(mentionedUserId, {
+                type: 'mention',
+                postId,
+                commentId: commentRef.id,
+                fromUserId: userId,
+                message: `mentioned you in a comment`,
+              });
+              
+              if (result.success) {
+                console.log(`✅ Sent mention notification to @${username}`);
+              }
+            } catch (error) {
+              console.error(`Error sending mention notification to @${username}:`, error);
+            }
+          });
+          
+          // Wait for all notifications to be sent (but don't block)
+          await Promise.allSettled(notificationPromises);
+        } catch (error) {
+          console.error('Error processing mention notifications:', error);
+          // Don't fail the comment action if notification fails
+        }
+      })();
     }
 
     return { success: true, commentId: commentRef.id, error: null };

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, ScrollView, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
+import { View, ScrollView, ActivityIndicator, Alert, TouchableOpacity, RefreshControl } from 'react-native';
 import { Searchbar, Button, Avatar, List, Divider, Text, IconButton } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
@@ -34,6 +34,8 @@ export default function FriendsTab() {
   // Pending friends state (outgoing friend requests)
   const [pendingFriends, setPendingFriends] = React.useState([]);
   const [pendingFriendsWithData, setPendingFriendsWithData] = React.useState([]);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const [refreshKey, setRefreshKey] = React.useState(0);
   
 
   const colors = {
@@ -45,6 +47,17 @@ export default function FriendsTab() {
     primary: '#CC0000',
     isDarkMode,
   };
+
+  // Handle refresh
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    // Force re-subscription by incrementing refreshKey
+    setRefreshKey(prev => prev + 1);
+    // Reset refreshing after a short delay
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
+  }, []);
 
   /** Load friends list from AuthContext - subscription is managed centrally */
   React.useEffect(() => {
@@ -176,6 +189,7 @@ export default function FriendsTab() {
         console.error('❌ [FriendsTab] Error subscribing to outgoing requests:', result.error);
         setPendingFriends([]);
         setPendingFriendsWithData([]);
+        setRefreshing(false);
         return;
       }
 
@@ -318,11 +332,13 @@ export default function FriendsTab() {
 
           if (isMounted) {
             setPendingFriendsWithData(validData);
+            setRefreshing(false);
           }
         } catch (err) {
           console.error('Error fetching pending friend data:', err);
           if (isMounted) {
             setPendingFriendsWithData([]);
+            setRefreshing(false);
           }
         }
       };
@@ -336,7 +352,7 @@ export default function FriendsTab() {
         unsubscribe();
       }
     };
-  }, [user?.uid, friendsListFromContext]); // Re-subscribe when friends list changes to exclude accepted friends
+  }, [user?.uid, friendsListFromContext, refreshKey]); // Re-subscribe when friends list changes to exclude accepted friends
 
   /** Handle user search with debounce */
   React.useEffect(() => {
@@ -635,7 +651,6 @@ export default function FriendsTab() {
     try {
       const result = await sendFriendRequest(targetUid);
       if (result.success) {
-        Alert.alert('Success', 'Friend request sent!', [{ text: 'OK' }]);
         setSearchResultsWithStatus((prev) =>
           prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: true } : u))
         );
@@ -658,7 +673,6 @@ export default function FriendsTab() {
     try {
       const result = await cancelFriendRequest(targetUid);
       if (result.success) {
-        Alert.alert('Success', 'Friend request cancelled', [{ text: 'OK' }]);
         setSearchResultsWithStatus((prev) =>
           prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: false } : u))
         );
@@ -832,7 +846,17 @@ export default function FriendsTab() {
       style={{ flex: 1 }}
     >
       <View style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ padding: 16 }}>
+        <ScrollView 
+          contentContainerStyle={{ padding: 16 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
+        >
         {/* Search */}
         <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>Find Friends</Text>
         <Searchbar

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, ScrollView, ActivityIndicator, Alert, TouchableOpacity, FlatList } from 'react-native';
+import { View, ScrollView, ActivityIndicator, Alert, TouchableOpacity, FlatList, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { List, Divider, Text, Avatar, Button } from 'react-native-paper';
@@ -27,6 +27,8 @@ export default function NotificationsTab() {
   const [clearingPostNotifications, setClearingPostNotifications] = React.useState(false);
   const [selectionMode, setSelectionMode] = React.useState(false);
   const [selectedNotifications, setSelectedNotifications] = React.useState(new Set());
+  const [refreshing, setRefreshing] = React.useState(false);
+  const [refreshKey, setRefreshKey] = React.useState(0);
   
   const bgColor = isDarkMode ? '#121212' : '#FAFAFA';
   const surfaceColor = isDarkMode ? '#1E1E1E' : '#F5F4F2';
@@ -34,6 +36,17 @@ export default function NotificationsTab() {
   const subTextColor = isDarkMode ? '#8A90A6' : '#666666';
   const dividerColor = isDarkMode ? '#3A3A3A' : '#D0CFCD';
   const primaryColor = '#CC0000';
+
+  // Handle refresh
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    // Force re-subscription by incrementing refreshKey
+    setRefreshKey(prev => prev + 1);
+    // Reset refreshing after a short delay
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
+  }, []);
 
   // ---------- subscriptions (unchanged) ----------
   React.useEffect(() => {
@@ -53,10 +66,11 @@ export default function NotificationsTab() {
       }
       setFriendRequests(result.requests || []);
       setLoading(false);
+      setRefreshing(false);
     });
 
     return () => unsubscribe && unsubscribe();
-  }, [user?.uid]);
+  }, [user?.uid, refreshKey]);
 
   React.useEffect(() => {
     if (!friendRequests.length) {
@@ -122,7 +136,7 @@ export default function NotificationsTab() {
       setGroupInvitations(invitations);
 
       const postNotifs = (result.notifications || []).filter(
-        (notif) => (notif.type === 'like' || notif.type === 'comment' || notif.type === 'tag') && notif.postId
+        (notif) => (notif.type === 'like' || notif.type === 'comment' || notif.type === 'tag' || notif.type === 'mention') && notif.postId
       );
       
       // Only update if the list actually changed (to prevent unnecessary re-renders)
@@ -141,7 +155,7 @@ export default function NotificationsTab() {
     });
 
     return () => unsubscribe && unsubscribe();
-  }, [user?.uid]);
+  }, [user?.uid, refreshKey]);
 
   React.useEffect(() => {
     if (!groupInvitations.length) {
@@ -191,9 +205,7 @@ export default function NotificationsTab() {
     setProcessingRequest(requestId);
     try {
       const result = await acceptFriendRequest(requestId, fromUserId, user.uid);
-      if (result.success) {
-        Alert.alert('Success', 'Friend request accepted!', [{ text: 'OK' }]);
-      } else {
+      if (!result.success) {
         Alert.alert('Error', result.error || 'Failed to accept friend request', [{ text: 'OK' }]);
       }
     } catch (error) {
@@ -225,9 +237,7 @@ export default function NotificationsTab() {
     setProcessingInvitation(notificationId);
     try {
       const result = await acceptGroupInvitation(groupId, user.uid, notificationId);
-      if (result.success) {
-        Alert.alert('Success', 'Group invitation accepted!', [{ text: 'OK' }]);
-      } else {
+      if (!result.success) {
         Alert.alert('Error', result.error || 'Failed to accept group invitation', [{ text: 'OK' }]);
       }
     } catch (error) {
@@ -334,9 +344,9 @@ export default function NotificationsTab() {
       }
     }
 
-    // For tag notifications, navigate to Activity/Feed tab to show the post
+    // For tag and mention notifications, navigate to Activity/Feed tab to show the post
     // For other notifications (like, comment), navigate to profile with post highlighted
-    const isTagNotification = notification.type === 'tag';
+    const isTagNotification = notification.type === 'tag' || notification.type === 'mention';
     
     try {
       // Try multiple navigation approaches to find the right navigator
@@ -518,8 +528,16 @@ export default function NotificationsTab() {
           contentContainerStyle={{ padding: 16, paddingTop: 0, paddingBottom: 40 }}
           contentInsetAdjustmentBehavior="automatic"
           style={{ flex: 1, marginTop: 15 }}
-        keyboardShouldPersistTaps="handled"
-      >
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={primaryColor}
+              colors={[primaryColor]}
+            />
+          }
+        >
         {/* Post notifications section */}
         {postNotifications.length > 0 && (
           <View style={{ 
@@ -638,7 +656,8 @@ export default function NotificationsTab() {
                         {notification.message || 
                           (notification.type === 'like' ? 'liked your post' : 
                            notification.type === 'comment' ? 'commented on your post' :
-                           notification.type === 'tag' ? 'tagged you in a post' : 
+                           notification.type === 'tag' ? 'mentioned you in a post' : 
+                           notification.type === 'mention' ? 'mentioned you in a comment' :
                            'interacted with your post')}
                       </Text>
                     </View>

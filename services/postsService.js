@@ -120,7 +120,7 @@ export const createPost = async (userId, userData, postData) => {
                 type: 'tag',
                 postId: postRef.id,
                 fromUserId: userId,
-                message: 'tagged you in a post',
+                message: 'mentioned you in a post',
               });
               
               if (result.error) {

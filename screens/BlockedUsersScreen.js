@@ -64,9 +64,7 @@ export default function BlockedUsersScreen({ navigation }) {
             setUnblocking(prev => ({ ...prev, [blockedUser.authUid]: true }));
             try {
               const result = await unblockUser(user.uid, blockedUser.authUid || blockedUser.username);
-              if (result.success) {
-                Alert.alert('Success', `@${blockedUser.username} has been unblocked.`);
-              } else {
+              if (!result.success) {
                 Alert.alert('Error', result.error || 'Failed to unblock user');
               }
             } catch (error) {

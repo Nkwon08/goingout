@@ -1,8 +1,26 @@
 // Location service - handles GPS location and reverse geocoding
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Default radius for nearby posts (in kilometers)
 const DEFAULT_RADIUS_KM = 10; // 10km radius
+
+// Cache for reverse geocoding results (key: "lat,lng", value: { city, timestamp })
+const reverseGeocodeCache = new Map();
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+const CACHE_KEY_PREFIX = '@reverseGeocode:';
+
+// Helper to round coordinates for caching (to avoid cache misses due to minor GPS variations)
+const roundCoordinate = (coord, precision = 3) => {
+  return Math.round(coord * Math.pow(10, precision)) / Math.pow(10, precision);
+};
+
+// Get cache key from coordinates
+const getCacheKey = (lat, lng) => {
+  const roundedLat = roundCoordinate(lat);
+  const roundedLng = roundCoordinate(lng);
+  return `${roundedLat},${roundedLng}`;
+};
 
 // Calculate distance between two GPS coordinates (Haversine formula)
 // Returns distance in kilometers
@@ -71,8 +89,42 @@ export const getCurrentLocation = async () => {
 
 // Reverse geocode GPS coordinates to get city name
 // Returns: "City, State" or "City, Country"
+// Uses caching to avoid rate limit issues
 export const reverseGeocode = async (lat, lng) => {
   try {
+    // Check cache first
+    const cacheKey = getCacheKey(lat, lng);
+    const cachedResult = reverseGeocodeCache.get(cacheKey);
+    
+    if (cachedResult) {
+      const age = Date.now() - cachedResult.timestamp;
+      if (age < CACHE_DURATION) {
+        console.log('✅ Using cached reverse geocode:', cachedResult.city);
+        return cachedResult.city;
+      } else {
+        // Cache expired, remove it
+        reverseGeocodeCache.delete(cacheKey);
+      }
+    }
+    
+    // Try to load from AsyncStorage cache
+    try {
+      const storageKey = `${CACHE_KEY_PREFIX}${cacheKey}`;
+      const stored = await AsyncStorage.getItem(storageKey);
+      if (stored) {
+        const cached = JSON.parse(stored);
+        const age = Date.now() - cached.timestamp;
+        if (age < CACHE_DURATION) {
+          console.log('✅ Using AsyncStorage cached reverse geocode:', cached.city);
+          reverseGeocodeCache.set(cacheKey, cached);
+          return cached.city;
+        }
+      }
+    } catch (storageError) {
+      // Ignore storage errors, continue with API call
+      console.warn('⚠️ Error reading from AsyncStorage cache:', storageError);
+    }
+    
     console.log('📍 Reverse geocoding:', lat, lng);
     
     const addresses = await Location.reverseGeocodeAsync({
@@ -87,12 +139,68 @@ export const reverseGeocode = async (lat, lng) => {
       const state = address.region || address.country || '';
       const cityName = state ? `${city}, ${state}` : city;
       console.log('✅ Reverse geocoded:', cityName);
+      
+      // Cache the result
+      const cacheEntry = {
+        city: cityName,
+        timestamp: Date.now(),
+      };
+      reverseGeocodeCache.set(cacheKey, cacheEntry);
+      
+      // Also save to AsyncStorage for persistence
+      try {
+        const storageKey = `${CACHE_KEY_PREFIX}${cacheKey}`;
+        await AsyncStorage.setItem(storageKey, JSON.stringify(cacheEntry));
+      } catch (storageError) {
+        // Ignore storage errors
+        console.warn('⚠️ Error saving to AsyncStorage cache:', storageError);
+      }
+      
       return cityName;
     }
 
+    // Cache "Unknown Location" result too (but with shorter duration)
+    const cacheEntry = {
+      city: 'Unknown Location',
+      timestamp: Date.now(),
+    };
+    reverseGeocodeCache.set(cacheKey, cacheEntry);
+    
     return 'Unknown Location';
   } catch (error) {
     console.error('❌ Error reverse geocoding:', error);
+    
+    // Check if it's a rate limit error
+    const isRateLimit = error.message?.includes('rate limit') || 
+                       error.message?.includes('too many requests') ||
+                       error.code === 'E_RATE_LIMIT';
+    
+    if (isRateLimit) {
+      console.warn('⚠️ Geocoding rate limit exceeded, checking cache...');
+      
+      // Try to get from cache even if expired (graceful degradation)
+      const cacheKey = getCacheKey(lat, lng);
+      const cachedResult = reverseGeocodeCache.get(cacheKey);
+      
+      if (cachedResult) {
+        console.log('✅ Using expired cache due to rate limit:', cachedResult.city);
+        return cachedResult.city;
+      }
+      
+      // Try AsyncStorage
+      try {
+        const storageKey = `${CACHE_KEY_PREFIX}${cacheKey}`;
+        const stored = await AsyncStorage.getItem(storageKey);
+        if (stored) {
+          const cached = JSON.parse(stored);
+          console.log('✅ Using expired AsyncStorage cache due to rate limit:', cached.city);
+          return cached.city;
+        }
+      } catch (storageError) {
+        // Ignore
+      }
+    }
+    
     return 'Unknown Location';
   }
 };

@@ -353,7 +353,6 @@ export default function ActivityMain() {
               return;
             }
 
-            Alert.alert('Success', 'Event updated successfully!');
             setCreateEventVisible(false);
             setEditEvent(null);
           } else {
@@ -420,7 +419,6 @@ export default function ActivityMain() {
             return;
           }
 
-          Alert.alert('Success', 'Event deleted successfully');
           setCreateEventVisible(false);
           setEditEvent(null);
         }}

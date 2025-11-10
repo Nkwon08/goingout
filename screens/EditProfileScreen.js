@@ -242,15 +242,8 @@ export default function EditProfileScreen({ navigation }) {
       
       setSaving(false);
       
-      Alert.alert('Success', 'Profile updated successfully!', [
-        {
-          text: 'OK',
-          onPress: () => {
-            // Navigate back - ProfileScreen will refresh on focus with shorter delay
-            navigation.goBack();
-          },
-        },
-      ]);
+      // Navigate back - ProfileScreen will refresh on focus with shorter delay
+      navigation.goBack();
     } catch (error) {
       console.error('❌ Error updating profile:', error);
       console.error('❌ Error code:', error.code);
