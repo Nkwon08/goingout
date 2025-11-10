@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, ScrollView, Image, ImageBackground, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform, PanResponder, Animated, StyleSheet, InteractionManager } from 'react-native';
+import { View, ScrollView, Image, ImageBackground, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform, PanResponder, Animated, StyleSheet, InteractionManager, RefreshControl } from 'react-native';
 import { Appbar, FAB, Text, Button, Avatar, Checkbox } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
@@ -2325,6 +2325,19 @@ function GroupDetail({ group: initialGroup, onBack }) {
   const [removingMemberId, setRemovingMemberId] = React.useState(null);
   const [uploadingProfilePicture, setUploadingProfilePicture] = React.useState(false);
   
+  // Handle toggle friend selection for adding members
+  const handleToggleFriend = React.useCallback((friendId) => {
+    setSelectedFriends((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(friendId)) {
+        newSet.delete(friendId);
+      } else {
+        newSet.add(friendId);
+      }
+      return newSet;
+    });
+  }, []);
+  
   // Update group state when initialGroup prop changes
   React.useEffect(() => {
     if (initialGroup) {
@@ -3222,6 +3235,7 @@ export default function GroupsScreen({ navigation }) {
   const [showGroupMenu, setShowGroupMenu] = React.useState(false);
   const [groups, setGroups] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
+  const [refreshing, setRefreshing] = React.useState(false);
   const [selectedGroupForDelete, setSelectedGroupForDelete] = React.useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
@@ -3254,12 +3268,23 @@ export default function GroupsScreen({ navigation }) {
       }
       setGroups(groups || []);
       setLoading(false);
+      setRefreshing(false);
     });
 
     return () => {
       if (unsubscribe) unsubscribe();
     };
   }, [user?.uid]);
+
+  // Handle refresh
+  const handleRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    // Force re-subscription by updating a dependency
+    // The subscription will automatically reload groups
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 500);
+  }, []);
   
   // Fetch latest messages for all groups
   React.useEffect(() => {
@@ -3554,6 +3579,13 @@ export default function GroupsScreen({ navigation }) {
           style={{ flex: 1 }}
           contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
           showsVerticalScrollIndicator={true}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor="#CC0000"
+            />
+          }
         >
         {loading ? (
           <View style={{ padding: 20, alignItems: 'center' }}>

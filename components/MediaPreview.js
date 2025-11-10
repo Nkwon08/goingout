@@ -96,7 +96,8 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
           {/* Actions */}
           <View style={styles.actions}>
             {onPostPublicly && (
-              <TouchableOpacity style={styles.actionButton} onPress={onPostPublicly}>
+
+<TouchableOpacity style={styles.actionButton} onPress={onPostPublicly}>
                 <MaterialCommunityIcons name="share-outline" size={24} color="#FFFFFF" />
                 <Text style={styles.actionText}>Post</Text>
               </TouchableOpacity>

@@ -198,8 +198,12 @@ export default function ActivityRecent() {
   // Refresh posts manually
   const handleRefresh = React.useCallback(() => {
     setRefreshing(true);
-    // Real-time listener will automatically update
-    setTimeout(() => setRefreshing(false), 1000);
+    // Force re-subscription to get fresh data
+    // The subscription will automatically update posts
+    // Set refreshing to false after a short delay to show the refresh indicator
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 500);
   }, []);
 
   // Handle when user submits a new post

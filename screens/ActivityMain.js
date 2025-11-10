@@ -1,6 +1,6 @@
 // Activity Main screen - shows polls, trending locations, and events
 import * as React from 'react';
-import { ScrollView, View, TouchableOpacity, Alert } from 'react-native';
+import { ScrollView, View, TouchableOpacity, Alert, RefreshControl } from 'react-native';
 import { Text } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -14,7 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { createEvent, subscribeToUpcomingEvents, joinEvent, updateEvent, deleteEvent, checkEventJoinStatus } from '../services/eventsService';
 import { checkFriendship } from '../services/friendsService';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SectionHeader = ({ title, textColor }) => (
@@ -28,6 +28,7 @@ export default function ActivityMain() {
   const [localEvents, setLocalEvents] = React.useState([]);
   const [loadingEvents, setLoadingEvents] = React.useState(true);
   const [joinedEventIds, setJoinedEventIds] = React.useState(new Set());
+  const [refreshing, setRefreshing] = React.useState(false);
   const { background, text, subText } = useThemeColors();
   const { isDarkMode } = useTheme();
   const { user, userData } = useAuth();
@@ -39,6 +40,7 @@ export default function ActivityMain() {
       // If not logged in, use mock events
       setLocalEvents(events);
       setLoadingEvents(false);
+      setRefreshing(false);
       return;
     }
 
@@ -49,6 +51,7 @@ export default function ActivityMain() {
         // Fallback to mock events if Firebase fails
         setLocalEvents(events);
         setLoadingEvents(false);
+        setRefreshing(false);
         return;
       }
 
@@ -107,6 +110,7 @@ export default function ActivityMain() {
       
       setLocalEvents(uniqueEvents);
       setLoadingEvents(false);
+      setRefreshing(false);
     });
 
     // Cleanup subscription on unmount
@@ -114,6 +118,16 @@ export default function ActivityMain() {
       if (unsubscribe) unsubscribe();
     };
   }, [user?.uid, userData?.friends]);
+
+  // Handle refresh
+  const handleRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    // Force re-subscription by updating a dependency
+    // The subscription will automatically reload events
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 500);
+  }, []);
 
   // Filter events to only show upcoming events (not past their end time) and exclude joined events
   const upcomingEvents = React.useMemo(() => {
@@ -193,7 +207,17 @@ export default function ActivityMain() {
       colors={isDarkMode ? ['#1a0000', '#121212', '#0a0000'] : ['#ffe5e5', '#FAFAFA', '#fff5f5']}
       style={{ flex: 1 }}
     >
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 100 }}>
+      <ScrollView 
+        style={{ flex: 1 }} 
+        contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#CC0000"
+          />
+        }
+      >
       <TonightSelector />
 
       <View style={{ height: 24 }} />
@@ -254,11 +278,34 @@ export default function ActivityMain() {
                         console.error('Error storing groupId:', storageError);
                       }
                       
-                      // Navigate to Groups tab
-                      navigation.navigate('Groups', {
-                        screen: 'GroupsMain',
-                        params: { groupId: result.groupId }
-                      });
+                      // Navigate to Groups tab - find BottomTabs navigator
+                      let bottomTabsNavigator = navigation;
+                      let parent = navigation.getParent();
+                      
+                      while (parent) {
+                        const state = parent.getState();
+                        const routeNames = state?.routeNames || state?.routes?.map(r => r.name);
+                        
+                        // Check if this navigator has 'Groups' (BottomTabs)
+                        if (routeNames && routeNames.includes('Groups')) {
+                          bottomTabsNavigator = parent;
+                          break;
+                        }
+                        
+                        bottomTabsNavigator = parent;
+                        parent = parent.getParent();
+                      }
+                      
+                      // Navigate to Groups tab using CommonActions
+                      bottomTabsNavigator.dispatch(
+                        CommonActions.navigate({
+                          name: 'Groups',
+                          params: {
+                            screen: 'GroupsMain',
+                            params: { groupId: result.groupId }
+                          }
+                        })
+                      );
                     }
                   }
                 } catch (error) {

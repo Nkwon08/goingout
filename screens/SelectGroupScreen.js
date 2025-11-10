@@ -2,7 +2,7 @@ import * as React from 'react';
 import { View, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Appbar, Text, Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { subscribeToUserGroups } from '../services/groupsService';
@@ -85,11 +85,34 @@ export default function SelectGroupScreen() {
           await AsyncStorage.setItem('pendingGroupId', group.id);
           // Navigate back to camera and then to groups
           navigation.goBack();
-          // Navigate to Groups tab
-          navigation.navigate('Groups', {
-            screen: 'GroupsMain',
-            params: { groupId: group.id }
-          });
+          // Navigate to Groups tab - find BottomTabs navigator
+          let bottomTabsNavigator = navigation;
+          let parent = navigation.getParent();
+          
+          while (parent) {
+            const state = parent.getState();
+            const routeNames = state?.routeNames || state?.routes?.map(r => r.name);
+            
+            // Check if this navigator has 'Groups' (BottomTabs)
+            if (routeNames && routeNames.includes('Groups')) {
+              bottomTabsNavigator = parent;
+              break;
+            }
+            
+            bottomTabsNavigator = parent;
+            parent = parent.getParent();
+          }
+          
+          // Navigate to Groups tab using CommonActions
+          bottomTabsNavigator.dispatch(
+            CommonActions.navigate({
+              name: 'Groups',
+              params: {
+                screen: 'GroupsMain',
+                params: { groupId: group.id }
+              }
+            })
+          );
         }
       } else {
         const { messageId, error } = await sendImageMessage(
@@ -107,11 +130,34 @@ export default function SelectGroupScreen() {
           await AsyncStorage.setItem('pendingGroupId', group.id);
           // Navigate back to camera and then to groups
           navigation.goBack();
-          // Navigate to Groups tab
-          navigation.navigate('Groups', {
-            screen: 'GroupsMain',
-            params: { groupId: group.id }
-          });
+          // Navigate to Groups tab - find BottomTabs navigator
+          let bottomTabsNavigator = navigation;
+          let parent = navigation.getParent();
+          
+          while (parent) {
+            const state = parent.getState();
+            const routeNames = state?.routeNames || state?.routes?.map(r => r.name);
+            
+            // Check if this navigator has 'Groups' (BottomTabs)
+            if (routeNames && routeNames.includes('Groups')) {
+              bottomTabsNavigator = parent;
+              break;
+            }
+            
+            bottomTabsNavigator = parent;
+            parent = parent.getParent();
+          }
+          
+          // Navigate to Groups tab using CommonActions
+          bottomTabsNavigator.dispatch(
+            CommonActions.navigate({
+              name: 'Groups',
+              params: {
+                screen: 'GroupsMain',
+                params: { groupId: group.id }
+              }
+            })
+          );
         }
       }
     } catch (error) {
