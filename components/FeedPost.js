@@ -15,6 +15,7 @@ import { sendImageMessage, sendImageMessageWithUrl, sendMessage } from '../servi
 import { createGroup } from '../services/groupsService';
 import { parseMentions, extractMentions } from '../utils/mentionUtils';
 import { searchUsersByPrefix } from '../services/usersService';
+import { reportPost } from '../services/reportService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const IMAGE_WIDTH = SCREEN_WIDTH * 0.92 - 12; // Narrower by 12 pixels
@@ -43,6 +44,7 @@ export default function FeedPost({ post, onDelete }) {
   const [selectedGroup, setSelectedGroup] = React.useState(null);
   const [sendingToGroup, setSendingToGroup] = React.useState(false);
   const [showCreateGroup, setShowCreateGroup] = React.useState(false);
+  const [reporting, setReporting] = React.useState(false);
   
   // State for @mention autocomplete in comments
   const [mentionSuggestions, setMentionSuggestions] = React.useState([]);
@@ -537,9 +539,70 @@ export default function FeedPost({ post, onDelete }) {
     );
   };
 
-  // Check if post is uploading
-  const isUploading = post.uploadStatus === 'uploading';
-  const uploadError = post.uploadStatus === 'error';
+  // Handle report post
+  const handleReportPost = () => {
+    setMenuVisible(false);
+    
+    Alert.alert(
+      'Report Post',
+      'Why are you reporting this post?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Spam',
+          onPress: () => submitReport('spam'),
+        },
+        {
+          text: 'Inappropriate Content',
+          onPress: () => submitReport('inappropriate'),
+        },
+        {
+          text: 'Harassment',
+          onPress: () => submitReport('harassment'),
+        },
+        {
+          text: 'Other',
+          onPress: () => {
+            // For cross-platform compatibility, use a simple alert with OK button
+            // Users can report with "other" reason and details will be optional
+            submitReport('other', 'Reported by user');
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  // Submit report
+  const submitReport = async (reason, details = null) => {
+    if (!user?.uid) {
+      Alert.alert('Error', 'Please sign in to report posts.');
+      return;
+    }
+
+    setReporting(true);
+    try {
+      const result = await reportPost(post.id, reason, details);
+      
+      if (result.success) {
+        Alert.alert('Success', 'Thank you for reporting. We will review this post.');
+      } else {
+        Alert.alert('Error', result.error || 'Failed to report post. Please try again.');
+      }
+    } catch (error) {
+      console.error('❌ Error reporting post:', error);
+      Alert.alert('Error', 'Failed to report post. Please try again.');
+    } finally {
+      setReporting(false);
+    }
+  };
+
+  // Check if post is uploading - only show status for own posts
+  const isUploading = isOwnPost && post.uploadStatus === 'uploading';
+  const uploadError = isOwnPost && post.uploadStatus === 'error';
 
   return (
     <View style={[styles.container, { 
@@ -552,7 +615,7 @@ export default function FeedPost({ post, onDelete }) {
       shadowRadius: 16,
       elevation: 8,
     }]}>
-      {/* Upload Status Bar */}
+      {/* Upload Status Bar - Only show for own posts */}
       {isUploading && (
         <View style={[styles.uploadStatusBar, { backgroundColor: 'rgba(204, 0, 0, 0.1)' }]}>
           <ActivityIndicator size="small" color={IU_CRIMSON} />
@@ -578,11 +641,9 @@ export default function FeedPost({ post, onDelete }) {
             <Text style={[styles.username, { color: text }]}>{post.name || post.user}</Text>
           </TouchableOpacity>
         </View>
-        {isOwnPost && (
-          <TouchableOpacity onPress={handleMenuPress}>
+        <TouchableOpacity onPress={handleMenuPress}>
           <MaterialCommunityIcons name="dots-horizontal" size={24} color={text} />
         </TouchableOpacity>
-        )}
       </View>
 
       {/* Images with Swipe */}
@@ -931,7 +992,7 @@ export default function FeedPost({ post, onDelete }) {
         </View>
       </Modal>
 
-      {/* Menu Popup - Only show if user owns the post */}
+      {/* Menu Popup */}
       <Modal
         visible={menuVisible}
         transparent
@@ -944,17 +1005,37 @@ export default function FeedPost({ post, onDelete }) {
           onPress={() => setMenuVisible(false)}
         >
           <View style={[styles.menuContainer, { backgroundColor: surface, borderColor: border }]}>
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={handleDelete}
-              disabled={deleting}
-            >
-              <MaterialCommunityIcons name="delete-outline" size={24} color="#FF6B6B" />
-              <Text style={[styles.menuItemText, { color: '#FF6B6B' }]}>
-                {deleting ? 'Deleting...' : 'Delete Post'}
-              </Text>
-            </TouchableOpacity>
-            <View style={{ height: 1, backgroundColor: border }} />
+            {isOwnPost ? (
+              // Own post menu - show delete option
+              <>
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={handleDelete}
+                  disabled={deleting}
+                >
+                  <MaterialCommunityIcons name="delete-outline" size={24} color="#FF6B6B" />
+                  <Text style={[styles.menuItemText, { color: '#FF6B6B' }]}>
+                    {deleting ? 'Deleting...' : 'Delete Post'}
+                  </Text>
+                </TouchableOpacity>
+                <View style={{ height: 1, backgroundColor: border }} />
+              </>
+            ) : (
+              // Other user's post menu - show report option
+              <>
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={handleReportPost}
+                  disabled={reporting}
+                >
+                  <MaterialCommunityIcons name="flag-outline" size={24} color="#FF6B6B" />
+                  <Text style={[styles.menuItemText, { color: '#FF6B6B' }]}>
+                    {reporting ? 'Reporting...' : 'Report Post'}
+                  </Text>
+                </TouchableOpacity>
+                <View style={{ height: 1, backgroundColor: border }} />
+              </>
+            )}
             <TouchableOpacity
               style={styles.menuItem}
               onPress={() => setMenuVisible(false)}
@@ -962,7 +1043,7 @@ export default function FeedPost({ post, onDelete }) {
               <MaterialCommunityIcons name="close" size={24} color={text} />
               <Text style={[styles.menuItemText, { color: text }]}>Cancel</Text>
             </TouchableOpacity>
-      </View>
+          </View>
         </TouchableOpacity>
       </Modal>
 

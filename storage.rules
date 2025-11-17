@@ -1,0 +1,41 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Allow authenticated users to upload images
+    match /posts/{userId}/{allPaths=**} {
+      allow read: if true; // Anyone can read posts
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Allow authenticated users to upload profile pictures
+    match /profile/{userId}/{allPaths=**} {
+      allow read: if true; // Anyone can read profiles
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Allow authenticated users to upload group chat images/videos
+    match /group-chat/{userId}/{allPaths=**} {
+      allow read: if request.auth != null; // Only authenticated users can read group chat media
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Allow authenticated users to upload event images
+    match /events/{userId}/{allPaths=**} {
+      allow read: if true; // Anyone can read event images
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Allow authenticated users to upload group profile pictures
+    // Note: Group membership is verified in the service function
+    match /groups/{groupId}/{allPaths=**} {
+      allow read: if request.auth != null; // Only authenticated users can read group images
+      allow write: if request.auth != null; // Any authenticated user can write (membership checked in service)
+    }
+    
+    // Default: deny all other access
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
+

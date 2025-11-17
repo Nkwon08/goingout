@@ -380,6 +380,15 @@ export const subscribeToPosts = (callback, pageSize = 20, userLocation = null, u
               }
             }
             
+            // Filter out other users' posts that are still uploading
+            // Only show uploading posts if they belong to the current user
+            if (post.uploadStatus === 'uploading') {
+              const isOwnPost = userId && post.userId && userId === post.userId;
+              if (!isOwnPost) {
+                return false; // Don't show other users' posts while they're uploading
+              }
+            }
+            
             // Filter out posts from blocked users
             // Check if post author's userId or username is in blockedUsersList
             if (blockedUsersList && blockedUsersList.length > 0) {

@@ -2,6 +2,15 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // Helper function to check if user is admin
+    // Option 1: Check custom claim (recommended - set via Firebase Admin SDK)
+    function isAdmin() {
+      return request.auth != null && (
+        // Check custom claim (set via Firebase Admin SDK: admin.customClaims.set({ admin: true }))
+        request.auth.token.admin == true
+      );
+    }
+    
     // Users collection - users can read any profile, update only their own
     // Document ID is now username (not authUid), so we check authUid field instead
     // Exception: Allow updating another user's friends array when accepting a friend request
@@ -213,6 +222,27 @@ service cloud.firestore {
       );
       allow delete: if request.auth != null && 
         resource.data.userId == request.auth.uid; // Users can only delete their own events
+    }
+    
+    // Reports collection - users can create reports for posts and users
+    match /reports/{reportId} {
+      // Allow authenticated users to create reports (they must be the reporter)
+      allow create: if request.auth != null && 
+        request.resource.data.reporterId == request.auth.uid;
+      
+      // Users can read their own reports, admins can read all reports
+      // IMPORTANT: For queries with multiple where clauses to work, we need to allow read access
+      // The query filters by reporterId, so it will only return the user's own reports
+      allow read: if request.auth != null && (
+        resource == null || // Allow query evaluation (resource is null during query planning)
+        !resource.exists || // Allow if document doesn't exist yet
+        resource.data.reporterId == request.auth.uid || // User's own reports
+        (request.auth.token.admin == true) // Admins can read all reports
+      );
+      
+      // Only admins can update/delete reports (for moderation)
+      allow update: if request.auth != null && request.auth.token.admin == true;
+      allow delete: if request.auth != null && request.auth.token.admin == true;
     }
   }
 }

@@ -448,6 +448,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 8,
     zIndex: 10,
+    minHeight: 120,
+    position: 'relative',
   },
   headerTitle: {
     fontSize: 28,
@@ -457,7 +459,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     textAlign: 'center',
-    zIndex: 0,
+    zIndex: 2,
     marginTop: 64,
     fontFamily: Platform.select({
       ios: 'AvenirNext-Bold',
@@ -473,7 +475,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 1,
+    zIndex: 3,
   },
   modalOverlay: {
     position: 'absolute',
