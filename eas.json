@@ -9,23 +9,40 @@
       "distribution": "internal",
       "ios": {
         "simulator": true
+      },
+      "env": {
+        "LANG": "en_US.UTF-8",
+        "LC_ALL": "en_US.UTF-8"
       }
     },
     "preview": {
       "distribution": "internal",
       "ios": {
         "simulator": false
+      },
+      "env": {
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
+        "LANG": "en_US.UTF-8",
+        "LC_ALL": "en_US.UTF-8"
       }
     },
     "preview-simulator": {
       "distribution": "internal",
       "ios": {
         "simulator": true
+      },
+      "env": {
+        "LANG": "en_US.UTF-8",
+        "LC_ALL": "en_US.UTF-8"
       }
     },
     "production": {
       "ios": {
         "simulator": false
+      },
+      "env": {
+        "LANG": "en_US.UTF-8",
+        "LC_ALL": "en_US.UTF-8"
       }
     }
   },
