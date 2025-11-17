@@ -1,9 +1,10 @@
-// Root navigator - wraps BottomTabs with a modal stack for UserProfile and EventDetail
+// Root navigator - wraps BottomTabs with a modal stack for UserProfile, EventDetail, and Camera
 import * as React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import BottomTabs from './BottomTabs';
 import UserProfileScreen from '../screens/UserProfileScreen';
 import EventDetailScreen from '../screens/EventDetailScreen';
+import CameraScreen from '../screens/CameraScreen';
 
 const RootStack = createNativeStackNavigator();
 
@@ -33,6 +34,16 @@ export default function RootNavigator() {
         component={EventDetailScreen}
         options={{
           presentation: 'modal',
+          animation: 'slide_from_bottom',
+        }}
+      />
+      
+      {/* Camera as a modal - accessible from Feed screen */}
+      <RootStack.Screen
+        name="Camera"
+        component={CameraScreen}
+        options={{
+          presentation: 'fullScreenModal',
           animation: 'slide_from_bottom',
         }}
       />

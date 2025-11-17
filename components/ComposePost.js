@@ -92,7 +92,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
   };
 
   const handleTakePhoto = () => {
-    // Navigate to Camera tab - the camera will handle adding images back to this modal
+    // Navigate to Camera screen - the camera will handle adding images back to this modal
     // Store current state in AsyncStorage so camera can return to this flow
     AsyncStorage.setItem('composePostState', JSON.stringify({
       text,
@@ -102,8 +102,14 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
     }));
     // Close ComposePost modal temporarily
     handleClose();
-    // Navigate to Camera tab
-    navigation.navigate('Camera');
+    // Navigate to Camera screen in root navigator
+    let rootNavigator = navigation;
+    let parent = navigation.getParent();
+    while (parent) {
+      rootNavigator = parent;
+      parent = parent.getParent();
+    }
+    rootNavigator.navigate('Camera');
   };
 
   const handleSubmit = () => {

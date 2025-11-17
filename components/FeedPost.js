@@ -536,6 +536,10 @@ export default function FeedPost({ post, onDelete }) {
     );
   };
 
+  // Check if post is uploading
+  const isUploading = post.uploadStatus === 'uploading';
+  const uploadError = post.uploadStatus === 'error';
+
   return (
     <View style={[styles.container, { 
       backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
@@ -547,6 +551,22 @@ export default function FeedPost({ post, onDelete }) {
       shadowRadius: 16,
       elevation: 8,
     }]}>
+      {/* Upload Status Bar */}
+      {isUploading && (
+        <View style={[styles.uploadStatusBar, { backgroundColor: 'rgba(204, 0, 0, 0.1)' }]}>
+          <ActivityIndicator size="small" color={IU_CRIMSON} />
+          <Text style={[styles.uploadStatusText, { color: text }]}>Uploading...</Text>
+        </View>
+      )}
+      {uploadError && (
+        <View style={[styles.uploadStatusBar, { backgroundColor: 'rgba(255, 0, 0, 0.1)' }]}>
+          <MaterialCommunityIcons name="alert-circle" size={16} color="#FF6B6B" />
+          <Text style={[styles.uploadStatusText, { color: '#FF6B6B' }]}>
+            Upload failed{post.uploadError ? `: ${post.uploadError}` : ''}
+          </Text>
+        </View>
+      )}
+      
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.userInfo}>
@@ -1067,6 +1087,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 8,
+  },
+  uploadStatusBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  uploadStatusText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   header: {
     flexDirection: 'row',

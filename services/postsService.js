@@ -76,6 +76,7 @@ export const createPost = async (userId, userData, postData) => {
       replies: 0,
       liked: false,
       visibility: postData.visibility || 'location', // 'friends' or 'location' - default to 'location'
+      uploadStatus: postData.uploadStatus || 'completed', // 'uploading', 'completed', or 'error'
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       expiresAt: expiresAtTimestamp, // Posts expire 24 hours after creation

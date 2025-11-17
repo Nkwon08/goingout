@@ -1,10 +1,11 @@
 import * as React from 'react';
 import { View, StyleSheet, TouchableOpacity, Alert, Dimensions, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Text } from 'react-native-paper';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as ImagePicker from 'expo-image-picker';
 import MediaPreview from '../components/MediaPreview';
 import ComposePost from '../components/ComposePost';
 import { useAuth } from '../context/AuthContext';
@@ -39,6 +40,7 @@ export default function CameraScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const [selectedGroupId, setSelectedGroupId] = React.useState(null);
+  const insets = useSafeAreaInsets();
 
   // Request microphone permission for video recording
   React.useEffect(() => {
@@ -167,6 +169,37 @@ export default function CameraScreen() {
       if (current === 'on') return 'auto';
       return 'off';
     });
+  };
+
+  const handlePickFromGallery = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photo library.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: mode === 'photo' 
+          ? ImagePicker.MediaTypeOptions.Images 
+          : ImagePicker.MediaTypeOptions.Videos,
+        allowsEditing: false,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        if (mode === 'photo') {
+          setCapturedMedia({ type: 'photo', uri: asset.uri });
+        } else {
+          setCapturedMedia({ type: 'video', uri: asset.uri });
+        }
+        setPreviewVisible(true);
+      }
+    } catch (error) {
+      console.error('Error picking from gallery:', error);
+      Alert.alert('Error', 'Failed to pick from gallery. Please try again.');
+    }
   };
 
   const takePicture = async () => {
@@ -519,47 +552,43 @@ export default function CameraScreen() {
       return;
     }
 
+    // Prepare post data
+    if (!postData.location || !postData.location.trim()) {
+      Alert.alert('Error', 'Location is required for all posts');
+      return;
+    }
+
+    const currentUserData = userData || {
+      name: user.displayName || user.email || 'User',
+      username: user.email?.split('@')[0] || 'user',
+      avatar: user.photoURL || null,
+    };
+
+    // Get local image URIs (before upload)
+    let localImageUrls = postData.images && Array.isArray(postData.images) && postData.images.length > 0 
+      ? postData.images 
+      : postData.image 
+        ? [postData.image] 
+        : [];
+
+    // Check if we have local images to upload
+    const hasLocalImages = localImageUrls.length > 0 && localImageUrls[0]?.startsWith('file://');
+
+    // Create post immediately with uploading status and local URIs
+    const postPayload = {
+      text: postData.text || '',
+      location: postData.location.trim(),
+      image: localImageUrls.length > 0 ? localImageUrls[0] : null,
+      images: localImageUrls.length > 0 ? localImageUrls : null,
+      visibility: postData.visibility || 'location',
+      bar: postData.bar || null,
+      uploadStatus: hasLocalImages ? 'uploading' : 'completed', // Mark as uploading if we have local images
+    };
+
     setSubmitting(true);
 
     try {
-      // Upload images if any
-      let imageUrls = postData.images && Array.isArray(postData.images) && postData.images.length > 0 
-        ? postData.images 
-        : postData.image 
-          ? [postData.image] 
-          : [];
-      
-      // If images are local URIs, upload them to Firebase Storage
-      if (imageUrls.length > 0 && imageUrls[0]?.startsWith('file://')) {
-        const uploadResult = await uploadImages(imageUrls, user.uid, 'posts');
-        
-        if (uploadResult.errors && uploadResult.errors.length > 0) {
-          throw new Error('Failed to upload some images: ' + uploadResult.errors.join(', '));
-        }
-        imageUrls = uploadResult.urls || [];
-      }
-
-      // Prepare post data
-      if (!postData.location || !postData.location.trim()) {
-        throw new Error('Location is required for all posts');
-      }
-
-      const currentUserData = userData || {
-        name: user.displayName || user.email || 'User',
-        username: user.email?.split('@')[0] || 'user',
-        avatar: user.photoURL || null,
-      };
-
-      const postPayload = {
-        text: postData.text || '',
-        location: postData.location.trim(),
-        image: imageUrls.length > 0 ? imageUrls[0] : null,
-        images: imageUrls.length > 0 ? imageUrls : null,
-        visibility: postData.visibility || 'location',
-        bar: postData.bar || null,
-      };
-
-      // Create post
+      // Create post immediately (with local URIs and uploading status)
       const result = await createPost(user.uid, currentUserData, postPayload);
       
       if (result.error) {
@@ -571,8 +600,71 @@ export default function CameraScreen() {
       setCapturedMedia(null);
       setSubmitting(false);
 
-      // Navigate to Activity tab
-      navigation.navigate('Activity', { screen: 'Recent' });
+      // Navigate to Feed immediately
+      let rootNavigator = navigation.getParent();
+      while (rootNavigator && rootNavigator.getParent) {
+        const parent = rootNavigator.getParent();
+        if (!parent) break;
+        rootNavigator = parent;
+      }
+      
+      // Close the modal by going back
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      }
+      
+      // Navigate to Feed tab immediately
+      setTimeout(() => {
+        if (rootNavigator) {
+          rootNavigator.navigate('MainTabs', {
+            screen: 'Feed',
+          });
+        }
+      }, 100);
+
+      // Continue upload in background and update post when done
+      if (hasLocalImages && result.postId) {
+        (async () => {
+          try {
+            const uploadResult = await uploadImages(localImageUrls, user.uid, 'posts');
+            
+            if (uploadResult.errors && uploadResult.errors.length > 0) {
+              // Update post with error status
+              const { updateDoc, doc } = await import('firebase/firestore');
+              const { db } = await import('../config/firebase');
+              await updateDoc(doc(db, 'posts', result.postId), {
+                uploadStatus: 'error',
+                uploadError: uploadResult.errors.join(', '),
+              });
+              return;
+            }
+
+            const uploadedUrls = uploadResult.urls || [];
+            
+            // Update post with uploaded URLs and completed status
+            const { updateDoc, doc } = await import('firebase/firestore');
+            const { db } = await import('../config/firebase');
+            await updateDoc(doc(db, 'posts', result.postId), {
+              image: uploadedUrls.length > 0 ? uploadedUrls[0] : null,
+              images: uploadedUrls.length > 0 ? uploadedUrls : null,
+              uploadStatus: 'completed',
+            });
+          } catch (uploadError) {
+            console.error('Error uploading images:', uploadError);
+            // Update post with error status
+            try {
+              const { updateDoc, doc } = await import('firebase/firestore');
+              const { db } = await import('../config/firebase');
+              await updateDoc(doc(db, 'posts', result.postId), {
+                uploadStatus: 'error',
+                uploadError: uploadError.message || 'Upload failed',
+              });
+            } catch (updateError) {
+              console.error('Error updating post status:', updateError);
+            }
+          }
+        })();
+      }
       
     } catch (error) {
       console.error('Error creating post:', error);
@@ -592,8 +684,31 @@ export default function CameraScreen() {
           onCameraReady={handleCameraReady}
         >
         {/* Mode Toggle */}
-        <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <View style={[styles.safeArea, { paddingTop: insets.top + 20 }]}>
           <View style={styles.modeContainer}>
+            {/* Back button */}
+            <TouchableOpacity 
+              style={styles.backButton} 
+              onPress={() => {
+                // Navigate back to Feed
+                if (navigation.canGoBack()) {
+                  navigation.goBack();
+                } else {
+                  // If can't go back, navigate to MainTabs -> Feed
+                  let rootNavigator = navigation;
+                  let parent = navigation.getParent();
+                  while (parent) {
+                    rootNavigator = parent;
+                    parent = parent.getParent();
+                  }
+                  rootNavigator.navigate('MainTabs', { screen: 'Feed' });
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="arrow-left" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+            
             <TouchableOpacity
               style={[styles.modeButton, mode === 'photo' && styles.modeButtonActive]}
               onPress={() => setMode('photo')}
@@ -623,7 +738,7 @@ export default function CameraScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </SafeAreaView>
+        </View>
 
         {/* 3:4 aspect ratio viewfinder overlay (only in photo mode) */}
         {mode === 'photo' && (
@@ -696,8 +811,10 @@ export default function CameraScreen() {
             </TouchableOpacity>
           )}
           
-          {/* Spacer to balance the flip button */}
-          <View style={styles.buttonSpacer} />
+          {/* Gallery button - bottom right */}
+          <TouchableOpacity style={styles.galleryButton} onPress={handlePickFromGallery}>
+            <MaterialCommunityIcons name="view-grid" size={28} color="#FFFFFF" />
+          </TouchableOpacity>
         </View>
       </CameraView>
 
@@ -758,10 +875,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 10,
+    paddingTop: 0,
     paddingBottom: 10,
     paddingHorizontal: 16,
     position: 'relative',
+    minHeight: 64,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'absolute',
+    left: 16,
+    top: 10,
+    bottom: 10,
   },
   flashButtonContainer: {
     position: 'absolute',
@@ -821,9 +951,16 @@ const styles = StyleSheet.create({
     marginLeft: 20,
     marginBottom: 0, // Align with shutter button
   },
-  buttonSpacer: {
-    width: 50, // Same width as flip button to balance the layout
+  galleryButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 20,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   captureButton: {
     width: 70,
