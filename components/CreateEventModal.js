@@ -1,6 +1,7 @@
 // CreateEventModal component - modal for creating new events
 import * as React from 'react';
 import { View, Modal, TextInput, StyleSheet, TouchableOpacity, Image, ScrollView, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform, Alert, FlatList } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, Avatar, Button, Checkbox } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -11,7 +12,11 @@ import { uploadImage } from '../services/storageService';
 const IU_CRIMSON = '#CC0000';
 
 export default function CreateEventModal({ visible, onClose, onSubmit, currentUser, event, isEditMode = false, onDelete }) {
-  const { surface, text, subText, background, border } = useThemeColors();
+  const { surface, text, subText, background, border, divider } = useThemeColors();
+  const insets = useSafeAreaInsets();
+  
+  // Step state - only use wizard for new events, keep old UI for edit mode
+  const [currentStep, setCurrentStep] = React.useState(1); // 1: Name & Location, 2: Dates, 3: Privacy, 4: Photo
   
   // State for event content
   const [name, setName] = React.useState('');
@@ -23,22 +28,24 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
   const [deleting, setDeleting] = React.useState(false);
   const [friendsOnly, setFriendsOnly] = React.useState(false);
   
-  // Date and time state
-  const [startDate, setStartDate] = React.useState(new Date());
-  const [endDate, setEndDate] = React.useState(new Date());
-  const [startTime, setStartTime] = React.useState(new Date());
-  const [endTime, setEndTime] = React.useState(new Date());
-  const [showStartDatePicker, setShowStartDatePicker] = React.useState(false);
-  const [showEndDatePicker, setShowEndDatePicker] = React.useState(false);
-  const [showStartTimePicker, setShowStartTimePicker] = React.useState(false);
-  const [showEndTimePicker, setShowEndTimePicker] = React.useState(false);
+  // Date and time state - combine into datetime
+  const [startDateTime, setStartDateTime] = React.useState(() => {
+    const now = new Date();
+    return new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now
+  });
+  const [endDateTime, setEndDateTime] = React.useState(() => {
+    const now = new Date();
+    return new Date(now.getTime() + 3 * 60 * 60 * 1000); // 3 hours from now
+  });
+  const [showStartPicker, setShowStartPicker] = React.useState(false);
+  const [showEndPicker, setShowEndPicker] = React.useState(false);
   
 
   // Set default host from current user when modal opens, or load event data if editing
   React.useEffect(() => {
     if (visible) {
       if (isEditMode && event) {
-        // Load event data for editing
+        // Edit mode - use old UI, don't reset step
         setName(event.title || '');
         setDescription(event.description || '');
         setLocation(event.location || '');
@@ -46,68 +53,60 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
         setPhoto(event.image || null);
         setFriendsOnly(event.friendsOnly || false);
         
-        // Set dates and times
-        // Handle backward compatibility: if event.date exists but not startDate/endDate, use date for both
-        if (event.startDate) {
+        // Combine date and time into datetime
+        if (event.startDate && event.startTime) {
           const startD = event.startDate instanceof Date ? event.startDate : event.startDate.toDate ? event.startDate.toDate() : new Date(event.startDate);
-          setStartDate(startD);
+          const startT = event.startTime instanceof Date ? event.startTime : event.startTime.toDate ? event.startTime.toDate() : new Date(event.startTime);
+          const combined = new Date(startD);
+          combined.setHours(startT.getHours());
+          combined.setMinutes(startT.getMinutes());
+          setStartDateTime(combined);
         } else if (event.date) {
-          // Backward compatibility: use date for startDate
           const eventDate = event.date instanceof Date ? event.date : event.date.toDate ? event.date.toDate() : new Date(event.date);
-          setStartDate(eventDate);
+          setStartDateTime(eventDate);
         }
         
-        if (event.endDate) {
+        if (event.endDate && event.endTime) {
           const endD = event.endDate instanceof Date ? event.endDate : event.endDate.toDate ? event.endDate.toDate() : new Date(event.endDate);
-          setEndDate(endD);
+          const endT = event.endTime instanceof Date ? event.endTime : event.endTime.toDate ? event.endTime.toDate() : new Date(event.endTime);
+          const combined = new Date(endD);
+          combined.setHours(endT.getHours());
+          combined.setMinutes(endT.getMinutes());
+          setEndDateTime(combined);
         } else if (event.date) {
-          // Backward compatibility: use date for endDate
           const eventDate = event.date instanceof Date ? event.date : event.date.toDate ? event.date.toDate() : new Date(event.date);
-          setEndDate(eventDate);
-        }
-        
-        if (event.startTime) {
-          const start = event.startTime instanceof Date ? event.startTime : event.startTime.toDate ? event.startTime.toDate() : new Date(event.startTime);
-          setStartTime(start);
-        }
-        if (event.endTime) {
-          const end = event.endTime instanceof Date ? event.endTime : event.endTime.toDate ? event.endTime.toDate() : new Date(event.endTime);
-          setEndTime(end);
+          const endDate = new Date(eventDate);
+          endDate.setHours(eventDate.getHours() + 2);
+          setEndDateTime(endDate);
         }
       } else {
-        // Reset form when creating new event
+        // Reset form when creating new event - use wizard
+        setCurrentStep(1);
         setName('');
         setDescription('');
         setLocation('');
         setHost(currentUser?.name || currentUser?.username || '');
         setPhoto(null);
         setFriendsOnly(false);
-        // Set default dates to today, start time to current hour, end time to 2 hours later
+        // Set default datetimes
         const now = new Date();
-        setStartDate(now);
-        setEndDate(now);
-        setStartTime(now);
-        const endTimeDefault = new Date(now);
-        endTimeDefault.setHours(now.getHours() + 2);
-        setEndTime(endTimeDefault);
+        setStartDateTime(new Date(now.getTime() + 60 * 60 * 1000)); // 1 hour from now
+        setEndDateTime(new Date(now.getTime() + 3 * 60 * 60 * 1000)); // 3 hours from now
       }
       setSubmitting(false);
-      setShowStartDatePicker(false);
-      setShowEndDatePicker(false);
-      setShowStartTimePicker(false);
-      setShowEndTimePicker(false);
+      setShowStartPicker(false);
+      setShowEndPicker(false);
     } else {
       // Reset form when modal closes
+      setCurrentStep(1);
       setName('');
       setDescription('');
       setLocation('');
       setHost('');
       setPhoto(null);
       setSubmitting(false);
-      setShowStartDatePicker(false);
-      setShowEndDatePicker(false);
-      setShowStartTimePicker(false);
-      setShowEndTimePicker(false);
+      setShowStartPicker(false);
+      setShowEndPicker(false);
     }
   }, [visible, currentUser, isEditMode, event]);
 
@@ -150,6 +149,81 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
     }
   };
 
+  // Step navigation functions
+  const handleNext = () => {
+    if (currentStep === 1) {
+      if (!name.trim()) {
+        Alert.alert('Error', 'Please enter an event name', [{ text: 'OK' }]);
+        return;
+      }
+      if (!location.trim()) {
+        Alert.alert('Error', 'Please enter a location', [{ text: 'OK' }]);
+        return;
+      }
+      setCurrentStep(2);
+    } else if (currentStep === 2) {
+      if (endDateTime <= startDateTime) {
+        Alert.alert('Error', 'End date and time must be after start date and time', [{ text: 'OK' }]);
+        return;
+      }
+      const now = new Date();
+      if (startDateTime <= now) {
+        Alert.alert('Error', 'Start date and time must be in the future', [{ text: 'OK' }]);
+        return;
+      }
+      setCurrentStep(3);
+    } else if (currentStep === 3) {
+      // No validation needed for privacy selection, proceed to photo step
+      setCurrentStep(4);
+    }
+  };
+
+  const handleBack = () => {
+    if (currentStep > 1) {
+      setCurrentStep(currentStep - 1);
+    }
+  };
+
+  const formatDateTime = (date) => {
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  };
+
+  const handleStartDateTimeChange = (event, selectedDate) => {
+    if (Platform.OS === 'android') {
+      setShowStartPicker(false);
+    }
+    if (event.type === 'set' && selectedDate) {
+      setStartDateTime(selectedDate);
+      // If start time is after end time, update end time to be 1 hour after start
+      if (selectedDate >= endDateTime) {
+        const newEndTime = new Date(selectedDate.getTime() + 60 * 60 * 1000);
+        setEndDateTime(newEndTime);
+      }
+    }
+    if (Platform.OS === 'android' && event.type === 'dismissed') {
+      setShowStartPicker(false);
+    }
+  };
+
+  const handleEndDateTimeChange = (event, selectedDate) => {
+    if (Platform.OS === 'android') {
+      setShowEndPicker(false);
+    }
+    if (event.type === 'set' && selectedDate) {
+      setEndDateTime(selectedDate);
+    }
+    if (Platform.OS === 'android' && event.type === 'dismissed') {
+      setShowEndPicker(false);
+    }
+  };
+
   const handleSubmit = async () => {
     Keyboard.dismiss();
 
@@ -159,34 +233,12 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
       return;
     }
 
-    if (!description.trim()) {
-      Alert.alert('Error', 'Description is required.');
-      return;
-    }
-
     if (!location.trim()) {
       Alert.alert('Error', 'Location is required.');
       return;
     }
 
-    if (!host.trim()) {
-      Alert.alert('Error', 'Host is required.');
-      return;
-    }
-
     // Validate that end date/time is after start date/time
-    const startDateTime = new Date(startDate);
-    startDateTime.setHours(startTime.getHours());
-    startDateTime.setMinutes(startTime.getMinutes());
-    startDateTime.setSeconds(0);
-    startDateTime.setMilliseconds(0);
-    
-    const endDateTime = new Date(endDate);
-    endDateTime.setHours(endTime.getHours());
-    endDateTime.setMinutes(endTime.getMinutes());
-    endDateTime.setSeconds(0);
-    endDateTime.setMilliseconds(0);
-    
     if (endDateTime <= startDateTime) {
       Alert.alert('Error', 'End date and time must be after start date and time.');
       return;
@@ -209,12 +261,21 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
         }
       }
 
+      // Extract date and time from datetime for backward compatibility
+      const startDate = new Date(startDateTime);
+      startDate.setHours(0, 0, 0, 0);
+      const startTime = new Date(startDateTime);
+      
+      const endDate = new Date(endDateTime);
+      endDate.setHours(0, 0, 0, 0);
+      const endTime = new Date(endDateTime);
+
       // Always call onSubmit even if photo upload failed
       onSubmit({
         name: name.trim(),
-        description: description.trim(),
+        description: description.trim() || '', // Optional
         location: location.trim(),
-        host: host.trim(),
+        host: host.trim() || (currentUser?.name || currentUser?.username || ''), // Use current user if not provided
         photo: photoUrl || photo, // Use uploaded URL if available, otherwise local URI
         startDate: startDate,
         endDate: endDate,
@@ -273,6 +334,596 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
     );
   };
 
+  // Render Step 1: Event Name and Location
+  const renderStep1 = () => (
+    <ScrollView 
+      contentContainerStyle={{ 
+        flexGrow: 1, 
+        justifyContent: 'flex-start', 
+        paddingHorizontal: 16,
+        paddingTop: Math.max(20, insets.top + 10),
+        paddingBottom: 24
+      }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Text style={{ color: text, fontSize: 24, fontWeight: 'bold', marginBottom: 8, textAlign: 'center' }}>
+        What's the event name?
+      </Text>
+      <Text style={{ color: subText, fontSize: 16, marginBottom: 32, textAlign: 'center' }}>
+        Give your event a memorable name
+      </Text>
+      <TextInput
+        style={{
+          backgroundColor: background,
+          borderRadius: 12,
+          padding: 16,
+          color: text,
+          fontSize: 18,
+          marginBottom: 24,
+          width: '100%',
+          borderWidth: 1,
+          borderColor: border,
+        }}
+        placeholder="Enter event name"
+        placeholderTextColor={subText}
+        value={name}
+        onChangeText={setName}
+        maxLength={100}
+        autoFocus
+      />
+      <Text style={{ color: text, fontSize: 24, fontWeight: 'bold', marginBottom: 8, textAlign: 'center', marginTop: 8 }}>
+        Where is the event?
+      </Text>
+      <Text style={{ color: subText, fontSize: 16, marginBottom: 32, textAlign: 'center' }}>
+        Enter the event location
+      </Text>
+      <TextInput
+        style={{
+          backgroundColor: background,
+          borderRadius: 12,
+          padding: 16,
+          color: text,
+          fontSize: 18,
+          marginBottom: 24,
+          width: '100%',
+          borderWidth: 1,
+          borderColor: border,
+        }}
+        placeholder="Enter location"
+        placeholderTextColor={subText}
+        value={location}
+        onChangeText={setLocation}
+        maxLength={100}
+      />
+      <Button
+        mode="contained"
+        buttonColor={IU_CRIMSON}
+        textColor="#FFFFFF"
+        onPress={handleNext}
+        disabled={!name.trim() || !location.trim()}
+        icon="arrow-right"
+        contentStyle={{ flexDirection: 'row-reverse', paddingVertical: 8 }}
+        style={{ width: '100%', marginTop: 8 }}
+      >
+        Next
+      </Button>
+    </ScrollView>
+  );
+
+  // Render Step 2: Start Date and End Date
+  const renderStep2 = () => (
+    <ScrollView 
+      contentContainerStyle={{ 
+        padding: 16, 
+        paddingTop: Math.max(20, insets.top + 10)
+      }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Text style={{ color: text, fontSize: 24, fontWeight: 'bold', marginBottom: 8, textAlign: 'center' }}>
+        When is the event?
+      </Text>
+      <Text style={{ color: subText, fontSize: 16, marginBottom: 32, textAlign: 'center' }}>
+        Set the start and end date and time for your event
+      </Text>
+
+      {/* Start Date/Time */}
+      <Text style={{ color: text, fontSize: 16, fontWeight: '600', marginBottom: 12 }}>
+        Start Date & Time *
+      </Text>
+      <TouchableOpacity
+        style={{
+          backgroundColor: background,
+          borderRadius: 12,
+          padding: 16,
+          marginBottom: showStartPicker ? 0 : 20,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderWidth: showStartPicker ? 2 : 1,
+          borderColor: showStartPicker ? IU_CRIMSON : border,
+        }}
+        onPress={() => {
+          setShowEndPicker(false);
+          setShowStartPicker(!showStartPicker);
+        }}
+        activeOpacity={0.7}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+          <MaterialCommunityIcons name="calendar-clock" size={24} color={IU_CRIMSON} />
+          <Text style={{ color: text, fontSize: 18, marginLeft: 12, fontWeight: showStartPicker ? '600' : '400' }}>
+            {formatDateTime(startDateTime)}
+          </Text>
+        </View>
+        <MaterialCommunityIcons 
+          name={showStartPicker ? "chevron-up" : "chevron-down"} 
+          size={24} 
+          color={showStartPicker ? IU_CRIMSON : subText} 
+        />
+      </TouchableOpacity>
+
+      {/* Start Date/Time Picker */}
+      {showStartPicker && (
+        <View
+          style={{
+            backgroundColor: background,
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 20,
+            borderWidth: 1,
+            borderColor: divider,
+          }}
+        >
+          {Platform.OS === 'ios' ? (
+            <>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={{ color: text, fontSize: 16, fontWeight: '600' }}>Select Start Date & Time</Text>
+                <TouchableOpacity
+                  onPress={() => setShowStartPicker(false)}
+                  style={{
+                    backgroundColor: IU_CRIMSON,
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={startDateTime}
+                mode="datetime"
+                display="spinner"
+                onChange={handleStartDateTimeChange}
+                minimumDate={new Date()}
+                maximumDate={endDateTime}
+                textColor={text}
+              />
+            </>
+          ) : (
+            <DateTimePicker
+              value={startDateTime}
+              mode="datetime"
+              display="default"
+              onChange={handleStartDateTimeChange}
+              minimumDate={new Date()}
+              maximumDate={endDateTime}
+            />
+          )}
+        </View>
+      )}
+
+      {/* End Date/Time */}
+      <Text style={{ color: text, fontSize: 16, fontWeight: '600', marginBottom: 12 }}>
+        End Date & Time *
+      </Text>
+      <TouchableOpacity
+        style={{
+          backgroundColor: background,
+          borderRadius: 12,
+          padding: 16,
+          marginBottom: showEndPicker ? 0 : 16,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderWidth: showEndPicker ? 2 : 1,
+          borderColor: showEndPicker ? IU_CRIMSON : border,
+        }}
+        onPress={() => {
+          setShowStartPicker(false);
+          setShowEndPicker(!showEndPicker);
+        }}
+        activeOpacity={0.7}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+          <MaterialCommunityIcons name="calendar-clock" size={24} color={IU_CRIMSON} />
+          <Text style={{ color: text, fontSize: 18, marginLeft: 12, fontWeight: showEndPicker ? '600' : '400' }}>
+            {formatDateTime(endDateTime)}
+          </Text>
+        </View>
+        <MaterialCommunityIcons 
+          name={showEndPicker ? "chevron-up" : "chevron-down"} 
+          size={24} 
+          color={showEndPicker ? IU_CRIMSON : subText} 
+        />
+      </TouchableOpacity>
+
+      {/* End Date/Time Picker */}
+      {showEndPicker && (
+        <View
+          style={{
+            backgroundColor: background,
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 16,
+            borderWidth: 1,
+            borderColor: divider,
+          }}
+        >
+          {Platform.OS === 'ios' ? (
+            <>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={{ color: text, fontSize: 16, fontWeight: '600' }}>Select End Date & Time</Text>
+                <TouchableOpacity
+                  onPress={() => setShowEndPicker(false)}
+                  style={{
+                    backgroundColor: IU_CRIMSON,
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={endDateTime}
+                mode="datetime"
+                display="spinner"
+                onChange={handleEndDateTimeChange}
+                minimumDate={startDateTime}
+                textColor={text}
+              />
+            </>
+          ) : (
+            <DateTimePicker
+              value={endDateTime}
+              mode="datetime"
+              display="default"
+              onChange={handleEndDateTimeChange}
+              minimumDate={startDateTime}
+            />
+          )}
+        </View>
+      )}
+
+      {/* Navigation Buttons */}
+      <Button
+        mode="contained"
+        buttonColor={IU_CRIMSON}
+        textColor="#FFFFFF"
+        onPress={handleNext}
+        disabled={endDateTime <= startDateTime || startDateTime <= new Date()}
+        icon="arrow-right"
+        contentStyle={{ flexDirection: 'row-reverse', paddingVertical: 8 }}
+        style={{ width: '100%', marginTop: 24 }}
+      >
+        Next
+      </Button>
+      <Button
+        mode="outlined"
+        textColor={text}
+        onPress={handleBack}
+        style={{ marginTop: 8, width: '100%' }}
+        contentStyle={{ paddingVertical: 8 }}
+      >
+        Back
+      </Button>
+    </ScrollView>
+  );
+
+  // Render Step 3: Privacy Settings
+  const renderStep3 = () => (
+    <ScrollView 
+      contentContainerStyle={{ 
+        flexGrow: 1, 
+        justifyContent: 'flex-start', 
+        paddingHorizontal: 16,
+        paddingTop: Math.max(20, insets.top + 10),
+        paddingBottom: 24
+      }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Text style={{ color: text, fontSize: 24, fontWeight: 'bold', marginBottom: 8, textAlign: 'center' }}>
+        Who can see this event?
+      </Text>
+      <Text style={{ color: subText, fontSize: 16, marginBottom: 32, textAlign: 'center' }}>
+        Choose who can view your event
+      </Text>
+
+      {/* Public Option */}
+      <TouchableOpacity
+        style={{
+          backgroundColor: !friendsOnly ? IU_CRIMSON : background,
+          borderRadius: 12,
+          padding: 20,
+          marginBottom: 16,
+          borderWidth: 2,
+          borderColor: !friendsOnly ? IU_CRIMSON : border,
+          flexDirection: 'row',
+          alignItems: 'center',
+        }}
+        onPress={() => setFriendsOnly(false)}
+        activeOpacity={0.7}
+      >
+        <MaterialCommunityIcons 
+          name="earth" 
+          size={28} 
+          color={!friendsOnly ? '#FFFFFF' : text} 
+        />
+        <View style={{ marginLeft: 16, flex: 1 }}>
+          <Text style={{ color: !friendsOnly ? '#FFFFFF' : text, fontSize: 18, fontWeight: '600' }}>
+            Share with Everyone
+          </Text>
+          <Text style={{ color: !friendsOnly ? 'rgba(255,255,255,0.8)' : subText, fontSize: 14, marginTop: 4 }}>
+            Anyone can see and join this event
+          </Text>
+        </View>
+        {!friendsOnly && (
+          <MaterialCommunityIcons name="check-circle" size={24} color="#FFFFFF" />
+        )}
+      </TouchableOpacity>
+
+      {/* Friends Only Option */}
+      <TouchableOpacity
+        style={{
+          backgroundColor: friendsOnly ? IU_CRIMSON : background,
+          borderRadius: 12,
+          padding: 20,
+          marginBottom: 24,
+          borderWidth: 2,
+          borderColor: friendsOnly ? IU_CRIMSON : border,
+          flexDirection: 'row',
+          alignItems: 'center',
+        }}
+        onPress={() => setFriendsOnly(true)}
+        activeOpacity={0.7}
+      >
+        <MaterialCommunityIcons 
+          name="account-group" 
+          size={28} 
+          color={friendsOnly ? '#FFFFFF' : text} 
+        />
+        <View style={{ marginLeft: 16, flex: 1 }}>
+          <Text style={{ color: friendsOnly ? '#FFFFFF' : text, fontSize: 18, fontWeight: '600' }}>
+            Share with Friends Only
+          </Text>
+          <Text style={{ color: friendsOnly ? 'rgba(255,255,255,0.8)' : subText, fontSize: 14, marginTop: 4 }}>
+            Only your friends can see this event
+          </Text>
+        </View>
+        {friendsOnly && (
+          <MaterialCommunityIcons name="check-circle" size={24} color="#FFFFFF" />
+        )}
+      </TouchableOpacity>
+
+      {/* Navigation Buttons */}
+      <Button
+        mode="contained"
+        buttonColor={IU_CRIMSON}
+        textColor="#FFFFFF"
+        onPress={handleNext}
+        icon="arrow-right"
+        contentStyle={{ flexDirection: 'row-reverse', paddingVertical: 8 }}
+        style={{ width: '100%', marginTop: 8 }}
+      >
+        Next
+      </Button>
+      <Button
+        mode="outlined"
+        textColor={text}
+        onPress={handleBack}
+        style={{ marginTop: 8, width: '100%' }}
+        contentStyle={{ paddingVertical: 8 }}
+      >
+        Back
+      </Button>
+    </ScrollView>
+  );
+
+  // Render Step 4: Cover Photo
+  const renderStep4 = () => (
+    <ScrollView 
+      contentContainerStyle={{ 
+        flexGrow: 1, 
+        justifyContent: 'flex-start', 
+        paddingHorizontal: 16,
+        paddingTop: Math.max(20, insets.top + 10),
+        paddingBottom: 24
+      }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Text style={{ color: text, fontSize: 24, fontWeight: 'bold', marginBottom: 8, textAlign: 'center' }}>
+        Add a cover photo
+      </Text>
+      <Text style={{ color: subText, fontSize: 16, marginBottom: 32, textAlign: 'center' }}>
+        Choose a photo to represent your event (optional)
+      </Text>
+
+      {/* Photo Preview or Selection */}
+      {photo ? (
+        <View style={{ marginBottom: 24, alignItems: 'center' }}>
+          <View style={{ position: 'relative', width: '100%', borderRadius: 12, overflow: 'hidden' }}>
+            <Image 
+              source={{ uri: photo }} 
+              style={{ 
+                width: '100%', 
+                height: 300, 
+                borderRadius: 12,
+                backgroundColor: background
+              }} 
+              resizeMode="cover" 
+            />
+            <TouchableOpacity 
+              style={{
+                position: 'absolute',
+                top: 12,
+                right: 12,
+                backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                borderRadius: 20,
+                padding: 8,
+              }}
+              onPress={() => setPhoto(null)}
+            >
+              <MaterialCommunityIcons name="close-circle" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <View style={{ marginBottom: 24 }}>
+          <View style={{ 
+            flexDirection: 'row', 
+            gap: 12, 
+            marginBottom: 12 
+          }}>
+            <TouchableOpacity 
+              style={{
+                flex: 1,
+                backgroundColor: background,
+                borderRadius: 12,
+                padding: 20,
+                borderWidth: 2,
+                borderColor: border,
+                borderStyle: 'dashed',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: 120,
+              }}
+              onPress={handlePickPhoto}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="image-outline" size={32} color={text} />
+              <Text style={{ color: text, fontSize: 14, fontWeight: '600', marginTop: 8, textAlign: 'center' }}>
+                Choose from Library
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={{
+                flex: 1,
+                backgroundColor: background,
+                borderRadius: 12,
+                padding: 20,
+                borderWidth: 2,
+                borderColor: border,
+                borderStyle: 'dashed',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: 120,
+              }}
+              onPress={handleTakePhoto}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="camera-outline" size={32} color={text} />
+              <Text style={{ color: text, fontSize: 14, fontWeight: '600', marginTop: 8, textAlign: 'center' }}>
+                Take Photo
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity
+            style={{
+              backgroundColor: background,
+              borderRadius: 12,
+              padding: 16,
+              borderWidth: 1,
+              borderColor: border,
+              alignItems: 'center',
+            }}
+            onPress={() => {
+              // Skip photo, proceed to create
+              handleSubmit();
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={{ color: subText, fontSize: 16 }}>
+              Skip for now
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Create Button */}
+      <Button
+        mode="contained"
+        buttonColor={IU_CRIMSON}
+        textColor="#FFFFFF"
+        onPress={handleSubmit}
+        disabled={submitting}
+        loading={submitting}
+        icon="check"
+        contentStyle={{ paddingVertical: 8 }}
+        style={{ width: '100%', marginTop: 8 }}
+      >
+        {submitting ? 'Creating...' : 'Create Event'}
+      </Button>
+      <Button
+        mode="outlined"
+        textColor={text}
+        onPress={handleBack}
+        style={{ marginTop: 8, width: '100%' }}
+        contentStyle={{ paddingVertical: 8 }}
+      >
+        Back
+      </Button>
+    </ScrollView>
+  );
+
+  // For edit mode, use separate date/time state
+  const [editStartDate, setEditStartDate] = React.useState(() => {
+    const d = new Date(startDateTime);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+  const [editStartTime, setEditStartTime] = React.useState(() => new Date(startDateTime));
+  const [editEndDate, setEditEndDate] = React.useState(() => {
+    const d = new Date(endDateTime);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+  const [editEndTime, setEditEndTime] = React.useState(() => new Date(endDateTime));
+  const [showStartDatePicker, setShowStartDatePicker] = React.useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = React.useState(false);
+  const [showStartTimePicker, setShowStartTimePicker] = React.useState(false);
+  const [showEndTimePicker, setShowEndTimePicker] = React.useState(false);
+
+  // Sync edit mode date/time state with datetime when datetime changes
+  React.useEffect(() => {
+    if (isEditMode) {
+      const startD = new Date(startDateTime);
+      startD.setHours(0, 0, 0, 0);
+      setEditStartDate(startD);
+      setEditStartTime(new Date(startDateTime));
+      
+      const endD = new Date(endDateTime);
+      endD.setHours(0, 0, 0, 0);
+      setEditEndDate(endD);
+      setEditEndTime(new Date(endDateTime));
+    }
+  }, [isEditMode, startDateTime, endDateTime]);
+
+  // Update datetime when edit mode date/time changes
+  React.useEffect(() => {
+    if (isEditMode) {
+      const newStart = new Date(editStartDate);
+      newStart.setHours(editStartTime.getHours());
+      newStart.setMinutes(editStartTime.getMinutes());
+      setStartDateTime(newStart);
+      
+      const newEnd = new Date(editEndDate);
+      newEnd.setHours(editEndTime.getHours());
+      newEnd.setMinutes(editEndTime.getMinutes());
+      setEndDateTime(newEnd);
+    }
+  }, [isEditMode, editStartDate, editStartTime, editEndDate, editEndTime]);
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
       <KeyboardAvoidingView
@@ -281,272 +932,292 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.overlay}>
+          <View style={[isEditMode ? styles.overlay : styles.overlayFullScreen, { backgroundColor: isEditMode ? 'transparent' : surface }]}>
             <TouchableWithoutFeedback onPress={() => {}}>
-              <View style={[styles.modal, { backgroundColor: surface }]}>
-                <View style={styles.header}>
-                  <TouchableOpacity onPress={handleClose} style={styles.cancelButton}>
-                    <Text style={[styles.cancelText, { color: text }]}>Cancel</Text>
-                  </TouchableOpacity>
-                  <View style={styles.titleContainer}>
-                    <Text style={[styles.title, { color: text }]}>{isEditMode ? 'Edit Event' : 'Create Event'}</Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={handleSubmit}
-                    disabled={(!name.trim() || !description.trim() || !location.trim() || !host.trim()) || submitting}
-                    style={[
-                      styles.submitButton,
-                      ((!name.trim() || !description.trim() || !location.trim() || !host.trim()) || submitting) && styles.submitButtonDisabled
-                    ]}
-                  >
-                    <Text style={styles.submitButtonText}>{submitting ? (isEditMode ? 'Saving...' : 'Creating...') : (isEditMode ? 'Save' : 'Create')}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView
-                  style={styles.scrollContent}
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={false}
-                >
-                  <View style={styles.content}>
-                    {/* Name */}
-                    <View style={styles.fieldContainer}>
-                      <Text style={[styles.label, { color: text }]}>Event Name *</Text>
-                      <TextInput
-                        style={[styles.input, { color: text, borderColor: border, backgroundColor: background }]}
-                        placeholder="Enter event name"
-                        placeholderTextColor={subText}
-                        value={name}
-                        onChangeText={setName}
-                        maxLength={100}
-                      />
-                    </View>
-
-                    {/* Photo */}
-                    <View style={styles.fieldContainer}>
-                      <Text style={[styles.label, { color: text }]}>Photo</Text>
-                      {photo ? (
-                        <View style={styles.photoContainer}>
-                          <Image source={{ uri: photo }} style={styles.photoPreview} resizeMode="cover" />
-                          <TouchableOpacity style={styles.removePhotoButton} onPress={removePhoto}>
-                            <MaterialCommunityIcons name="close-circle" size={24} color="#FF6B6B" />
-                          </TouchableOpacity>
-                        </View>
-                      ) : (
-                        <View style={styles.photoButtons}>
-                          <TouchableOpacity style={[styles.photoButton, { borderColor: border, backgroundColor: background }]} onPress={handlePickPhoto}>
-                            <MaterialCommunityIcons name="image-outline" size={24} color={text} />
-                            <Text style={[styles.photoButtonText, { color: text }]}>Choose from Library</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity style={[styles.photoButton, { borderColor: border, backgroundColor: background }]} onPress={handleTakePhoto}>
-                            <MaterialCommunityIcons name="camera-outline" size={24} color={text} />
-                            <Text style={[styles.photoButtonText, { color: text }]}>Take Photo</Text>
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                    </View>
-
-                    {/* Description */}
-                    <View style={styles.fieldContainer}>
-                      <Text style={[styles.label, { color: text }]}>Description *</Text>
-                      <TextInput
-                        style={[styles.textArea, { color: text, borderColor: border, backgroundColor: background }]}
-                        placeholder="Describe your event"
-                        placeholderTextColor={subText}
-                        value={description}
-                        onChangeText={setDescription}
-                        multiline
-                        numberOfLines={4}
-                        maxLength={500}
-                        textAlignVertical="top"
-                      />
-                    </View>
-
-                    {/* Location */}
-                    <View style={styles.fieldContainer}>
-                      <Text style={[styles.label, { color: text }]}>Location *</Text>
-                      <TextInput
-                        style={[styles.input, { color: text, borderColor: border, backgroundColor: background }]}
-                        placeholder="Enter event location"
-                        placeholderTextColor={subText}
-                        value={location}
-                        onChangeText={setLocation}
-                        maxLength={100}
-                      />
-                    </View>
-
-                    {/* Host */}
-                    <View style={styles.fieldContainer}>
-                      <Text style={[styles.label, { color: text }]}>Host *</Text>
-                      <TextInput
-                        style={[styles.input, { color: text, borderColor: border, backgroundColor: background }]}
-                        placeholder="Enter host name"
-                        placeholderTextColor={subText}
-                        value={host}
-                        onChangeText={setHost}
-                        maxLength={50}
-                      />
-                    </View>
-
-                    {/* Start Date */}
-                    <View style={styles.fieldContainer}>
-                      <Text style={[styles.label, { color: text }]}>Start Date *</Text>
-                      <TouchableOpacity
-                        style={[styles.input, styles.dateTimeInput, { borderColor: border, backgroundColor: background }]}
-                        onPress={() => setShowStartDatePicker(true)}
-                      >
-                        <Text style={[styles.dateTimeText, { color: text }]}>
-                          {startDate.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
-                        </Text>
-                        <MaterialCommunityIcons name="calendar" size={20} color={text} />
+              <View style={[isEditMode ? styles.modal : styles.modalFullScreen, { backgroundColor: surface }]}>
+                {isEditMode ? (
+                  // Edit Mode - Old UI
+                  <>
+                    <View style={styles.header}>
+                      <TouchableOpacity onPress={handleClose} style={styles.cancelButton}>
+                        <Text style={[styles.cancelText, { color: text }]}>Cancel</Text>
                       </TouchableOpacity>
-                      {showStartDatePicker && (
-                        <DateTimePicker
-                          value={startDate}
-                          mode="date"
-                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                          onChange={(event, selectedDate) => {
-                            setShowStartDatePicker(Platform.OS === 'ios');
-                            if (selectedDate) {
-                              setStartDate(selectedDate);
-                              // If end date is before new start date, update end date
-                              if (endDate < selectedDate) {
-                                setEndDate(selectedDate);
-                              }
-                            }
-                          }}
-                          minimumDate={new Date()}
-                        />
-                      )}
-                    </View>
-
-                    {/* Start Time */}
-                    <View style={styles.fieldContainer}>
-                      <Text style={[styles.label, { color: text }]}>Start Time *</Text>
+                      <View style={styles.titleContainer}>
+                        <Text style={[styles.title, { color: text }]}>Edit Event</Text>
+                      </View>
                       <TouchableOpacity
-                        style={[styles.input, styles.dateTimeInput, { borderColor: border, backgroundColor: background }]}
-                        onPress={() => setShowStartTimePicker(true)}
+                        onPress={handleSubmit}
+                        disabled={(!name.trim() || !location.trim()) || submitting}
+                        style={[
+                          styles.submitButton,
+                          ((!name.trim() || !location.trim()) || submitting) && styles.submitButtonDisabled
+                        ]}
                       >
-                        <Text style={[styles.dateTimeText, { color: text }]}>
-                          {startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
-                        </Text>
-                        <MaterialCommunityIcons name="clock-outline" size={20} color={text} />
-                      </TouchableOpacity>
-                      {showStartTimePicker && (
-                        <DateTimePicker
-                          value={startTime}
-                          mode="time"
-                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                          onChange={(event, selectedTime) => {
-                            setShowStartTimePicker(Platform.OS === 'ios');
-                            if (selectedTime) {
-                              setStartTime(selectedTime);
-                            }
-                          }}
-                        />
-                      )}
-                    </View>
-
-                    {/* End Date */}
-                    <View style={styles.fieldContainer}>
-                      <Text style={[styles.label, { color: text }]}>End Date *</Text>
-                      <TouchableOpacity
-                        style={[styles.input, styles.dateTimeInput, { borderColor: border, backgroundColor: background }]}
-                        onPress={() => setShowEndDatePicker(true)}
-                      >
-                        <Text style={[styles.dateTimeText, { color: text }]}>
-                          {endDate.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
-                        </Text>
-                        <MaterialCommunityIcons name="calendar" size={20} color={text} />
-                      </TouchableOpacity>
-                      {showEndDatePicker && (
-                        <DateTimePicker
-                          value={endDate}
-                          mode="date"
-                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                          onChange={(event, selectedDate) => {
-                            setShowEndDatePicker(Platform.OS === 'ios');
-                            if (selectedDate) {
-                              setEndDate(selectedDate);
-                            }
-                          }}
-                          minimumDate={startDate}
-                        />
-                      )}
-                    </View>
-
-                    {/* End Time */}
-                    <View style={styles.fieldContainer}>
-                      <Text style={[styles.label, { color: text }]}>End Time *</Text>
-                      <TouchableOpacity
-                        style={[styles.input, styles.dateTimeInput, { borderColor: border, backgroundColor: background }]}
-                        onPress={() => setShowEndTimePicker(true)}
-                      >
-                        <Text style={[styles.dateTimeText, { color: text }]}>
-                          {endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
-                        </Text>
-                        <MaterialCommunityIcons name="clock-outline" size={20} color={text} />
-                      </TouchableOpacity>
-                      {showEndTimePicker && (
-                        <DateTimePicker
-                          value={endTime}
-                          mode="time"
-                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                          onChange={(event, selectedTime) => {
-                            setShowEndTimePicker(Platform.OS === 'ios');
-                            if (selectedTime) {
-                              setEndTime(selectedTime);
-                            }
-                          }}
-                        />
-                      )}
-                    </View>
-
-                    {/* Friends Only Toggle */}
-                    <View style={styles.fieldContainer}>
-                      <TouchableOpacity
-                        style={[styles.friendsOnlyContainer, { borderColor: border, backgroundColor: background }]}
-                        onPress={() => setFriendsOnly(!friendsOnly)}
-                        activeOpacity={0.7}
-                      >
-                        <View style={styles.friendsOnlyContent}>
-                          <MaterialCommunityIcons 
-                            name={friendsOnly ? "account-group" : "account-group-outline"} 
-                            size={24} 
-                            color={friendsOnly ? IU_CRIMSON : text} 
-                          />
-                          <View style={styles.friendsOnlyTextContainer}>
-                            <Text style={[styles.friendsOnlyLabel, { color: text }]}>Share with friends only</Text>
-                            <Text style={[styles.friendsOnlyDescription, { color: subText }]}>
-                              Only your friends will be able to see this event
-                            </Text>
-                          </View>
-                        </View>
-                        <Checkbox
-                          status={friendsOnly ? 'checked' : 'unchecked'}
-                          onPress={() => setFriendsOnly(!friendsOnly)}
-                          color={IU_CRIMSON}
-                        />
+                        <Text style={styles.submitButtonText}>{submitting ? 'Saving...' : 'Save'}</Text>
                       </TouchableOpacity>
                     </View>
-                  </View>
-                </ScrollView>
-
-                {/* Delete Button - Only show in edit mode */}
-                {isEditMode && (
-                  <View style={styles.deleteContainer}>
-                    <Button
-                      mode="outlined"
-                      textColor="#FF6B6B"
-                      onPress={handleDelete}
-                      loading={deleting}
-                      disabled={deleting}
-                      icon="delete"
-                      style={styles.deleteButton}
+                    <ScrollView
+                      style={styles.scrollContent}
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator={false}
                     >
-                      Delete Event
-                    </Button>
-                  </View>
+                      <View style={styles.content}>
+                        {/* Name */}
+                        <View style={styles.fieldContainer}>
+                          <Text style={[styles.label, { color: text }]}>Event Name *</Text>
+                          <TextInput
+                            style={[styles.input, { color: text, borderColor: border, backgroundColor: background }]}
+                            placeholder="Enter event name"
+                            placeholderTextColor={subText}
+                            value={name}
+                            onChangeText={setName}
+                            maxLength={100}
+                          />
+                        </View>
+                        {/* Location */}
+                        <View style={styles.fieldContainer}>
+                          <Text style={[styles.label, { color: text }]}>Location *</Text>
+                          <TextInput
+                            style={[styles.input, { color: text, borderColor: border, backgroundColor: background }]}
+                            placeholder="Enter event location"
+                            placeholderTextColor={subText}
+                            value={location}
+                            onChangeText={setLocation}
+                            maxLength={100}
+                          />
+                        </View>
+                        {/* Start Date */}
+                        <View style={styles.fieldContainer}>
+                          <Text style={[styles.label, { color: text }]}>Start Date *</Text>
+                          <TouchableOpacity
+                            style={[styles.input, styles.dateTimeInput, { borderColor: border, backgroundColor: background }]}
+                            onPress={() => setShowStartDatePicker(true)}
+                          >
+                            <Text style={[styles.dateTimeText, { color: text }]}>
+                              {editStartDate.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                            </Text>
+                            <MaterialCommunityIcons name="calendar" size={20} color={text} />
+                          </TouchableOpacity>
+                          {showStartDatePicker && (
+                            <DateTimePicker
+                              value={editStartDate}
+                              mode="date"
+                              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                              onChange={(event, selectedDate) => {
+                                setShowStartDatePicker(Platform.OS === 'ios');
+                                if (selectedDate) {
+                                  setEditStartDate(selectedDate);
+                                  if (editEndDate < selectedDate) {
+                                    setEditEndDate(selectedDate);
+                                  }
+                                }
+                              }}
+                              minimumDate={new Date()}
+                            />
+                          )}
+                        </View>
+                        {/* Start Time */}
+                        <View style={styles.fieldContainer}>
+                          <Text style={[styles.label, { color: text }]}>Start Time *</Text>
+                          <TouchableOpacity
+                            style={[styles.input, styles.dateTimeInput, { borderColor: border, backgroundColor: background }]}
+                            onPress={() => setShowStartTimePicker(true)}
+                          >
+                            <Text style={[styles.dateTimeText, { color: text }]}>
+                              {editStartTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                            </Text>
+                            <MaterialCommunityIcons name="clock-outline" size={20} color={text} />
+                          </TouchableOpacity>
+                          {showStartTimePicker && (
+                            <DateTimePicker
+                              value={editStartTime}
+                              mode="time"
+                              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                              onChange={(event, selectedTime) => {
+                                setShowStartTimePicker(Platform.OS === 'ios');
+                                if (selectedTime) {
+                                  setEditStartTime(selectedTime);
+                                }
+                              }}
+                            />
+                          )}
+                        </View>
+                        {/* End Date */}
+                        <View style={styles.fieldContainer}>
+                          <Text style={[styles.label, { color: text }]}>End Date *</Text>
+                          <TouchableOpacity
+                            style={[styles.input, styles.dateTimeInput, { borderColor: border, backgroundColor: background }]}
+                            onPress={() => setShowEndDatePicker(true)}
+                          >
+                            <Text style={[styles.dateTimeText, { color: text }]}>
+                              {editEndDate.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                            </Text>
+                            <MaterialCommunityIcons name="calendar" size={20} color={text} />
+                          </TouchableOpacity>
+                          {showEndDatePicker && (
+                            <DateTimePicker
+                              value={editEndDate}
+                              mode="date"
+                              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                              onChange={(event, selectedDate) => {
+                                setShowEndDatePicker(Platform.OS === 'ios');
+                                if (selectedDate) {
+                                  setEditEndDate(selectedDate);
+                                }
+                              }}
+                              minimumDate={editStartDate}
+                            />
+                          )}
+                        </View>
+                        {/* End Time */}
+                        <View style={styles.fieldContainer}>
+                          <Text style={[styles.label, { color: text }]}>End Time *</Text>
+                          <TouchableOpacity
+                            style={[styles.input, styles.dateTimeInput, { borderColor: border, backgroundColor: background }]}
+                            onPress={() => setShowEndTimePicker(true)}
+                          >
+                            <Text style={[styles.dateTimeText, { color: text }]}>
+                              {editEndTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                            </Text>
+                            <MaterialCommunityIcons name="clock-outline" size={20} color={text} />
+                          </TouchableOpacity>
+                          {showEndTimePicker && (
+                            <DateTimePicker
+                              value={editEndTime}
+                              mode="time"
+                              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                              onChange={(event, selectedTime) => {
+                                setShowEndTimePicker(Platform.OS === 'ios');
+                                if (selectedTime) {
+                                  setEditEndTime(selectedTime);
+                                }
+                              }}
+                            />
+                          )}
+                        </View>
+                        {/* Friends Only Toggle */}
+                        <View style={styles.fieldContainer}>
+                          <TouchableOpacity
+                            style={[styles.friendsOnlyContainer, { borderColor: border, backgroundColor: background }]}
+                            onPress={() => setFriendsOnly(!friendsOnly)}
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.friendsOnlyContent}>
+                              <MaterialCommunityIcons 
+                                name={friendsOnly ? "account-group" : "account-group-outline"} 
+                                size={24} 
+                                color={friendsOnly ? IU_CRIMSON : text} 
+                              />
+                              <View style={styles.friendsOnlyTextContainer}>
+                                <Text style={[styles.friendsOnlyLabel, { color: text }]}>Share with friends only</Text>
+                                <Text style={[styles.friendsOnlyDescription, { color: subText }]}>
+                                  Only your friends will be able to see this event
+                                </Text>
+                              </View>
+                            </View>
+                            <Checkbox
+                              status={friendsOnly ? 'checked' : 'unchecked'}
+                              onPress={() => setFriendsOnly(!friendsOnly)}
+                              color={IU_CRIMSON}
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </ScrollView>
+                    {/* Delete Button */}
+                    <View style={styles.deleteContainer}>
+                      <Button
+                        mode="outlined"
+                        textColor="#FF6B6B"
+                        onPress={handleDelete}
+                        loading={deleting}
+                        disabled={deleting}
+                        icon="delete"
+                        style={styles.deleteButton}
+                      >
+                        Delete Event
+                      </Button>
+                    </View>
+                  </>
+                ) : (
+                  // New Event - Wizard UI
+                  <>
+                    <View style={[styles.header, { paddingTop: Math.max(10, insets.top + 10) }]}>
+                      <TouchableOpacity onPress={handleClose} style={styles.cancelButton}>
+                        <Text style={[styles.cancelText, { color: text }]}>Cancel</Text>
+                      </TouchableOpacity>
+                      <View style={styles.titleContainer}>
+                        <Text style={[styles.title, { color: text }]}>Step {currentStep} of 4</Text>
+                      </View>
+                      <View style={{ width: 64 }} />
+                    </View>
+
+                    {/* Progress Indicator */}
+                    <View style={{ paddingHorizontal: 16, paddingVertical: 12, backgroundColor: surface }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%', position: 'relative', paddingVertical: 2 }}>
+                        {[1, 2, 3, 4].map((step, index) => (
+                          <React.Fragment key={step}>
+                            <View style={{ alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
+                              <View
+                                style={{
+                                  width: 36,
+                                  height: 36,
+                                  borderRadius: 18,
+                                  backgroundColor: currentStep >= step ? IU_CRIMSON : background,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderWidth: 2,
+                                  borderColor: currentStep >= step ? IU_CRIMSON : divider,
+                                }}
+                              >
+                                {currentStep > step ? (
+                                  <MaterialCommunityIcons name="check" size={20} color="#FFFFFF" />
+                                ) : (
+                                  <Text style={{ color: currentStep >= step ? '#FFFFFF' : subText, fontWeight: '600', fontSize: 16 }}>
+                                    {step}
+                                  </Text>
+                                )}
+                              </View>
+                            </View>
+                            {index < 3 && (
+                              <View style={{ flex: 1, height: 2, marginHorizontal: 4, position: 'relative', justifyContent: 'center' }}>
+                                <View
+                                  style={{
+                                    position: 'absolute',
+                                    left: 0,
+                                    right: 0,
+                                    height: 2,
+                                    backgroundColor: divider,
+                                    zIndex: 0,
+                                  }}
+                                />
+                                {currentStep > step && (
+                                  <View
+                                    style={{
+                                      position: 'absolute',
+                                      left: 0,
+                                      right: 0,
+                                      height: 2,
+                                      backgroundColor: IU_CRIMSON,
+                                      zIndex: 1,
+                                    }}
+                                  />
+                                )}
+                              </View>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      </View>
+                    </View>
+
+                    {/* Step Content */}
+                    <View style={{ flex: 1, width: '100%' }}>
+                      {currentStep === 1 && renderStep1()}
+                      {currentStep === 2 && renderStep2()}
+                      {currentStep === 3 && renderStep3()}
+                      {currentStep === 4 && renderStep4()}
+                    </View>
+                  </>
                 )}
               </View>
             </TouchableWithoutFeedback>
@@ -560,8 +1231,11 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'transparent',
     justifyContent: 'flex-end',
+  },
+  overlayFullScreen: {
+    flex: 1,
   },
   modal: {
     borderTopLeftRadius: 20,
@@ -569,6 +1243,11 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     maxHeight: '90%',
     flex: 1,
+  },
+  modalFullScreen: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
   },
   scrollContent: {
     flexGrow: 1,

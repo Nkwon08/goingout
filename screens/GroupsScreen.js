@@ -3414,12 +3414,6 @@ export default function GroupsScreen({ navigation }) {
     navigation.navigate('CreateGroup');
   };
   
-  const handleJoinGroup = () => {
-    setShowGroupMenu(false);
-    // TODO: Navigate to join group screen
-    console.log('Join Group');
-  };
-  
   // Handle group menu (3 dots) press
   const handleGroupMenuPress = (group) => {
     // Check if user is the owner
@@ -3731,7 +3725,7 @@ export default function GroupsScreen({ navigation }) {
             <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
               <View style={{ backgroundColor: surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: insets.bottom + 20 }}>
                 <Text style={{ color: text, fontSize: 20, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' }}>
-                  Group Options
+                  Create Group
                 </Text>
                 
                 {/* Create Group Button */}
@@ -3751,27 +3745,6 @@ export default function GroupsScreen({ navigation }) {
                   <MaterialCommunityIcons name="account-plus" size={24} color="#FFFFFF" />
                   <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginLeft: 12 }}>
                     Create Group
-                  </Text>
-                </TouchableOpacity>
-                
-                {/* Join Group Button */}
-                <TouchableOpacity
-                  style={{
-                    backgroundColor: isDarkMode ? '#1E1E1E' : '#FFFFFF',
-                    borderRadius: 12,
-                    padding: 16,
-                    borderWidth: 2,
-                    borderColor: IU_CRIMSON,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                  onPress={handleJoinGroup}
-                  activeOpacity={0.8}
-                >
-                  <MaterialCommunityIcons name="account-group" size={24} color={IU_CRIMSON} />
-                  <Text style={{ color: IU_CRIMSON, fontSize: 16, fontWeight: '600', marginLeft: 12 }}>
-                    Join Group
                   </Text>
                 </TouchableOpacity>
                 
