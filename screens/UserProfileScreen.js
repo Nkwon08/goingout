@@ -625,8 +625,14 @@ export default function UserProfileScreen({ route, navigation }) {
           setHasPendingRequest(true);
           console.log('✅ [UserProfileScreen] Successfully sent friend request');
         } else {
-          console.error('❌ [UserProfileScreen] Failed to send friend request:', result.error);
-          Alert.alert('Error', result.error || 'Failed to send friend request');
+          // Don't show error for "already sent" - it's expected if user clicks twice
+          if (result.error !== 'Friend request already sent') {
+            console.error('❌ [UserProfileScreen] Failed to send friend request:', result.error);
+            Alert.alert('Error', result.error || 'Failed to send friend request');
+          } else {
+            // Request already exists, update state to reflect that
+            setHasPendingRequest(true);
+          }
         }
       }
     } catch (error) {

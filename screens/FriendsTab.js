@@ -330,8 +330,22 @@ export default function FriendsTab() {
             return true;
           });
 
+          // Deduplicate by requestId, uid, or username to prevent duplicate keys
+          const seen = new Set();
+          const deduplicatedData = validData.filter((data) => {
+            // Use requestId as primary key, fallback to uid or username
+            const key = data.requestId || data.uid || data.authUid || data.username;
+            if (!key) return false;
+            if (seen.has(key)) {
+              console.log('⚠️ [FriendsTab] Duplicate pending friend detected, removing:', key);
+              return false;
+            }
+            seen.add(key);
+            return true;
+          });
+
           if (isMounted) {
-            setPendingFriendsWithData(validData);
+            setPendingFriendsWithData(deduplicatedData);
             setRefreshing(false);
           }
         } catch (err) {
@@ -645,9 +659,21 @@ export default function FriendsTab() {
     }
   }, [user, allUsersLastId, allUsersHasMore, allUsersLoading]);
 
+  // Track which friend requests are currently being sent to prevent duplicates
+  const [sendingRequests, setSendingRequests] = React.useState(new Set());
+
   /** Send a friend request */
   const handleSendFriendRequest = React.useCallback(async (targetUid) => {
     if (!user || targetUid === user.uid) return;
+    
+    // Prevent duplicate requests
+    if (sendingRequests.has(targetUid)) {
+      console.log('⚠️ Friend request already in progress for:', targetUid);
+      return;
+    }
+    
+    setSendingRequests((prev) => new Set(prev).add(targetUid));
+    
     try {
       const result = await sendFriendRequest(targetUid);
       if (result.success) {
@@ -659,13 +685,22 @@ export default function FriendsTab() {
           prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: true } : u))
         );
       } else {
-        Alert.alert('Error', result.error || 'Failed to send friend request', [{ text: 'OK' }]);
+        // Don't show error for "already sent" - it's expected if user clicks twice
+        if (result.error !== 'Friend request already sent') {
+          Alert.alert('Error', result.error || 'Failed to send friend request', [{ text: 'OK' }]);
+        }
       }
     } catch (err) {
       console.error('Error sending friend request:', err);
       Alert.alert('Error', 'Failed to send friend request. Please try again.', [{ text: 'OK' }]);
+    } finally {
+      setSendingRequests((prev) => {
+        const next = new Set(prev);
+        next.delete(targetUid);
+        return next;
+      });
     }
-  }, [user]);
+  }, [user, sendingRequests]);
 
   /** Cancel a friend request (unsend) */
   const handleCancelFriendRequest = React.useCallback(async (targetUid) => {
@@ -1025,7 +1060,7 @@ export default function FriendsTab() {
               elevation: 8,
             }}>
               {pendingFriendsWithData.map((p, idx) => (
-                  <View key={`pending-${p.uid || p.username || p.authUid || idx}`}>
+                  <View key={`pending-${p.requestId || p.uid || p.authUid || p.username || idx}`}>
                   <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}
                     onPress={() => handleUserProfileTap(p)}

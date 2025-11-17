@@ -1,7 +1,7 @@
 // Sign up screen - user registration
 import * as React from 'react';
 import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity } from 'react-native';
-import { TextInput, Button, Text, Snackbar, Divider, Checkbox } from 'react-native-paper';
+import { TextInput, Button, Text, Snackbar, Divider } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { signUp, signInWithGoogle, checkUsernameAvailability } from '../services/authService';
@@ -343,12 +343,22 @@ export default function SignUpScreen({ navigation }) {
 
           {/* Terms and Conditions Checkbox */}
           <View style={styles.termsContainer}>
-            <Checkbox
-              status={acceptedTerms ? 'checked' : 'unchecked'}
-              onPress={() => setAcceptedTerms(!acceptedTerms)}
-              color={IU_CRIMSON}
+            <TouchableOpacity
+              style={styles.checkboxContainer}
+              onPress={() => !loading && setAcceptedTerms(!acceptedTerms)}
               disabled={loading}
-            />
+              activeOpacity={0.7}
+            >
+              <View style={[
+                styles.checkbox,
+                acceptedTerms && styles.checkboxChecked,
+                { borderColor: acceptedTerms ? IU_CRIMSON : subText }
+              ]}>
+                {acceptedTerms && (
+                  <MaterialCommunityIcons name="check" size={18} color="#FFFFFF" />
+                )}
+              </View>
+            </TouchableOpacity>
             <View style={styles.termsTextContainer}>
               <Text style={[styles.termsText, { color: text }]}>
                 I agree to the{' '}
@@ -533,12 +543,28 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 16,
   },
+  checkboxContainer: {
+    marginRight: 12,
+    marginTop: 2,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderWidth: 2,
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  checkboxChecked: {
+    backgroundColor: IU_CRIMSON,
+    borderColor: IU_CRIMSON,
+  },
   termsTextContainer: {
     flex: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginLeft: 8,
-    marginTop: 4,
+    marginTop: 2,
   },
   termsText: {
     fontSize: 14,

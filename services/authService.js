@@ -404,7 +404,8 @@ export const upsertUserProfile = async (uid, payload = {}) => {
     }
     
     // Fallbacks for name and photoURL
-    let name = payload.name ?? authUser?.displayName ?? (email ? email.split('@')[0] : 'User');
+    // If name is empty string, treat it as null to trigger fallback
+    let name = (payload.name && payload.name.trim()) ? payload.name.trim() : (authUser?.displayName || (email ? email.split('@')[0] : 'User'));
     if (!photoURL) {
       // Check Storage for existing avatar
       if (storage && typeof storage === 'object' && Object.keys(storage).length > 0) {
@@ -580,9 +581,11 @@ export const upsertUserProfile = async (uid, payload = {}) => {
         console.log('[upsertUserProfile] Error checking document at new username (non-critical):', readError.message);
       }
     } else {
-      // No username provided and no existing document - derive from displayName or email (for new users only)
+      // No username provided and no existing document - derive from email (NOT displayName, as that might be the user's name)
       if (!oldUsername) {
-        username = authUser?.displayName ?? (email ? email.split('@')[0] : `user_${uid.slice(0, 6)}`);
+        // IMPORTANT: Don't use displayName here as it might be the user's actual name, not a username
+        // Always derive username from email prefix for new users
+        username = email ? email.split('@')[0] : `user_${uid.slice(0, 6)}`;
         username_lowercase = username.toLowerCase().replace(/\s+/g, '');
       } else {
         // This shouldn't happen - we already set username from existing doc above
@@ -596,13 +599,63 @@ export const upsertUserProfile = async (uid, payload = {}) => {
     // Determine if username is changing (to set hasChangedUsername flag)
     const usernameIsChanging = oldUsername && oldUsername !== username_lowercase;
     
+    // Ensure name and username are not the full email - extract part before @ if needed
+    // Also ensure name and username are never swapped
+    let finalName = name;
+    let finalUsername = username;
+    
+    // If name is the full email, extract part before @
+    if (finalName && finalName.includes('@') && finalName === email) {
+      finalName = email.split('@')[0];
+    }
+    
+    // If username is the full email, extract part before @
+    if (finalUsername && finalUsername.includes('@') && finalUsername === email) {
+      finalUsername = email.split('@')[0];
+      username_lowercase = finalUsername.toLowerCase().replace(/\s+/g, '');
+    }
+    
+    // CRITICAL: Ensure name and username are never swapped
+    // If name looks like a username (no spaces, matches username pattern), and username is missing or looks like a name (has spaces), swap them
+    if (finalName && finalUsername) {
+      const nameHasSpaces = finalName.includes(' ');
+      const usernameHasSpaces = finalUsername.includes(' ');
+      const nameLooksLikeUsername = !nameHasSpaces && finalName.length > 0 && finalName.length <= 30;
+      const usernameLooksLikeName = usernameHasSpaces || finalUsername.length > 30;
+      
+      // If name looks like username and username looks like name, they're probably swapped
+      if (nameLooksLikeUsername && usernameLooksLikeName) {
+        console.warn('[upsertUserProfile] Detected potential name/username swap, correcting...');
+        const temp = finalName;
+        finalName = finalUsername;
+        finalUsername = temp;
+        // Recalculate username_lowercase
+        username_lowercase = finalUsername.toLowerCase().replace(/\s+/g, '');
+      }
+    }
+    
+    // Additional safety: If name equals username (and both are provided), something is wrong
+    // In this case, keep username as-is but derive name from email or displayName
+    if (finalName && finalUsername && finalName.toLowerCase().replace(/\s+/g, '') === finalUsername.toLowerCase().replace(/\s+/g, '')) {
+      console.warn('[upsertUserProfile] Name and username are identical, deriving name from fallback');
+      finalName = authUser?.displayName || (email ? email.split('@')[0] : 'User');
+    }
+    
+    // Log final values before saving to help debug
+    console.log('[upsertUserProfile] Final values before save:', {
+      name: finalName,
+      username: finalUsername,
+      email,
+      uid,
+    });
+    
     // Build write payload (clean removes undefined values)
     // Only include friends/blocked if explicitly provided, otherwise preserve existing
     const write = clean({
       authUid: uid, // Store Firebase Auth UID as a field
       email,
-      name,
-      username,
+      name: finalName,
+      username: finalUsername,
       username_lowercase,
       bio: payload.bio,
       age: payload.age,
@@ -783,9 +836,19 @@ export const signUp = async (email, password, name, username, pfpUri = null) => 
     }
 
     // Use upsertUserProfile to create profile (handles username reservation, avatar upload, etc.)
+    // Ensure name and username are not empty strings - use null to trigger fallbacks
+    const nameToPass = name && name.trim() ? name.trim() : null;
+    const usernameToPass = username && username.trim() ? username.trim() : (email ? email.split('@')[0] : null);
+    
+    console.log('[signUp] Creating profile with:', {
+      name: nameToPass,
+      username: usernameToPass,
+      email: email.trim(),
+    });
+    
     const profileResult = await upsertUserProfile(user.uid, {
-      name,
-      username: username || email?.split('@')[0] || null,
+      name: nameToPass,
+      username: usernameToPass,
       location: 'Bloomington, IN',
       pfpUri, // Upload avatar if provided
     });
@@ -1019,9 +1082,10 @@ export const signInWithGoogle = async () => {
     const user = userCredential.user;
 
     // Use upsertUserProfile to create/update profile (idempotent)
+    const email = user.email || '';
     const profileResult = await upsertUserProfile(user.uid, {
-      name: user.displayName || null, // Use provider display name
-      // username will be derived from email if not provided
+      name: user.displayName && user.displayName.trim() ? user.displayName.trim() : null, // Use provider display name
+      username: null, // username will be derived from email if not provided
     });
 
     if (!profileResult.success && profileResult.error !== 'username_taken') {

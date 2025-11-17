@@ -812,6 +812,22 @@ export const sendFriendRequest = async (targetId) => {
       return { success: false, error: 'Cannot send friend request to this user' };
     }
 
+    // Check if a pending request already exists
+    const requestsRef = collection(db, 'friendRequests');
+    const existingRequestQuery = query(
+      requestsRef,
+      where('fromUserId', '==', fromUserId),
+      where('toUserId', '==', toUserId),
+      where('status', '==', 'pending'),
+      limit(1)
+    );
+    const existingRequestSnapshot = await getDocs(existingRequestQuery);
+    
+    if (!existingRequestSnapshot.empty) {
+      console.log('⚠️ Friend request already exists');
+      return { success: false, error: 'Friend request already sent' };
+    }
+
     // Prepare payload
     const payload = {
       fromUserId: fromUserId,
