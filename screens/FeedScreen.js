@@ -1,6 +1,6 @@
 // Feed screen - shows feed of posts with camera and notifications buttons
 import * as React from 'react';
-import { View, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, StyleSheet, Alert, Modal } from 'react-native';
+import { View, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, StyleSheet, Alert, Modal, Platform } from 'react-native';
 import { Text, Snackbar } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -212,7 +212,7 @@ export default function FeedScreen() {
       currentUserData = {
         name: user.displayName || user.email?.split('@')[0] || 'User',
         username: user.email?.split('@')[0] || 'user',
-        avatar: user.photoURL || 'https://i.pravatar.cc/100?img=12',
+        avatar: user.photoURL || null,
       };
     }
 
@@ -326,7 +326,7 @@ export default function FeedScreen() {
             <MaterialCommunityIcons name="plus" size={24} color="#FFFFFF" />
           </TouchableOpacity>
           
-          <View style={{ flex: 1 }} />
+          <Text style={styles.headerTitle}>Roll</Text>
           
           <TouchableOpacity
             style={styles.headerButton}
@@ -392,7 +392,7 @@ export default function FeedScreen() {
           currentUser={userData || { 
             name: user?.displayName || user?.email || 'User', 
             username: user?.email?.split('@')[0] || 'user', 
-            avatar: 'https://i.pravatar.cc/100?img=12',
+            avatar: null,
             location: userData?.location || 'Bloomington, IN' // Include location in fallback
           }}
           submitting={submitting}
@@ -444,9 +444,27 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingBottom: 8,
     zIndex: 10,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    textAlign: 'center',
+    zIndex: 0,
+    marginTop: 64,
+    fontFamily: Platform.select({
+      ios: 'AvenirNext-Bold',
+      android: 'Roboto-Bold',
+      default: 'System',
+    }),
+    letterSpacing: 2,
   },
   headerButton: {
     width: 40,
@@ -455,6 +473,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 1,
   },
   modalOverlay: {
     position: 'absolute',

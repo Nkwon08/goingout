@@ -221,7 +221,7 @@ export default function ActivityRecent() {
       currentUserData = {
         name: user.displayName || user.email?.split('@')[0] || 'User',
         username: user.email?.split('@')[0] || 'user',
-        avatar: user.photoURL || 'https://i.pravatar.cc/100?img=12',
+        avatar: user.photoURL || null,
       };
     }
 
@@ -396,7 +396,7 @@ export default function ActivityRecent() {
         currentUser={userData || { 
           name: user?.displayName || user?.email || 'User', 
           username: user?.email?.split('@')[0] || 'user', 
-          avatar: 'https://i.pravatar.cc/100?img=12',
+          avatar: null,
           location: userData?.location || 'Bloomington, IN' // Include location in fallback
         }}
         submitting={submitting}

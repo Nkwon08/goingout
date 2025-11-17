@@ -182,7 +182,10 @@ export const getBlockedUsers = async (currentUserId) => {
     const currentUserSnapshot = await getDocs(currentUserQuery);
     
     if (currentUserSnapshot.empty) {
-      return { blockedUsers: [], error: 'Current user not found' };
+      // User document doesn't exist yet - return empty list (no blocked users is valid)
+      // This can happen right after signup before the user document is created
+      console.log('[getBlockedUsers] User document not found yet, returning empty blocked users list');
+      return { blockedUsers: [], error: null };
     }
 
     const currentUserDoc = currentUserSnapshot.docs[0];
@@ -199,7 +202,7 @@ export const getBlockedUsers = async (currentUserId) => {
             return {
               username: data.username || username,
               name: data.name || 'Unknown User',
-              avatar: data.photoURL || data.avatar || 'https://i.pravatar.cc/200?img=12',
+              avatar: data.photoURL || data.avatar || null,
               authUid: data.authUid,
             };
           }
@@ -249,7 +252,10 @@ export const subscribeToBlockedUsers = (currentUserId, callback) => {
     // First, get the username
     getDocs(currentUserQuery).then((snapshot) => {
       if (snapshot.empty) {
-        callback({ blockedUsers: [], error: 'Current user not found' });
+        // User document doesn't exist yet - return empty list (no blocked users is valid)
+        // This can happen right after signup before the user document is created
+        console.log('[subscribeToBlockedUsers] User document not found yet, returning empty blocked users list');
+        callback({ blockedUsers: [], error: null });
         return;
       }
 
@@ -278,7 +284,7 @@ export const subscribeToBlockedUsers = (currentUserId, callback) => {
                   return {
                     username: data.username || username,
                     name: data.name || 'Unknown User',
-                    avatar: data.photoURL || data.avatar || 'https://i.pravatar.cc/200?img=12',
+                    avatar: data.photoURL || data.avatar || null,
                     authUid: data.authUid,
                   };
                 }

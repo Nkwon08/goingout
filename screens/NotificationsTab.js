@@ -3,6 +3,7 @@ import { View, ScrollView, ActivityIndicator, Alert, TouchableOpacity, FlatList,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { List, Divider, Text, Avatar, Button } from 'react-native-paper';
+import UserAvatar from '../components/UserAvatar';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation, CommonActions } from '@react-navigation/native';
@@ -642,11 +643,9 @@ export default function NotificationsTab() {
                         </View>
                       </View>
                     )}
-                    <Avatar.Image 
+                    <UserAvatar 
                       size={48} 
-                      source={{ 
-                        uri: notification.fromUserAvatar || notification.fromUser?.photoURL || notification.fromUser?.avatar || 'https://i.pravatar.cc/100?img=12' 
-                      }} 
+                      uri={notification.fromUserAvatar || notification.fromUser?.photoURL || notification.fromUser?.avatar}
                     />
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={{ color: textColor, fontSize: 15, fontWeight: '600' }}>
@@ -700,9 +699,9 @@ export default function NotificationsTab() {
               <View key={request.id}>
                 <View style={{ padding: 16 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                    <Avatar.Image 
+                    <UserAvatar 
                       size={48} 
-                      source={{ uri: request.sender?.photoURL || request.sender?.avatar || 'https://i.pravatar.cc/100?img=12' }} 
+                      uri={request.sender?.photoURL || request.sender?.avatar}
                     />
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={{ color: textColor, fontSize: 16, fontWeight: '600' }}>
@@ -766,9 +765,9 @@ export default function NotificationsTab() {
               <View key={invitation.id}>
                 <View style={{ padding: 16 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                    <Avatar.Image 
+                    <UserAvatar 
                       size={48} 
-                      source={{ uri: invitation.sender?.photoURL || invitation.sender?.avatar || 'https://i.pravatar.cc/100?img=12' }} 
+                      uri={invitation.sender?.photoURL || invitation.sender?.avatar}
                     />
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={{ color: textColor, fontSize: 16, fontWeight: '600' }}>

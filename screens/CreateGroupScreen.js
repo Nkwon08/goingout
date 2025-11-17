@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { View, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, Platform } from 'react-native';
 import { Appbar, Text, Button, Checkbox, Avatar, Divider } from 'react-native-paper';
+import UserAvatar from '../components/UserAvatar';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useThemeColors } from '../hooks/useThemeColors';
@@ -480,9 +481,9 @@ export default function CreateGroupScreen({ navigation }) {
                     onPress={() => handleToggleFriend(friend.uid)}
                     activeOpacity={0.7}
                   >
-                    <Avatar.Image
+                    <UserAvatar
                       size={40}
-                      source={{ uri: friend.avatar || 'https://i.pravatar.cc/100?img=12' }}
+                      uri={friend.avatar}
                     />
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={{ color: text, fontSize: 16, fontWeight: '500' }}>

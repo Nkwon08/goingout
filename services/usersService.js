@@ -290,7 +290,7 @@ export const getAllUsers = async (currentUserId, pageSize = 20, lastUserId = nul
       .map((doc) => {
         const data = doc.data();
         // Check photoURL first (new field), then avatar (backward compatibility), then photo (legacy)
-        const avatarUrl = data.photoURL || data.avatar || data.photo || 'https://i.pravatar.cc/100';
+        const avatarUrl = data.photoURL || data.avatar || data.photo || null;
         return {
           uid: doc.id, // This is now the username (document ID), but we'll use it as uid for display
           username: data.username || 'username',
@@ -372,7 +372,7 @@ export const getAllUsers = async (currentUserId, pageSize = 20, lastUserId = nul
               uid: doc.id,
               username: data.username || 'username',
               name: data.name || 'User',
-              avatar: data.avatar || data.photo || 'https://i.pravatar.cc/100',
+              avatar: data.avatar || data.photo || null,
               bio: data.bio || null,
               age: data.age || null,
               gender: data.gender || null,
@@ -447,7 +447,7 @@ export const searchUsersByPrefix = async (searchQuery, currentUserId, friendsLis
       })
       .map((doc) => {
         const data = doc.data();
-        const avatarUrl = data.photoURL || data.avatar || data.photo || 'https://i.pravatar.cc/100';
+        const avatarUrl = data.photoURL || data.avatar || data.photo || null;
         const docId = doc.id.toLowerCase();
         return {
           uid: doc.id,

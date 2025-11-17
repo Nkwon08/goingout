@@ -4,6 +4,7 @@ import { View, Image, TouchableOpacity, StyleSheet, ScrollView, Dimensions, Moda
 import { Text, Avatar, Button, ActivityIndicator } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useThemeColors } from '../hooks/useThemeColors';
+import UserAvatar from './UserAvatar';
 import { getCardBorderOnly } from '../utils/cardStyles';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
@@ -571,7 +572,7 @@ export default function FeedPost({ post, onDelete }) {
       <View style={styles.header}>
         <View style={styles.userInfo}>
           <TouchableOpacity onPress={handleProfileTap}>
-            <Avatar.Image size={32} source={{ uri: displayAvatar }} style={styles.avatar} />
+            <UserAvatar size={32} uri={displayAvatar} style={styles.avatar} />
           </TouchableOpacity>
           <TouchableOpacity onPress={handleProfileTap}>
             <Text style={[styles.username, { color: text }]}>{post.name || post.user}</Text>
@@ -731,9 +732,9 @@ export default function FeedPost({ post, onDelete }) {
               const isOwnComment = item.userId === user?.uid;
               return (
                 <View style={[styles.commentItem, { borderBottomColor: border }]}>
-                  <Avatar.Image
+                  <UserAvatar
                     size={32}
-                    source={{ uri: item.avatar || 'https://i.pravatar.cc/100?img=12' }}
+                    uri={item.avatar}
                     style={styles.commentAvatar}
                   />
                   <View style={styles.commentContent}>
@@ -804,9 +805,9 @@ export default function FeedPost({ post, onDelete }) {
             style={{ marginBottom: Platform.OS === 'ios' ? 10 : 0 }}
           >
             <View style={[styles.commentInputContainer, { backgroundColor: surface, borderTopColor: border }]}>
-              <Avatar.Image
+              <UserAvatar
                 size={32}
-                source={{ uri: currentUserAvatar || 'https://i.pravatar.cc/100?img=12' }}
+                uri={currentUserAvatar}
                 style={styles.commentInputAvatar}
               />
               <View style={{ flex: 1, position: 'relative' }}>
@@ -887,9 +888,9 @@ export default function FeedPost({ post, onDelete }) {
                               setMentionStartIndex(-1);
                             }}
                           >
-                            <Avatar.Image
+                            <UserAvatar
                               size={32}
-                              source={{ uri: suggestedUser.photoURL || suggestedUser.avatar || 'https://i.pravatar.cc/100?img=12' }}
+                              uri={suggestedUser.photoURL || suggestedUser.avatar}
                               style={styles.mentionSuggestionAvatar}
                             />
                             <View style={styles.mentionSuggestionInfo}>

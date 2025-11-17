@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { View, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
 import { Appbar, Text, Button, Avatar, IconButton } from 'react-native-paper';
+import UserAvatar from '../components/UserAvatar';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -357,9 +358,9 @@ export default function EventDetailScreen({ route, navigation }) {
               style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}
               activeOpacity={0.7}
             >
-              <Avatar.Image 
+              <UserAvatar 
                 size={32} 
-                source={{ uri: eventData.creatorAvatar || 'https://i.pravatar.cc/100?img=12' }} 
+                uri={eventData.creatorAvatar} 
               />
               <View style={{ marginLeft: 12 }}>
                 <Text style={{ color: subTextColor, fontSize: 12 }}>Created by</Text>

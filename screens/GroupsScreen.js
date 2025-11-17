@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { View, ScrollView, Image, ImageBackground, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Alert, TextInput, Keyboard, KeyboardAvoidingView, Platform, PanResponder, Animated, StyleSheet, InteractionManager, RefreshControl } from 'react-native';
 import { Appbar, FAB, Text, Button, Avatar, Checkbox } from 'react-native-paper';
+import UserAvatar from '../components/UserAvatar';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { useNavigation, useFocusEffect, useRoute } from '@react-navigation/native';
@@ -1346,9 +1347,9 @@ function ChatTab({ groupId }) {
               {/* Don't show avatar for polls */}
               {!isOwnMessage && !isPoll && (
                 <View style={{ marginRight: 8, marginTop: 2 }}>
-                  <Image
-                    source={{ uri: props.currentMessage.user.avatar || 'https://i.pravatar.cc/100?img=12' }}
-                    style={{ width: 32, height: 32, borderRadius: 16 }}
+                  <UserAvatar
+                    size={32}
+                    uri={props.currentMessage.user.avatar}
                   />
                 </View>
               )}
@@ -2991,10 +2992,9 @@ function GroupDetail({ group: initialGroup, onBack }) {
                       activeOpacity={0.7}
                       style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
                     >
-                      <Avatar.Image
+                      <UserAvatar
                         size={48}
-                        source={{ uri: member.avatar || 'https://i.pravatar.cc/100?img=12' }}
-                        style={{ backgroundColor: surface }}
+                        uri={member.avatar}
                       />
                       <View style={{ flex: 1, marginLeft: 12 }}>
                         <Text style={{ color: text, fontSize: 16, fontWeight: '600' }}>
@@ -3173,10 +3173,9 @@ function GroupDetail({ group: initialGroup, onBack }) {
                     activeOpacity={0.7}
                     style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12 }}
                   >
-                    <Avatar.Image
+                    <UserAvatar
                       size={48}
-                      source={{ uri: friend.avatar || 'https://i.pravatar.cc/100?img=12' }}
-                      style={{ backgroundColor: surface }}
+                      uri={friend.avatar}
                     />
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={{ color: text, fontSize: 16, fontWeight: '600' }}>

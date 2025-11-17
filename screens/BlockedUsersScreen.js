@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { View, ScrollView, Alert } from 'react-native';
 import { Appbar, Avatar, Text, List, Button, Divider, ActivityIndicator } from 'react-native-paper';
+import UserAvatar from '../components/UserAvatar';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { subscribeToBlockedUsers, unblockUser } from '../services/blockService';
@@ -117,10 +118,10 @@ export default function BlockedUsersScreen({ navigation }) {
                   titleStyle={{ color: textColor }}
                   descriptionStyle={{ color: subTextColor }}
                   left={(props) => (
-                    <Avatar.Image
+                    <UserAvatar
                       {...props}
                       size={48}
-                      source={{ uri: blockedUser.avatar }}
+                      uri={blockedUser.avatar}
                       style={{ marginLeft: 8 }}
                     />
                   )}

@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { View, ScrollView } from 'react-native';
 import { Appbar, Avatar, Text, Button, Switch, List, Divider } from 'react-native-paper';
+import UserAvatar from '../components/UserAvatar';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { signOutUser } from '../services/authService';
@@ -121,7 +122,7 @@ export default function AccountScreen({ navigation }) {
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         {/* User profile section */}
         <View style={{ alignItems: 'center', marginBottom: 16 }}>
-          <Avatar.Image size={96} source={{ uri: userData?.avatar || 'https://i.pravatar.cc/200?img=12' }} />
+          <UserAvatar size={96} uri={userData?.avatar} />
           <Text variant="titleLarge" style={{ color: textColor, marginTop: 8 }}>@{userData?.username || userData?.user || 'username'}</Text>
           
           {/* Bio */}

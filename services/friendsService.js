@@ -1267,6 +1267,13 @@ export const subscribeToOutgoingFriendRequests = (userId, callback) => {
       async (snapshot) => {
         if (!isMounted) return;
 
+        // Check if user is still authenticated - if not, silently return empty list
+        if (!auth || !auth.currentUser || auth.currentUser.uid !== userId) {
+          console.log('📡 [subscribeToOutgoingFriendRequests] User no longer authenticated, returning empty list');
+          callback({ requests: [], error: null });
+          return;
+        }
+
         console.log('📡 [subscribeToOutgoingFriendRequests] Snapshot received:', {
           size: snapshot.size,
           empty: snapshot.empty,
@@ -1335,6 +1342,21 @@ export const subscribeToOutgoingFriendRequests = (userId, callback) => {
       },
       (error) => {
         if (!isMounted) return;
+        
+        // Check if user is no longer authenticated or if it's a permission error
+        const isPermissionError = error.code === 'permission-denied' || 
+                                  error.code === 'permissions-denied' ||
+                                  error.message?.toLowerCase().includes('permission') ||
+                                  error.message?.toLowerCase().includes('insufficient permissions');
+        
+        if (!auth || !auth.currentUser || auth.currentUser.uid !== userId || isPermissionError) {
+          // User logged out or permission denied - silently return empty list (expected behavior)
+          console.log('📡 [subscribeToOutgoingFriendRequests] User logged out or permission denied, returning empty list');
+          callback({ requests: [], error: null });
+          return;
+        }
+        
+        // Only log actual errors (not permission errors from logout)
         console.error('❌ [subscribeToOutgoingFriendRequests] Subscription error:', error);
         callback({ requests: [], error: error.message || 'Failed to subscribe to outgoing friend requests' });
       }

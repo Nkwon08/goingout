@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { View, ScrollView, ActivityIndicator, Alert, TouchableOpacity, RefreshControl } from 'react-native';
 import { Searchbar, Button, Avatar, List, Divider, Text, IconButton } from 'react-native-paper';
+import UserAvatar from '../components/UserAvatar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
@@ -83,7 +84,7 @@ export default function FriendsTab() {
     // When a request is accepted, it's removed from pending (status changes or deleted)
     // So friends should always show in Friends section - don't filter them out
     // Only users with PENDING requests (not in friends list) should be filtered out
-    const actualFriends = friendUsernames; // Show all friends - they were accepted
+    const actualFriends = friendUsernames.filter(username => username && String(username).trim()); // Filter out empty/null usernames
     
     console.log('🔍 [FriendsTab] Filtering friends:', {
       totalFriends: friendUsernames.length,
@@ -91,6 +92,7 @@ export default function FriendsTab() {
       actualFriends: actualFriends.length,
       pendingUsernames: Array.from(pendingUsernames),
       filteredOut: friendUsernames.length - actualFriends.length,
+      friendUsernames: actualFriends,
       note: 'Only filtering out users with PENDING requests, accepted friends should show in Friends section',
     });
     
@@ -129,21 +131,49 @@ export default function FriendsTab() {
         const friendData = await Promise.all(
           actualFriends.map(async (username) => {
             try {
+              // Normalize username before lookup (document IDs are lowercase, no spaces)
+              const normalizedUsername = username ? String(username).toLowerCase().replace(/\s+/g, '') : null;
+              if (!normalizedUsername) {
+                console.warn('⚠️ [FriendsTab] Empty username in friends list:', username);
+                return { username: username || 'unknown', name: 'Unknown User', avatar: null, uid: username || 'unknown', authUid: null };
+              }
+              
               // Use getUserById which accepts username (document ID) or authUid
-              const { userData } = await getUserById(username);
+              // getUserById normalizes internally, but we normalize here too for consistency
+              const result = await getUserById(normalizedUsername);
+              const { userData, error } = result || {};
+              
               if (userData) {
                 return {
-                  username: userData.username || username,
+                  username: userData.username || normalizedUsername,
                   name: userData.name || 'Unknown User',
                   avatar: userData.photoURL || userData.avatar || null,
-                  uid: userData.authUid || userData.id || username, // Store authUid for comparison
+                  uid: userData.authUid || userData.id || normalizedUsername, // Store authUid for comparison
                   authUid: userData.authUid || null, // Explicit authUid field
                 };
               }
-              return { username, name: 'Unknown User', avatar: null, uid: username, authUid: null };
+              
+              // If not found, try the original username (might be authUid or different format)
+              if (error && normalizedUsername !== username) {
+                console.log('🔄 [FriendsTab] Retrying with original username format:', username);
+                const retryResult = await getUserById(username);
+                if (retryResult?.userData) {
+                  return {
+                    username: retryResult.userData.username || username,
+                    name: retryResult.userData.name || 'Unknown User',
+                    avatar: retryResult.userData.photoURL || retryResult.userData.avatar || null,
+                    uid: retryResult.userData.authUid || retryResult.userData.id || username,
+                    authUid: retryResult.userData.authUid || null,
+                  };
+                }
+              }
+              
+              console.warn('⚠️ [FriendsTab] Could not load friend data for:', username, error || 'User not found');
+              return { username: normalizedUsername, name: 'Unknown User', avatar: null, uid: normalizedUsername, authUid: null };
             } catch (error) {
-              console.error('Error fetching friend data for', username, error);
-              return { username, name: 'Unknown User', avatar: null, uid: username, authUid: null };
+              console.error('❌ [FriendsTab] Error fetching friend data for', username, error);
+              // Still return a friend entry so it shows up (even if with "Unknown User")
+              return { username: username || 'unknown', name: 'Unknown User', avatar: null, uid: username || 'unknown', authUid: null };
             }
           })
         );
@@ -154,12 +184,25 @@ export default function FriendsTab() {
           // The pendingFriendsWithData only contains PENDING requests (status === 'pending')
           // When a request is accepted, it's removed from pending, so friends won't be in pendingFriendsWithData
           // So show all friends - don't filter them out
-          const finalFriendData = friendData; // Show all friends - they were accepted
+          
+          // Filter out null/undefined entries but keep all valid friend entries (even if they have "Unknown User")
+          const finalFriendData = friendData.filter(f => f && f.username);
           
           console.log('🔍 [FriendsTab] Final friend data:', {
-            totalFriends: finalFriendData.length,
+            totalFriendsInList: actualFriends.length,
+            loadedFriends: finalFriendData.length,
+            failedToLoad: actualFriends.length - finalFriendData.length,
             note: 'All friends are shown (they were accepted)',
+            friendUsernames: actualFriends,
+            loadedUsernames: finalFriendData.map(f => f.username),
           });
+          
+          // If some friends failed to load, log a warning
+          if (finalFriendData.length < actualFriends.length) {
+            const loadedUsernames = new Set(finalFriendData.map(f => f.username?.toLowerCase()));
+            const missingUsernames = actualFriends.filter(u => !loadedUsernames.has(u?.toLowerCase()));
+            console.warn('⚠️ [FriendsTab] Some friends failed to load:', missingUsernames);
+          }
           
           setFriendsWithData(finalFriendData);
         }
@@ -461,20 +504,28 @@ export default function FriendsTab() {
           console.error('Error loading users:', result.error);
         } else {
           // Get friends and pending friends usernames to filter them out
-          const friendsUsernames = friendsListFromContext || [];
-          const pendingUsernames = pendingFriendsWithData.map((p) => p.username).filter(Boolean);
+          // Normalize to lowercase for case-insensitive comparison
+          const friendsUsernames = (friendsListFromContext || []).map(u => String(u).toLowerCase().replace(/\s+/g, ''));
+          const pendingUsernames = pendingFriendsWithData.map((p) => p.username).filter(Boolean).map(u => String(u).toLowerCase().replace(/\s+/g, ''));
           const excludedUsernames = new Set([...friendsUsernames, ...pendingUsernames]);
           
           // Filter out current user, friends, pending friends, and already clicked users
           const filteredUsers = result.users.filter((u) => {
             // Exclude current user by comparing UID
             if (u.uid === user.uid) return false;
-            // Also check if username matches current user's username
-            if (userData?.username && u.username === userData.username) return false;
-            // Exclude if already a friend
-            if (u.username && excludedUsernames.has(u.username)) return false;
+            // Also check if username matches current user's username (case-insensitive)
+            if (userData?.username && u.username) {
+              const currentUsernameLower = String(userData.username).toLowerCase().replace(/\s+/g, '');
+              const uUsernameLower = String(u.username).toLowerCase().replace(/\s+/g, '');
+              if (currentUsernameLower === uUsernameLower) return false;
+            }
+            // Exclude if already a friend (case-insensitive comparison)
+            if (u.username) {
+              const uUsernameLower = String(u.username).toLowerCase().replace(/\s+/g, '');
+              if (excludedUsernames.has(uUsernameLower)) return false;
+            }
             // Also check by UID if username not available
-            if (u.uid && friendsUsernames.includes(u.uid)) return false;
+            if (u.uid && friendsUsernames.includes(String(u.uid).toLowerCase().replace(/\s+/g, ''))) return false;
             // Exclude if already clicked
             const uId = u.uid || u.username;
             if (clickedUserIds.has(uId)) return false;
@@ -538,9 +589,23 @@ export default function FriendsTab() {
 
     // If we have available users in pool, fill up to 3
     if (allAvailableUsers.length > 0 && suggestedUsers.length < 3) {
+      // Normalize friends list for case-insensitive comparison
+      const friendsUsernames = (friendsListFromContext || []).map(u => String(u).toLowerCase().replace(/\s+/g, ''));
+      const pendingUsernames = pendingFriendsWithData.map((p) => p.username).filter(Boolean).map(u => String(u).toLowerCase().replace(/\s+/g, ''));
+      const excludedUsernames = new Set([...friendsUsernames, ...pendingUsernames]);
+      
       const existingIds = new Set(suggestedUsers.map(u => u.uid || u.username));
       const newSuggested = allAvailableUsers
-        .filter(u => !existingIds.has(u.uid || u.username))
+        .filter(u => {
+          // Don't include if already suggested
+          if (existingIds.has(u.uid || u.username)) return false;
+          // Don't include if already a friend (case-insensitive)
+          if (u.username) {
+            const uUsernameLower = String(u.username).toLowerCase().replace(/\s+/g, '');
+            if (excludedUsernames.has(uUsernameLower)) return false;
+          }
+          return true;
+        })
         .slice(0, 3 - suggestedUsers.length);
       
       if (newSuggested.length > 0) {
@@ -558,15 +623,25 @@ export default function FriendsTab() {
         try {
           const result = await getAllUsers(user.uid, 20, allUsersLastId);
           if (!result.error && result.users.length > 0) {
-            const friendsUsernames = friendsListFromContext || [];
-            const pendingUsernames = pendingFriendsWithData.map((p) => p.username).filter(Boolean);
+            // Normalize to lowercase for case-insensitive comparison
+            const friendsUsernames = (friendsListFromContext || []).map(u => String(u).toLowerCase().replace(/\s+/g, ''));
+            const pendingUsernames = pendingFriendsWithData.map((p) => p.username).filter(Boolean).map(u => String(u).toLowerCase().replace(/\s+/g, ''));
             const excludedUsernames = new Set([...friendsUsernames, ...pendingUsernames]);
             
             const filteredUsers = result.users.filter((u) => {
               if (u.uid === user.uid) return false;
-              if (userData?.username && u.username === userData.username) return false;
-              if (u.username && excludedUsernames.has(u.username)) return false;
-              if (u.uid && friendsUsernames.includes(u.uid)) return false;
+              // Case-insensitive username comparison
+              if (userData?.username && u.username) {
+                const currentUsernameLower = String(userData.username).toLowerCase().replace(/\s+/g, '');
+                const uUsernameLower = String(u.username).toLowerCase().replace(/\s+/g, '');
+                if (currentUsernameLower === uUsernameLower) return false;
+              }
+              // Case-insensitive friend check
+              if (u.username) {
+                const uUsernameLower = String(u.username).toLowerCase().replace(/\s+/g, '');
+                if (excludedUsernames.has(uUsernameLower)) return false;
+              }
+              if (u.uid && friendsUsernames.includes(String(u.uid).toLowerCase().replace(/\s+/g, ''))) return false;
               const uId = u.uid || u.username;
               if (clickedUserIds.has(uId)) return false;
               const isAlreadySuggested = suggestedUsers.some(su => (su.uid || su.username) === uId);
@@ -602,6 +677,31 @@ export default function FriendsTab() {
       loadMore();
     }
   }, [suggestedUsers.length, allAvailableUsers.length, allUsersHasMore, allUsersLoading, user, userData, friendsListFromContext, pendingFriendsWithData, clickedUserIds, allUsersLastId, searchQuery]);
+
+  // Remove friends from suggested users when friends list changes
+  React.useEffect(() => {
+    if (!friendsListFromContext || friendsListFromContext.length === 0) return;
+    
+    // Normalize friends list for case-insensitive comparison
+    const friendsUsernames = new Set(friendsListFromContext.map(u => String(u).toLowerCase().replace(/\s+/g, '')));
+    const pendingUsernames = new Set(pendingFriendsWithData.map((p) => p.username).filter(Boolean).map(u => String(u).toLowerCase().replace(/\s+/g, '')));
+    
+    // Remove any suggested users who are now friends or pending
+    setSuggestedUsers((prev) => {
+      const filtered = prev.filter((u) => {
+        if (!u.username) return true; // Keep if no username
+        const uUsernameLower = String(u.username).toLowerCase().replace(/\s+/g, '');
+        // Remove if they're a friend or pending
+        if (friendsUsernames.has(uUsernameLower) || pendingUsernames.has(uUsernameLower)) {
+          return false;
+        }
+        return true;
+      });
+      
+      // If we removed some, return the filtered list (will be refilled by other effects)
+      return filtered;
+    });
+  }, [friendsListFromContext, pendingFriendsWithData]);
 
   /** Load more users (pagination) */
   const loadMoreUsers = React.useCallback(async (retryCount = 0) => {
@@ -942,7 +1042,7 @@ export default function FriendsTab() {
                         onPress={() => handleUserProfileTap(u)}
                         activeOpacity={0.7}
                       >
-                        <Avatar.Image size={40} source={{ uri: u.avatar || 'https://i.pravatar.cc/100?img=12' }} />
+                        <UserAvatar size={40} uri={u.avatar} />
                         <View style={{ flex: 1, marginLeft: 12 }}>
                           <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600' }}>{u.name || 'Unknown User'}</Text>
                           <Text style={{ color: colors.subText, fontSize: 12 }}>@{u.username || 'unknown'}</Text>
@@ -996,7 +1096,7 @@ export default function FriendsTab() {
                         onPress={() => handleUserProfileTap(u)}
                         activeOpacity={0.7}
                       >
-                        <Avatar.Image size={48} source={{ uri: u.avatar || 'https://i.pravatar.cc/100?img=12' }} />
+                        <UserAvatar size={48} uri={u.avatar} />
                         <View style={{ flex: 1, marginLeft: 12 }}>
                           <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{u.name || 'User'}</Text>
                           <Text style={{ color: colors.subText, fontSize: 14 }}>@{u.username || 'username'}</Text>
@@ -1067,7 +1167,7 @@ export default function FriendsTab() {
                     activeOpacity={0.7}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                      <Avatar.Image size={40} source={{ uri: p.avatar || 'https://i.pravatar.cc/100?img=12' }} />
+                      <UserAvatar size={40} uri={p.avatar} />
                       <View style={{ flex: 1, marginLeft: 12 }}>
                         <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600' }}>{p.name || 'Unknown User'}</Text>
                         <Text style={{ color: colors.subText, fontSize: 12 }}>@{p.username || 'unknown'}</Text>
@@ -1111,7 +1211,7 @@ export default function FriendsTab() {
                   onPress={() => handleFriendProfileTap(f)}
                   activeOpacity={0.7}
                 >
-                  <Avatar.Image size={40} source={{ uri: f.avatar || 'https://i.pravatar.cc/100?img=12' }} />
+                  <UserAvatar size={40} uri={f.avatar} />
                   <View style={{ flex: 1, marginLeft: 12 }}>
                     <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600' }}>{f.name || 'Unknown User'}</Text>
                     <Text style={{ color: colors.subText, fontSize: 12 }}>@{f.username || 'unknown'}</Text>

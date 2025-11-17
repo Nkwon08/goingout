@@ -3,6 +3,7 @@ import * as React from 'react';
 import { View, ScrollView, FlatList, RefreshControl, TouchableOpacity, Image, Modal, Dimensions, StyleSheet, Platform, StatusBar, TextInput, Alert } from 'react-native';
 import { Appbar, Avatar, Text, Button, Switch, List, Divider, TextInput as PaperTextInput } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
+import UserAvatar from '../components/UserAvatar';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -114,9 +115,9 @@ function FriendsListModal({ visible, onClose, friendsList, navigation }) {
                   borderBottomColor: isDarkMode ? '#2A2A2A' : '#E0E0E0',
                 }}
               >
-                <Avatar.Image 
+                <UserAvatar 
                   size={50} 
-                  source={{ uri: friend.photoURL || friend.avatar || 'https://i.pravatar.cc/200?img=12' }}
+                  uri={friend.photoURL || friend.avatar}
                 />
                 <View style={{ marginLeft: 12, flex: 1 }}>
                   <Text style={{ color: text, fontSize: 16, fontWeight: '600' }}>
@@ -600,12 +601,10 @@ export default function ProfileScreen({ navigation }) {
             borderRadius: 60,
             overflow: 'hidden',
           }}>
-            <Avatar.Image 
+            <UserAvatar 
               key={`avatar-${avatarKey}`}
               size={120} 
-              source={{ 
-                uri: (userData?.photoURL || userData?.avatar || 'https://i.pravatar.cc/200?img=12') + (userData?.photoURL || userData?.avatar ? `?t=${avatarKey}` : '')
-              }}
+              uri={userData?.photoURL || userData?.avatar}
               style={{
                 width: '100%',
                 height: '100%',

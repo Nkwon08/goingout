@@ -3,6 +3,7 @@ import * as React from 'react';
 import { View, Modal, TextInput, StyleSheet, TouchableOpacity, Image, ScrollView, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform, ActivityIndicator, Alert } from 'react-native';
 import { Text, Avatar, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import UserAvatar from './UserAvatar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
@@ -494,7 +495,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                     showsVerticalScrollIndicator={false}
                   >
             <View style={[styles.content, { backgroundColor: 'transparent' }]}>
-            <Avatar.Image size={48} source={{ uri: currentUser?.avatar || 'https://i.pravatar.cc/100?img=12' }} />
+            <UserAvatar size={48} uri={currentUser?.avatar} />
               <View style={styles.inputContainer}>
               <TextInput
                 style={[styles.textInput, { color: textColor }]}
@@ -569,9 +570,9 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                           }}
                           activeOpacity={0.7}
                         >
-                          <Avatar.Image 
+                          <UserAvatar 
                             size={40} 
-                            source={{ uri: suggestedUser.avatar || 'https://i.pravatar.cc/100?img=12' }} 
+                            uri={suggestedUser.avatar} 
                           />
                           <View style={styles.mentionSuggestionInfo}>
                             <Text style={[styles.mentionSuggestionName, { color: textColor }]}>

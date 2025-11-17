@@ -3,6 +3,7 @@ import * as React from 'react';
 import { View, Modal, StyleSheet, TouchableOpacity } from 'react-native';
 import { Text, Avatar, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import UserAvatar from './UserAvatar';
 import { useThemeColors } from '../hooks/useThemeColors';
 
 const IU_CRIMSON = '#CC0000';
@@ -39,9 +40,9 @@ export default function ProfilePopup({ visible, onClose, userProfile, onAddFrien
           {/* Profile Content */}
           <View style={styles.content}>
             {/* Avatar */}
-            <Avatar.Image
+            <UserAvatar
               size={80}
-              source={{ uri: userProfile.avatar || 'https://i.pravatar.cc/100?img=12' }}
+              uri={userProfile.avatar}
               style={styles.avatar}
             />
 

@@ -3,6 +3,7 @@ import * as React from 'react';
 import { View, Alert, TouchableOpacity, Image, Modal, Dimensions, FlatList } from 'react-native';
 import { Appbar, Avatar, Text, IconButton } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import UserAvatar from '../components/UserAvatar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -862,9 +863,9 @@ export default function UserProfileScreen({ route, navigation }) {
       {/* Profile Header Section */}
       <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 20, backgroundColor: 'transparent' }}>
         {/* Profile Photo on the left */}
-        <Avatar.Image 
+        <UserAvatar 
           size={96} 
-          source={{ uri: userProfile.photoURL || userProfile.avatar || 'https://i.pravatar.cc/200?img=12' }} 
+          uri={userProfile.photoURL || userProfile.avatar}
         />
         
         {/* User info on the right */}
