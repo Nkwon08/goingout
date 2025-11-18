@@ -788,6 +788,10 @@ export const deleteEvent = async (eventId, userId) => {
       return { error: 'Firestore not configured' };
     }
 
+    if (!userId) {
+      return { error: 'User ID is required' };
+    }
+
     const eventRef = doc(db, 'events', eventId);
     const eventDoc = await getDoc(eventRef);
     
@@ -796,6 +800,19 @@ export const deleteEvent = async (eventId, userId) => {
     }
 
     const eventData = eventDoc.data();
+    
+    // Log for debugging
+    console.log('🔍 Delete event check:', {
+      eventId,
+      eventUserId: eventData.userId,
+      currentUserId: userId,
+      match: eventData.userId === userId,
+      hasUserId: !!eventData.userId
+    });
+    
+    if (!eventData.userId) {
+      return { error: 'Event does not have a userId field. Cannot verify ownership.' };
+    }
     
     if (eventData.userId !== userId) {
       return { error: 'You can only delete your own events' };
@@ -817,9 +834,15 @@ export const deleteEvent = async (eventId, userId) => {
 
     // Delete the event
     await deleteDoc(eventRef);
+    console.log('✅ Event deleted successfully');
     return { error: null };
   } catch (error) {
     console.error('❌ Error deleting event:', error);
+    console.error('Error details:', {
+      code: error.code,
+      message: error.message,
+      stack: error.stack
+    });
     return { error: error.message };
   }
 };

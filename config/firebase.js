@@ -16,8 +16,20 @@ const firebaseConfig = {
   measurementId: "G-VRM4FBNHM7",
 };
 
-// Google OAuth Client ID
+// Google OAuth Client IDs
+// Web Client ID - used for Firebase backend authentication
 export const GOOGLE_CLIENT_ID = '861094736123-v0qb4hdkq5e7r46sse6cr4sjk62abuvk.apps.googleusercontent.com';
+
+// iOS Client ID - for App Store production builds
+// Created in Google Cloud Console > APIs & Services > Credentials > OAuth Client ID > iOS
+// Bundle ID: com.anonymous.roll
+export const GOOGLE_IOS_CLIENT_ID = '861094736123-m6v5rniuke5dog129fuv3d6f27g6i63m.apps.googleusercontent.com';
+
+// Android Client ID - for Play Store production builds
+// TODO: Create Android OAuth client in Google Cloud Console and replace this
+// Go to: Google Cloud Console > APIs & Services > Credentials > Create OAuth Client ID > Android
+// Package name: com.anonymous.roll
+export const GOOGLE_ANDROID_CLIENT_ID = 'YOUR_ANDROID_CLIENT_ID_HERE';
 
 // Initialize Firebase - singleton pattern to prevent double initialization
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);

@@ -10,13 +10,19 @@ import {
   deleteUser,
   reauthenticateWithCredential,
   EmailAuthProvider,
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction, collection, query, where, getDocs, getDocsFromServer, limit, writeBatch, deleteDoc } from 'firebase/firestore';
 import { ref, getDownloadURL, uploadBytesResumable, deleteObject, listAll } from 'firebase/storage';
 import { auth, db, storage, GOOGLE_CLIENT_ID } from '../config/firebase';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import { OAuthProvider } from 'firebase/auth';
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
 // Complete web browser auth session
 WebBrowser.maybeCompleteAuthSession();
@@ -1042,42 +1048,18 @@ export const onAuthStateChange = (callback) => {
   return firebaseOnAuthStateChanged(auth, callback);
 };
 
-// Sign in with Google using OAuth
-export const signInWithGoogle = async () => {
+// Sign in with Google using ID token (token obtained from expo-auth-session/providers/google hook)
+export const signInWithGoogle = async (idToken) => {
   try {
-    if (!auth || !db || !GOOGLE_CLIENT_ID) {
-      throw new Error('Firebase or Google Client ID not configured');
-    }
-    const discovery = {
-      authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-      tokenEndpoint: 'https://www.googleapis.com/oauth2/v4/token',
-      revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
-    };
-    const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
-    const request = new AuthSession.AuthRequest({
-      clientId: GOOGLE_CLIENT_ID,
-      scopes: ['openid', 'profile', 'email'],
-      responseType: AuthSession.ResponseType.Code,
-      redirectUri,
-      extraParams: { access_type: 'offline' },
-    });
-    const result = await request.promptAsync(discovery, { useProxy: true });
-
-    if (result.type !== 'success') {
-      return { user: null, error: 'Google sign in cancelled' };
+    if (!auth || !db) {
+      throw new Error('Firebase not configured');
     }
 
-    const tokenResponse = await AuthSession.exchangeCodeAsync(
-      {
-        clientId: GOOGLE_CLIENT_ID,
-        code: result.params.code,
-        redirectUri,
-        extraParams: {},
-      },
-      discovery
-    );
+    if (!idToken) {
+      return { user: null, error: 'ID token is required' };
+    }
 
-    const credential = GoogleAuthProvider.credential(tokenResponse.idToken);
+    const credential = GoogleAuthProvider.credential(idToken);
     const userCredential = await signInWithCredential(auth, credential);
     const user = userCredential.user;
 
@@ -1097,6 +1079,241 @@ export const signInWithGoogle = async () => {
   } catch (error) {
     console.error('Google sign in error:', error);
     return { user: null, error: error.message || 'Failed to sign in with Google' };
+  }
+};
+
+// Sign in with Apple (iOS only)
+export const signInWithApple = async () => {
+  try {
+    if (Platform.OS !== 'ios') {
+      return { user: null, error: 'Apple Sign In is only available on iOS' };
+    }
+
+    if (!auth || !db) {
+      throw new Error('Firebase not configured');
+    }
+
+    // Check if Apple Authentication is available
+    const isAvailable = await AppleAuthentication.isAvailableAsync();
+    if (!isAvailable) {
+      return { user: null, error: 'Apple Sign In is not available on this device' };
+    }
+
+    // Request Apple authentication
+    const appleCredential = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      ],
+    });
+
+    if (!appleCredential.identityToken) {
+      return { user: null, error: 'No identity token received from Apple' };
+    }
+
+    // Create Firebase credential
+    const provider = new OAuthProvider('apple.com');
+    const credential = provider.credential({
+      idToken: appleCredential.identityToken,
+      rawNonce: appleCredential.nonce || undefined,
+    });
+
+    // Sign in to Firebase
+    const userCredential = await signInWithCredential(auth, credential);
+    const user = userCredential.user;
+
+    // Use upsertUserProfile to create/update profile (idempotent)
+    // Apple may not provide email/name on subsequent logins, so use what we have
+    const name = appleCredential.fullName 
+      ? `${appleCredential.fullName.givenName || ''} ${appleCredential.fullName.familyName || ''}`.trim() 
+      : null;
+    
+    const email = appleCredential.email || user.email || '';
+    const profileResult = await upsertUserProfile(user.uid, {
+      name: name || (user.displayName && user.displayName.trim() ? user.displayName.trim() : null),
+      username: null, // username will be derived from email if not provided
+    });
+
+    if (!profileResult.success && profileResult.error !== 'username_taken') {
+      console.warn('[signInWithApple] Profile update warning:', profileResult.error);
+      // Continue anyway - user is signed in
+    }
+
+    return { user, error: null };
+  } catch (error) {
+    console.error('Apple sign in error:', error);
+    console.error('Error code:', error.code);
+    console.error('Error message:', error.message);
+    console.error('Full error:', JSON.stringify(error, null, 2));
+    
+    if (error.code === 'ERR_REQUEST_CANCELED') {
+      return { user: null, error: 'Apple sign in cancelled' };
+    }
+    
+    // Handle Firebase audience mismatch error (common in Expo Go)
+    const errorMessage = error.message || '';
+    const errorCode = error.code || '';
+    
+    // Check if it's an audience mismatch error
+    if ((errorCode === 'auth/invalid-credential' || errorMessage.includes('invalid-credential')) && 
+        (errorMessage.includes('audience') || errorMessage.includes('host.exp.Exponent'))) {
+      const isExpoGo = Constants.executionEnvironment === 'storeClient' || 
+                       (typeof Constants.appOwnership !== 'undefined' && Constants.appOwnership === 'expo');
+      
+      if (isExpoGo) {
+        return { 
+          user: null, 
+          error: 'Apple Sign In requires a production build. In Expo Go, the bundle ID (host.exp.Exponent) doesn\'t match Firebase configuration. Please build the app with EAS Build to use Apple Sign In.' 
+        };
+      } else {
+        // Extract audience from error message if available
+        const audienceMatch = errorMessage.match(/audience.*?\[(.*?)\]/);
+        const foundAudience = audienceMatch ? audienceMatch[1] : 'unknown';
+        
+        return { 
+          user: null, 
+          error: `Apple Sign In configuration error. The ID token audience (${foundAudience}) doesn't match your Firebase Service ID. Please verify:\n\n1. Your Apple Service ID in Firebase matches exactly\n2. Your bundle identifier is com.anonymous.roll\n3. The Service ID return URL is: https://goingout-8b2e0.firebaseapp.com/__/auth/handler\n\nGo to Firebase Console > Authentication > Sign-in method > Apple to check your configuration.` 
+        };
+      }
+    }
+    
+    // Handle other common errors
+    if (errorMessage.includes('Service ID') || errorMessage.includes('service')) {
+      return { 
+        user: null, 
+        error: 'Apple Service ID configuration error. Please verify your Service ID in Firebase Console matches the one in Apple Developer Portal.' 
+      };
+    }
+    
+    if (errorMessage.includes('Key') || errorMessage.includes('key')) {
+      return { 
+        user: null, 
+        error: 'Apple Key configuration error. Please verify your Key ID and Private Key (.p8 file) in Firebase Console are correct.' 
+      };
+    }
+    
+    return { user: null, error: error.message || 'Failed to sign in with Apple' };
+  }
+};
+
+/**
+ * Send sign-in link to user's email (passwordless authentication)
+ * @param {string} email - User's email address
+ * @param {string} deepLinkUrl - Deep link URL to redirect back to app
+ * @returns {Promise<{ success: boolean, error: string|null }>}
+ */
+export const sendEmailSignInLink = async (email, deepLinkUrl) => {
+  try {
+    if (!auth || !db) {
+      throw new Error('Firebase not configured');
+    }
+
+    if (!email || !email.trim()) {
+      return { success: false, error: 'Email is required' };
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+
+    // Configure action code settings for email link
+    // For React Native, we use the Firebase auth domain with app scheme
+    // The URL will be: https://goingout-8b2e0.firebaseapp.com/__/auth/action?mode=signIn&oobCode=...
+    // But we configure it to open the app via deep link
+    const actionCodeSettings = {
+      // URL to redirect back to - Firebase will append the auth code
+      // This should be a URL that can open the app (via deep link)
+      url: deepLinkUrl || 'roll://auth/email-signin',
+      // This must be true for sign-in links
+      handleCodeInApp: true,
+      iOS: {
+        bundleId: 'com.anonymous.roll',
+      },
+      android: {
+        packageName: 'com.anonymous.roll',
+        installApp: false, // Set to true if you want to prompt to install app
+        minimumVersion: '12',
+      },
+    };
+
+    await sendSignInLinkToEmail(auth, trimmedEmail, actionCodeSettings);
+
+    return { success: true, error: null };
+  } catch (error) {
+    console.error('Error sending email sign-in link:', error);
+    return { 
+      success: false, 
+      error: error.message || 'Failed to send sign-in link. Please try again.' 
+    };
+  }
+};
+
+/**
+ * Check if the current URL is an email sign-in link
+ * @param {string} url - URL to check
+ * @returns {boolean}
+ */
+export const checkIsEmailSignInLink = (url) => {
+  try {
+    if (!auth) return false;
+    return isSignInWithEmailLink(auth, url);
+  } catch (error) {
+    console.error('Error checking email sign-in link:', error);
+    return false;
+  }
+};
+
+/**
+ * Complete sign-in with email link
+ * @param {string} email - User's email address (must match the email the link was sent to)
+ * @param {string} emailLink - The full URL from the email link
+ * @returns {Promise<{ user: User|null, error: string|null }>}
+ */
+export const completeEmailLinkSignIn = async (email, emailLink) => {
+  try {
+    if (!auth || !db) {
+      throw new Error('Firebase not configured');
+    }
+
+    if (!email || !email.trim()) {
+      return { user: null, error: 'Email is required' };
+    }
+
+    if (!emailLink) {
+      return { user: null, error: 'Email link is required' };
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+
+    // Sign in with the email link
+    const userCredential = await signInWithEmailLink(auth, trimmedEmail, emailLink);
+    const user = userCredential.user;
+
+    // Use upsertUserProfile to create/update profile
+    const profileResult = await upsertUserProfile({
+      authUid: user.uid,
+      email: user.email || trimmedEmail,
+      name: user.displayName || null,
+      // Username will be derived from email if not provided
+    });
+
+    if (!profileResult.success && profileResult.error !== 'username_taken') {
+      console.warn('[signInWithEmailLink] Profile update warning:', profileResult.error);
+      // Continue anyway - user is signed in
+    }
+
+    return { user, error: null };
+  } catch (error) {
+    console.error('Error signing in with email link:', error);
+    
+    // Handle specific errors
+    if (error.code === 'auth/invalid-action-code') {
+      return { user: null, error: 'This sign-in link has expired or is invalid. Please request a new one.' };
+    }
+    
+    if (error.code === 'auth/invalid-email') {
+      return { user: null, error: 'Invalid email address.' };
+    }
+
+    return { user: null, error: error.message || 'Failed to sign in with email link' };
   }
 };
 

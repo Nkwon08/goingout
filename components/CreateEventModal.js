@@ -894,9 +894,9 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
   const [showStartTimePicker, setShowStartTimePicker] = React.useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = React.useState(false);
 
-  // Sync edit mode date/time state with datetime when datetime changes
+  // Sync edit mode date/time state with datetime only when modal opens or event data loads
   React.useEffect(() => {
-    if (isEditMode) {
+    if (isEditMode && visible) {
       const startD = new Date(startDateTime);
       startD.setHours(0, 0, 0, 0);
       setEditStartDate(startD);
@@ -907,22 +907,7 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
       setEditEndDate(endD);
       setEditEndTime(new Date(endDateTime));
     }
-  }, [isEditMode, startDateTime, endDateTime]);
-
-  // Update datetime when edit mode date/time changes
-  React.useEffect(() => {
-    if (isEditMode) {
-      const newStart = new Date(editStartDate);
-      newStart.setHours(editStartTime.getHours());
-      newStart.setMinutes(editStartTime.getMinutes());
-      setStartDateTime(newStart);
-      
-      const newEnd = new Date(editEndDate);
-      newEnd.setHours(editEndTime.getHours());
-      newEnd.setMinutes(editEndTime.getMinutes());
-      setEndDateTime(newEnd);
-    }
-  }, [isEditMode, editStartDate, editStartTime, editEndDate, editEndTime]);
+  }, [isEditMode, visible]); // Only sync when modal opens, not on every datetime change
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
@@ -1007,8 +992,17 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
                                 setShowStartDatePicker(Platform.OS === 'ios');
                                 if (selectedDate) {
                                   setEditStartDate(selectedDate);
+                                  // Update datetime directly
+                                  const newStart = new Date(selectedDate);
+                                  newStart.setHours(editStartTime.getHours());
+                                  newStart.setMinutes(editStartTime.getMinutes());
+                                  setStartDateTime(newStart);
                                   if (editEndDate < selectedDate) {
                                     setEditEndDate(selectedDate);
+                                    const newEnd = new Date(selectedDate);
+                                    newEnd.setHours(editEndTime.getHours());
+                                    newEnd.setMinutes(editEndTime.getMinutes());
+                                    setEndDateTime(newEnd);
                                   }
                                 }
                               }}
@@ -1037,6 +1031,11 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
                                 setShowStartTimePicker(Platform.OS === 'ios');
                                 if (selectedTime) {
                                   setEditStartTime(selectedTime);
+                                  // Update datetime directly
+                                  const newStart = new Date(editStartDate);
+                                  newStart.setHours(selectedTime.getHours());
+                                  newStart.setMinutes(selectedTime.getMinutes());
+                                  setStartDateTime(newStart);
                                 }
                               }}
                             />
@@ -1063,6 +1062,11 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
                                 setShowEndDatePicker(Platform.OS === 'ios');
                                 if (selectedDate) {
                                   setEditEndDate(selectedDate);
+                                  // Update datetime directly
+                                  const newEnd = new Date(selectedDate);
+                                  newEnd.setHours(editEndTime.getHours());
+                                  newEnd.setMinutes(editEndTime.getMinutes());
+                                  setEndDateTime(newEnd);
                                 }
                               }}
                               minimumDate={editStartDate}
@@ -1090,6 +1094,11 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
                                 setShowEndTimePicker(Platform.OS === 'ios');
                                 if (selectedTime) {
                                   setEditEndTime(selectedTime);
+                                  // Update datetime directly
+                                  const newEnd = new Date(editEndDate);
+                                  newEnd.setHours(selectedTime.getHours());
+                                  newEnd.setMinutes(selectedTime.getMinutes());
+                                  setEndDateTime(newEnd);
                                 }
                               }}
                             />

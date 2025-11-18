@@ -221,6 +221,9 @@ service cloud.firestore {
          request.resource.data.host == resource.data.host)
       );
       allow delete: if request.auth != null && 
+        resource != null &&
+        resource.data != null &&
+        resource.data.userId != null &&
         resource.data.userId == request.auth.uid; // Users can only delete their own events
     }
     

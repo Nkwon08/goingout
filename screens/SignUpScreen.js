@@ -3,8 +3,11 @@ import * as React from 'react';
 import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity } from 'react-native';
 import { TextInput, Button, Text, Snackbar, Divider } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Google from 'expo-auth-session/providers/google';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { useThemeColors } from '../hooks/useThemeColors';
-import { signUp, signInWithGoogle, checkUsernameAvailability } from '../services/authService';
+import { signUp, signInWithGoogle, signInWithApple, checkUsernameAvailability } from '../services/authService';
+import { GOOGLE_CLIENT_ID, GOOGLE_IOS_CLIENT_ID, GOOGLE_ANDROID_CLIENT_ID } from '../config/firebase';
 
 const IU_CRIMSON = '#CC0000';
 
@@ -22,6 +25,7 @@ export default function SignUpScreen({ navigation }) {
   const [showPassword, setShowPassword] = React.useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [googleLoading, setGoogleLoading] = React.useState(false);
+  const [appleLoading, setAppleLoading] = React.useState(false);
   const [usernameAvailable, setUsernameAvailable] = React.useState(null); // null = not checked, true = available, false = taken
   const [checkingUsername, setCheckingUsername] = React.useState(false);
   const [usernameTouched, setUsernameTouched] = React.useState(false); // Track if user has interacted with username field
@@ -29,7 +33,54 @@ export default function SignUpScreen({ navigation }) {
   const usernameCheckTimeoutRef = React.useRef(null);
   const [acceptedTerms, setAcceptedTerms] = React.useState(false);
 
+  // Google Auth Request hook
+  // Uses platform-specific client IDs for production App Store builds
+  // Falls back to web client ID if platform-specific IDs are not set
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    clientId: GOOGLE_CLIENT_ID, // Web client ID (for Firebase backend)
+    iosClientId: GOOGLE_IOS_CLIENT_ID !== 'YOUR_IOS_CLIENT_ID_HERE' ? GOOGLE_IOS_CLIENT_ID : GOOGLE_CLIENT_ID,
+    androidClientId: GOOGLE_ANDROID_CLIENT_ID !== 'YOUR_ANDROID_CLIENT_ID_HERE' ? GOOGLE_ANDROID_CLIENT_ID : GOOGLE_CLIENT_ID,
+  });
+
   const { background, text, subText } = useThemeColors();
+
+  // Handle Google response
+  const handleGoogleResponse = React.useCallback(async (response) => {
+    try {
+      const { id_token } = response.params;
+      if (!id_token) {
+        setGoogleLoading(false);
+        setError('No ID token received from Google');
+        setSnackbarVisible(true);
+        return;
+      }
+
+      const result = await signInWithGoogle(id_token);
+      setGoogleLoading(false);
+
+      if (result.error) {
+        setError(result.error);
+        setSnackbarVisible(true);
+      } else {
+        // Navigation handled by auth state change in App.js
+      }
+    } catch (error) {
+      setGoogleLoading(false);
+      setError(error.message || 'Failed to sign in with Google');
+      setSnackbarVisible(true);
+    }
+  }, []);
+
+  // Handle Google response effect
+  React.useEffect(() => {
+    if (response?.type === 'success') {
+      handleGoogleResponse(response);
+    } else if (response?.type === 'error') {
+      setGoogleLoading(false);
+      setError('Google sign in failed');
+      setSnackbarVisible(true);
+    }
+  }, [response, handleGoogleResponse]);
 
   // Check username availability with debouncing
   React.useEffect(() => {
@@ -221,10 +272,29 @@ export default function SignUpScreen({ navigation }) {
   const handleGoogleSignIn = async () => {
     setGoogleLoading(true);
     setError(null);
+    try {
+      await promptAsync();
+    } catch (error) {
+      setGoogleLoading(false);
+      setError(error.message || 'Failed to start Google sign in');
+      setSnackbarVisible(true);
+    }
+  };
 
-    const result = await signInWithGoogle();
+  // Handle Apple sign in
+  const handleAppleSignIn = async () => {
+    if (Platform.OS !== 'ios') {
+      setError('Apple Sign In is only available on iOS');
+      setSnackbarVisible(true);
+      return;
+    }
+
+    setAppleLoading(true);
+    setError(null);
+
+    const result = await signInWithApple();
     
-    setGoogleLoading(false);
+    setAppleLoading(false);
 
     if (result.error) {
       setError(result.error);
@@ -378,7 +448,7 @@ export default function SignUpScreen({ navigation }) {
             mode="contained"
             onPress={handleSignUp}
             loading={loading}
-            disabled={loading || googleLoading || usernameAvailable === false || checkingUsername || (username.trim() && usernameAvailable !== true) || !acceptedTerms}
+            disabled={loading || googleLoading || appleLoading || usernameAvailable === false || checkingUsername || (username.trim() && usernameAvailable !== true) || !acceptedTerms}
             buttonColor={IU_CRIMSON}
             textColor="#FFFFFF"
             style={styles.button}
@@ -396,13 +466,13 @@ export default function SignUpScreen({ navigation }) {
 
           {/* Google Sign In Button */}
           <Button
-            mode="outlined"
+            mode="contained"
             onPress={handleGoogleSignIn}
             loading={googleLoading}
-            disabled={loading || googleLoading}
-            buttonColor="transparent"
-            textColor={text}
-            style={[styles.googleButton, { borderColor: subText }]}
+            disabled={loading || googleLoading || appleLoading || !request}
+            buttonColor="#FFFFFF"
+            textColor="#000000"
+            style={[styles.googleButton, { borderColor: '#E0E0E0', borderWidth: 1 }]}
             contentStyle={styles.googleButtonContent}
             icon={() => (
               <MaterialCommunityIcons name="google" size={20} color="#4285F4" />
@@ -410,6 +480,25 @@ export default function SignUpScreen({ navigation }) {
           >
             Continue with Google
           </Button>
+
+          {/* Apple Sign In Button (iOS only) */}
+          {Platform.OS === 'ios' && (
+            <>
+              <View style={styles.dividerContainer}>
+                <Divider style={styles.divider} />
+                <Text style={[styles.dividerText, { color: subText }]}>OR</Text>
+                <Divider style={styles.divider} />
+              </View>
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+                cornerRadius={8}
+                style={styles.appleButton}
+                onPress={handleAppleSignIn}
+                disabled={loading || googleLoading || appleLoading}
+              />
+            </>
+          )}
 
           <View style={styles.footer}>
             <Text style={[styles.footerText, { color: text }]}>
@@ -574,6 +663,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     textDecorationLine: 'underline',
+  },
+  appleButton: {
+    width: '100%',
+    height: 48,
+    marginTop: 8,
+    borderRadius: 8,
   },
 });
 

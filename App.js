@@ -8,8 +8,11 @@ import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import RootNavigator from './navigation/RootNavigator';
 import AuthStack from './navigation/AuthStack';
-import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, View, StyleSheet, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Linking from 'expo-linking';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { checkIsEmailSignInLink, completeEmailLinkSignIn } from './services/authService';
 
 // Brand colors
 const PRIMARY_COLOR = '#CC0000';      // IU Crimson
@@ -44,6 +47,85 @@ function AppContent() {
   React.useEffect(() => {
     console.log('👤 User state changed:', user ? `Logged in (${user.uid})` : 'Logged out');
   }, [user]);
+
+  // Handle deep links for email sign-in
+  React.useEffect(() => {
+    const handleDeepLink = async (url) => {
+      if (!url) return;
+
+      console.log('🔗 Deep link received:', url);
+
+      // Check if this is an email sign-in link
+      // Firebase sends links in format: https://goingout-8b2e0.firebaseapp.com/__/auth/action?mode=signIn&oobCode=...
+      // Or deep link format: roll://auth/email-signin?mode=signIn&oobCode=...
+      const isEmailLink = checkIsEmailSignInLink(url) || 
+                         url.includes('mode=signIn') || 
+                         url.includes('oobCode=') ||
+                         url.includes('__/auth/action');
+
+      if (isEmailLink) {
+        try {
+          // Get the email from AsyncStorage (stored when link was sent)
+          const email = await AsyncStorage.getItem('emailForSignIn');
+          
+          if (!email) {
+            // User opened link on different device - need to ask for email
+            Alert.alert(
+              'Email Required',
+              'Please enter the email address you used to request the sign-in link.',
+              [
+                {
+                  text: 'Cancel',
+                  style: 'cancel',
+                },
+                {
+                  text: 'OK',
+                  onPress: async () => {
+                    // For now, show error - in production you'd show an input dialog
+                    Alert.alert(
+                      'Email Required',
+                      'Please request a new sign-in link from the login screen.',
+                    );
+                  },
+                },
+              ]
+            );
+            return;
+          }
+
+          // Complete the sign-in
+          const result = await completeEmailLinkSignIn(email, url);
+          
+          if (result.error) {
+            Alert.alert('Sign In Failed', result.error);
+          } else {
+            // Clear stored email
+            await AsyncStorage.removeItem('emailForSignIn');
+            // User will be signed in automatically via auth state change
+          }
+        } catch (error) {
+          console.error('Error handling email sign-in link:', error);
+          Alert.alert('Error', 'Failed to complete sign-in. Please try again.');
+        }
+      }
+    };
+
+    // Handle initial URL (if app was opened via deep link)
+    Linking.getInitialURL().then((url) => {
+      if (url) {
+        handleDeepLink(url);
+      }
+    });
+
+    // Listen for deep links while app is running
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      handleDeepLink(url);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   // Create theme for React Native Paper components based on dark/light mode
   const paperTheme = React.useMemo(() => {

@@ -16,13 +16,15 @@
           "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone to record audio with videos"
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-apple-authentication"
     ],
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "scheme": "roll",
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -46,7 +48,23 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
       ],
-      "package": "com.anonymous.roll"
+      "package": "com.anonymous.roll",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "roll"
+            },
+            {
+              "scheme": "https",
+              "host": "goingout-8b2e0.firebaseapp.com"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
