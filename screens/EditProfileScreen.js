@@ -5,6 +5,7 @@ import { Appbar, TextInput, Button, Avatar, Text } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
 import { updateProfile } from 'firebase/auth';
@@ -19,6 +20,7 @@ export default function EditProfileScreen({ navigation }) {
   // Get current user data
   const { user, userData, refreshUserData } = useAuth();
   const { background, text, subText, surface, border } = useThemeColors();
+  const insets = useSafeAreaInsets();
 
   // Form state
   const [name, setName] = React.useState(userData?.name || user?.displayName || '');
@@ -271,7 +273,7 @@ export default function EditProfileScreen({ navigation }) {
       </Appbar.Header>
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(32, insets.bottom + 100) }]}
         keyboardShouldPersistTaps="handled"
       >
         {/* Profile Picture Section */}
@@ -409,7 +411,6 @@ export default function EditProfileScreen({ navigation }) {
 const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
-    paddingBottom: 32,
   },
   profilePictureSection: {
     alignItems: 'center',

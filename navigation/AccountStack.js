@@ -6,6 +6,8 @@ import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import UserProfileScreen from '../screens/UserProfileScreen';
 import BlockedUsersScreen from '../screens/BlockedUsersScreen';
+import PrivacyScreen from '../screens/PrivacyScreen';
+import HelpScreen from '../screens/HelpScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -93,6 +95,22 @@ function ProfileStackContent() {
       <Stack.Screen 
         name="BlockedUsers" 
         component={BlockedUsersScreen}
+        options={{
+          presentation: 'card',
+          animation: 'slide_from_right',
+        }}
+      />
+      <Stack.Screen 
+        name="Privacy" 
+        component={PrivacyScreen}
+        options={{
+          presentation: 'card',
+          animation: 'slide_from_right',
+        }}
+      />
+      <Stack.Screen 
+        name="Help" 
+        component={HelpScreen}
         options={{
           presentation: 'card',
           animation: 'slide_from_right',

@@ -200,9 +200,9 @@ export default function AccountScreen({ navigation }) {
             }}
           />
           <Divider style={{ backgroundColor: dividerColor }} />
-          <List.Item title="Privacy" titleStyle={{ color: textColor }} left={(p) => <List.Icon {...p} color={textColor} icon="shield-outline" />} onPress={() => {}} />
+          <List.Item title="Privacy" titleStyle={{ color: textColor }} left={(p) => <List.Icon {...p} color={textColor} icon="shield-outline" />} onPress={() => navigation.navigate('Privacy')} />
           <Divider style={{ backgroundColor: dividerColor }} />
-          <List.Item title="Help" titleStyle={{ color: textColor }} left={(p) => <List.Icon {...p} color={textColor} icon="help-circle-outline" />} onPress={() => {}} />
+          <List.Item title="Help" titleStyle={{ color: textColor }} left={(p) => <List.Icon {...p} color={textColor} icon="help-circle-outline" />} onPress={() => navigation.navigate('Help')} />
           <Divider style={{ backgroundColor: dividerColor }} />
           <List.Item
             title="Logout"

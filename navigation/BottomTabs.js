@@ -8,7 +8,6 @@ import TonightScreen from '../screens/TonightScreen';
 import GroupsStack from './GroupsStack';
 import ActivityScreenNew from '../screens/ActivityScreenNew';
 import ProfileStack from './AccountStack';
-import SwipeableScreenWrapper from '../components/SwipeableScreenWrapper';
 import { useThemeColors } from '../hooks/useThemeColors';
 
 const Tab = createBottomTabNavigator();
@@ -102,58 +101,39 @@ export default function BottomTabs() {
         {/* Define all tab screens */}
         <Tab.Screen 
           name="Feed" 
+          component={FeedScreen}
           options={{
             tabBarLabel: '',
             unmountOnBlur: false,
           }}
-        >
-          {(props) => (
-            <SwipeableScreenWrapper tabName="Feed">
-              <FeedScreen {...props} />
-            </SwipeableScreenWrapper>
-          )}
-        </Tab.Screen>
+        />
         <Tab.Screen 
           name="Tonight" 
+          component={TonightScreen}
           options={{
             tabBarLabel: '',
             unmountOnBlur: false,
           }}
-        >
-          {(props) => (
-            <SwipeableScreenWrapper tabName="Tonight">
-              <TonightScreen {...props} />
-            </SwipeableScreenWrapper>
-          )}
-        </Tab.Screen>
+        />
         <Tab.Screen 
           name="Groups" 
+          component={GroupsStack}
           options={{
             tabBarLabel: '',
             unmountOnBlur: false,
           }}
-        >
-          {(props) => (
-            <SwipeableScreenWrapper tabName="Groups">
-              <GroupsStack {...props} />
-            </SwipeableScreenWrapper>
-          )}
-        </Tab.Screen>
+        />
         <Tab.Screen 
           name="Activity" 
+          component={ActivityScreenNew}
           options={{
             tabBarLabel: '',
             unmountOnBlur: false,
           }}
-        >
-          {(props) => (
-            <SwipeableScreenWrapper tabName="Activity">
-              <ActivityScreenNew {...props} />
-            </SwipeableScreenWrapper>
-          )}
-        </Tab.Screen>
+        />
         <Tab.Screen 
           name="Profile" 
+          component={ProfileStack}
           options={{
             tabBarLabel: '',
             unmountOnBlur: false,
@@ -167,13 +147,7 @@ export default function BottomTabs() {
               });
             },
           })}
-        >
-          {(props) => (
-            <SwipeableScreenWrapper tabName="Profile">
-              <ProfileStack {...props} />
-            </SwipeableScreenWrapper>
-          )}
-        </Tab.Screen>
+        />
       </Tab.Navigator>
     </View>
   );

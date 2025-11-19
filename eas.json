@@ -23,7 +23,9 @@
       "env": {
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
         "LANG": "en_US.UTF-8",
-        "LC_ALL": "en_US.UTF-8"
+        "LC_ALL": "en_US.UTF-8",
+        "COCOAPODS_DISABLE_STATS": "true",
+        "COCOAPODS_SKIP_UPDATE_MESSAGE": "true"
       }
     },
     "preview-simulator": {
