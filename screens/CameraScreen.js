@@ -195,6 +195,7 @@ export default function CameraScreen() {
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.8,
         skipProcessing: false,
+        mirror: false,
       });
       
       if (photo && photo.uri) {
@@ -238,7 +239,6 @@ export default function CameraScreen() {
                   },
                 },
                 // Flip horizontally if using front camera (to correct mirroring)
-                ...(facing === 'front' ? [{ flip: ImageManipulator.FlipType.Horizontal }] : []),
               ],
               {
                 compress: 0.8,
@@ -250,49 +250,12 @@ export default function CameraScreen() {
             console.log('Image cropped to 3:4:', finalUri);
           } catch (cropError) {
             console.error('Error cropping image to 3:4:', cropError);
-            // If cropping fails, still flip front-facing camera photos
-            if (facing === 'front') {
-              try {
-                const flippedImage = await ImageManipulator.manipulateAsync(
-                  photo.uri,
-                  [{ flip: ImageManipulator.FlipType.Horizontal }],
-                  {
-                    compress: 0.8,
-                    format: ImageManipulator.SaveFormat.JPEG,
-                  }
-                );
-                finalUri = flippedImage.uri;
-                console.log('Image flipped (front camera):', finalUri);
-              } catch (flipError) {
-                console.error('Error flipping image:', flipError);
-                // Use original image if flipping fails
-                finalUri = photo.uri;
-              }
-            } else {
-              // Use original image if cropping fails
-              finalUri = photo.uri;
-            }
+            // Use original image if cropping fails
+            finalUri = photo.uri;
           }
         } else {
-          // If photo dimensions are not available, still flip front-facing camera photos
-          if (facing === 'front') {
-            try {
-              const flippedImage = await ImageManipulator.manipulateAsync(
-                photo.uri,
-                [{ flip: ImageManipulator.FlipType.Horizontal }],
-                {
-                  compress: 0.8,
-                  format: ImageManipulator.SaveFormat.JPEG,
-                }
-              );
-              finalUri = flippedImage.uri;
-              console.log('Image flipped (front camera, no dimensions):', finalUri);
-            } catch (flipError) {
-              console.error('Error flipping image:', flipError);
-              // Use original image if flipping fails
-              finalUri = photo.uri;
-            }
-          }
+          // Use original image if photo dimensions are unavailable
+          finalUri = photo.uri;
         }
         
         setCapturedMedia({ type: 'photo', uri: finalUri });
@@ -642,6 +605,7 @@ export default function CameraScreen() {
           facing={facing}
           mode={mode === 'photo' ? 'picture' : 'video'}
           flash={flash}
+          mirror={facing === 'front' ? false : undefined}
           onCameraReady={handleCameraReady}
         >
         {/* Mode Toggle */}

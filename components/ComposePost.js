@@ -5,6 +5,7 @@ import { Text, Avatar, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import UserAvatar from './UserAvatar';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Video } from 'expo-av';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
@@ -29,7 +30,7 @@ const PREDEFINED_BARS = [
   'Nicks English Hut',
 ];
 
-export default function ComposePost({ visible, onClose, onSubmit, currentUser, submitting = false, initialImages = [] }) {
+export default function ComposePost({ visible, onClose, onSubmit, currentUser, submitting = false, initialImages = [], initialVideo = null }) {
   // Get theme colors
   const { isDarkMode, text: textColor, subText, surface, border, divider, background } = useThemeColors();
   const { user, friendsList } = useAuth();
@@ -40,6 +41,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
   const [lat, setLat] = React.useState(null); // GPS latitude
   const [lng, setLng] = React.useState(null); // GPS longitude
   const [images, setImages] = React.useState([]);
+  const [video, setVideo] = React.useState(null);
   const [chooseFromOutlink, setChooseFromOutlink] = React.useState(false);
   const [showMemoriesModal, setShowMemoriesModal] = React.useState(false);
   const [showGroupPhotosModal, setShowGroupPhotosModal] = React.useState(false);
@@ -65,8 +67,14 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
 
   // Empty - images will come from user's own photos/Firebase in the future
   const appImages = [];
+  const hasMediaSelected = images.length > 0 || !!video;
+  const mediaCount = images.length + (video ? 1 : 0);
 
   const handlePickMedia = async () => {
+    if (video) {
+      Alert.alert('Video Selected', 'Remove the video before adding photos.');
+      return;
+    }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       alert('Sorry, we need camera roll permissions!');
@@ -118,6 +126,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
     console.log('📝 Text:', text);
     console.log('📝 Location:', location);
     console.log('📝 Images:', images.length);
+    console.log('📝 Video selected:', !!video);
     console.log('📝 Submitting prop:', submitting);
     
     // Don't submit if already submitting
@@ -136,14 +145,14 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
     }
     
     // Either text or images/videos must be provided
-    if (!text.trim() && images.length === 0) {
+    if (!text.trim() && !hasMediaSelected) {
       console.log('❌ Need text or images');
       alert('Please add text or media (pictures/videos) to your post.');
       return;
     }
     
     console.log('✅ Submitting post...');
-    console.log('✅ Total images selected:', images.length);
+    console.log('✅ Total media selected:', mediaCount);
     console.log('✅ Visibility:', visibility);
     console.log('✅ Bar location:', bar);
     console.log('✅ City location (for filtering):', cityLocation);
@@ -155,6 +164,8 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       lng: null, // GPS not needed for location-based filtering anymore
       image: images.length > 0 ? images[0] : null, // Keep for backwards compatibility
       images: images.length > 0 ? images : null, // All selected images in one post
+      video: video || null,
+      videos: video ? [video] : null,
       visibility: visibility, // 'friends' or 'location'
       bar: bar.trim() || null, // Bar name (used as location display)
     });
