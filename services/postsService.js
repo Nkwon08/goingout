@@ -34,15 +34,16 @@ export const createPost = async (userId, userData, postData) => {
     if (postData.images && Array.isArray(postData.images) && postData.images.length > 0) {
       imagesArray = postData.images; // Carousel post with multiple images
     } else if (postData.image) {
+      // Single image - also save as array for consistency
+      imagesArray = [postData.image];
+    }
+
+    // Ensure videos array is properly formatted
     let videosArray = null;
     if (postData.videos && Array.isArray(postData.videos) && postData.videos.length > 0) {
       videosArray = postData.videos;
     } else if (postData.video) {
       videosArray = [postData.video];
-    }
-
-      // Single image - also save as array for consistency
-      imagesArray = [postData.image];
     }
 
     // Calculate expiration time: 24 hours from now
