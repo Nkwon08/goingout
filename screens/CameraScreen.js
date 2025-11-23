@@ -11,7 +11,7 @@ import ComposePost from '../components/ComposePost';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { uploadImages } from '../services/storageService';
+import { uploadImages, uploadVideo } from '../services/storageService';
 import { createPost } from '../services/postsService';
 import { subscribeToUserGroups } from '../services/groupsService';
 import { sendImageMessage, sendVideoMessage } from '../services/groupChatService';
@@ -195,7 +195,6 @@ export default function CameraScreen() {
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.8,
         skipProcessing: false,
-        mirror: false,
       });
       
       if (photo && photo.uri) {
@@ -238,7 +237,8 @@ export default function CameraScreen() {
                     height: cropHeight,
                   },
                 },
-                // Flip horizontally if using front camera (to correct mirroring)
+                // Flip horizontally if using front camera to match the mirrored preview
+                ...(facing === 'front' ? [{ flip: ImageManipulator.FlipType.Horizontal }] : []),
               ],
               {
                 compress: 0.8,
@@ -254,8 +254,28 @@ export default function CameraScreen() {
             finalUri = photo.uri;
           }
         } else {
-          // Use original image if photo dimensions are unavailable
-          finalUri = photo.uri;
+          // If photo dimensions are not available, still flip front-facing camera photos
+          if (facing === 'front') {
+            try {
+              const flippedImage = await ImageManipulator.manipulateAsync(
+                photo.uri,
+                [{ flip: ImageManipulator.FlipType.Horizontal }],
+                {
+                  compress: 0.8,
+                  format: ImageManipulator.SaveFormat.JPEG,
+                }
+              );
+              finalUri = flippedImage.uri;
+              console.log('Image flipped (front camera, no dimensions):', finalUri);
+            } catch (flipError) {
+              console.error('Error flipping image:', flipError);
+              // Use original image if flipping fails
+              finalUri = photo.uri;
+            }
+          } else {
+            // Use original image if cropping fails
+            finalUri = photo.uri;
+          }
         }
         
         setCapturedMedia({ type: 'photo', uri: finalUri });
@@ -488,6 +508,73 @@ export default function CameraScreen() {
       avatar: user.photoURL || null,
     };
 
+    const videoUris = postData.videos && Array.isArray(postData.videos) && postData.videos.length > 0
+      ? postData.videos
+      : postData.video
+        ? [postData.video]
+        : [];
+    const videoUri = videoUris.length > 0 ? videoUris[0] : null;
+
+    if (videoUri) {
+      setSubmitting(true);
+      try {
+        let uploadedVideo = videoUri;
+        if (videoUri.startsWith('file://')) {
+          const uploadVideoResult = await uploadVideo(videoUri, user.uid, 'posts');
+          if (uploadVideoResult.error) {
+            throw new Error(uploadVideoResult.error);
+          }
+          uploadedVideo = uploadVideoResult.url;
+        }
+
+        const postPayload = {
+          text: postData.text || '',
+          location: postData.location.trim(),
+          image: null,
+          images: null,
+          video: uploadedVideo,
+          videos: [uploadedVideo],
+          visibility: postData.visibility || 'location',
+          bar: postData.bar || null,
+          uploadStatus: 'completed',
+        };
+
+        const result = await createPost(user.uid, currentUserData, postPayload);
+        if (result.error) {
+          throw new Error(result.error);
+        }
+
+        setComposeVisible(false);
+        setCapturedMedia(null);
+        setSubmitting(false);
+
+        let rootNavigator = navigation.getParent();
+        while (rootNavigator && rootNavigator.getParent) {
+          const parent = rootNavigator.getParent();
+          if (!parent) break;
+          rootNavigator = parent;
+        }
+
+        if (navigation.canGoBack()) {
+          navigation.goBack();
+        }
+
+        setTimeout(() => {
+          if (rootNavigator) {
+            rootNavigator.navigate('MainTabs', {
+              screen: 'Feed',
+            });
+          }
+        }, 100);
+        return;
+      } catch (error) {
+        console.error('Error creating video post:', error);
+        Alert.alert('Error', error.message || 'Failed to create post. Please try again.');
+        setSubmitting(false);
+        return;
+      }
+    }
+
     // Get local image URIs (before upload)
     let localImageUrls = postData.images && Array.isArray(postData.images) && postData.images.length > 0 
       ? postData.images 
@@ -605,7 +692,7 @@ export default function CameraScreen() {
           facing={facing}
           mode={mode === 'photo' ? 'picture' : 'video'}
           flash={flash}
-          mirror={facing === 'front' ? false : undefined}
+          mirror={facing === 'front'}
           onCameraReady={handleCameraReady}
         >
         {/* Mode Toggle */}
@@ -773,6 +860,7 @@ export default function CameraScreen() {
         }}
         submitting={submitting}
         initialImages={capturedMedia?.type === 'photo' ? [capturedMedia.uri] : []}
+        initialVideo={capturedMedia?.type === 'video' ? capturedMedia.uri : null}
       />
     </View>
   );

@@ -4,7 +4,7 @@ import { storage } from '../config/firebase';
 import { auth } from '../config/firebase';
 
 // Upload a single image
-export const uploadImage = async (uri, userId, folder = 'posts') => {
+export const uploadImage = async (uri, userId, folder = 'posts', extension = 'jpg') => {
   try {
     console.log('📤 Uploading image:', uri);
     console.log('📤 Storage object:', storage ? 'exists' : 'null');
@@ -38,7 +38,7 @@ export const uploadImage = async (uri, userId, folder = 'posts') => {
     console.log('✅ User authenticated:', auth.currentUser.uid);
     
     // Create a reference to the file location
-    const filename = `${folder}/${userId}/${Date.now()}.jpg`;
+    const filename = `${folder}/${userId}/${Date.now()}.${extension}`;
     
     // Log bucket information for debugging
     try {
@@ -212,5 +212,9 @@ export const uploadImages = async (uris, userId, folder = 'posts') => {
   } catch (error) {
     return { urls: [], errors: [error.message] };
   }
+};
+
+export const uploadVideo = async (uri, userId, folder = 'posts') => {
+  return uploadImage(uri, userId, folder, 'mp4');
 };
 

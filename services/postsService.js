@@ -34,6 +34,13 @@ export const createPost = async (userId, userData, postData) => {
     if (postData.images && Array.isArray(postData.images) && postData.images.length > 0) {
       imagesArray = postData.images; // Carousel post with multiple images
     } else if (postData.image) {
+    let videosArray = null;
+    if (postData.videos && Array.isArray(postData.videos) && postData.videos.length > 0) {
+      videosArray = postData.videos;
+    } else if (postData.video) {
+      videosArray = [postData.video];
+    }
+
       // Single image - also save as array for consistency
       imagesArray = [postData.image];
     }
@@ -68,6 +75,8 @@ export const createPost = async (userId, userData, postData) => {
       lng: postLng, // GPS longitude (required for distance filtering)
       image: postData.image || (imagesArray && imagesArray.length > 0 ? imagesArray[0] : null), // Backwards compatibility
       images: imagesArray, // Carousel post images array
+      video: videosArray && videosArray.length > 0 ? videosArray[0] : null,
+      videos: videosArray,
       bar: postData.bar || null, // Bar name (optional)
       mentions: mentionedUsernames, // Array of mentioned usernames (lowercase)
       likes: 0,

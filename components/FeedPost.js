@@ -3,6 +3,7 @@ import * as React from 'react';
 import { View, Image, TouchableOpacity, StyleSheet, ScrollView, Dimensions, Modal, Alert, TextInput, KeyboardAvoidingView, Platform, FlatList } from 'react-native';
 import { Text, Avatar, Button, ActivityIndicator } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Video } from 'expo-av';
 import { useThemeColors } from '../hooks/useThemeColors';
 import UserAvatar from './UserAvatar';
 import { getCardBorderOnly } from '../utils/cardStyles';
@@ -31,7 +32,7 @@ export default function FeedPost({ post, onDelete }) {
   const [liked, setLiked] = React.useState(false);
   const [likeCount, setLikeCount] = React.useState(post.likes || 0);
   const [commentCount, setCommentCount] = React.useState(post.replies || 0);
-  const [currentImageIndex, setCurrentImageIndex] = React.useState(0);
+  const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const [menuVisible, setMenuVisible] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
   const [commentsVisible, setCommentsVisible] = React.useState(false);
@@ -212,13 +213,28 @@ export default function FeedPost({ post, onDelete }) {
   
       // Normalize images to array format (support both single image and images array)
       // Carousel post: multiple images in one post that can be swiped through
-  const images = React.useMemo(() => {
-        // First check for images array (carousel post with multiple photos)
+  const mediaItems = React.useMemo(() => {
+    const items = [];
+    if (post.images && Array.isArray(post.images) && post.images.length > 0) {
+      items.push(...post.images.map((uri) => ({ type: 'image', uri })));
+    } else if (post.image) {
+      items.push({ type: 'image', uri: post.image });
+    }
+
+    if (post.videos && Array.isArray(post.videos) && post.videos.length > 0) {
+      items.push(...post.videos.map((uri) => ({ type: 'video', uri })));
+    } else if (post.video) {
+      items.push({ type: 'video', uri: post.video });
+    }
+
+    return items;
+  }, [post.image, post.images, post.video, post.videos]);
+
+  const imageUris = React.useMemo(() => {
     if (post.images && Array.isArray(post.images) && post.images.length > 0) {
       return post.images;
-        }
-        // Fallback to single image (backwards compatibility)
-        if (post.image) {
+    }
+    if (post.image) {
       return [post.image];
     }
     return [];
@@ -423,9 +439,9 @@ export default function FeedPost({ post, onDelete }) {
     setSendingToGroup(true);
     try {
       // If post has images, send each image as a separate message
-      if (images.length > 0) {
-        for (let i = 0; i < images.length; i++) {
-          const imageUrl = images[i];
+      if (imageUris.length > 0) {
+        for (let i = 0; i < imageUris.length; i++) {
+          const imageUrl = imageUris[i];
           // Check if image is already a Firebase Storage URL (starts with http/https)
           const isFirebaseUrl = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
           
@@ -646,8 +662,8 @@ export default function FeedPost({ post, onDelete }) {
         </TouchableOpacity>
       </View>
 
-      {/* Images with Swipe */}
-      {images.length > 0 && (
+      {/* Media with Swipe */}
+      {mediaItems.length > 0 && (
         <View style={styles.imagesContainer}>
           <ScrollView
             horizontal
@@ -655,7 +671,7 @@ export default function FeedPost({ post, onDelete }) {
             showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={(event) => {
               const index = Math.round(event.nativeEvent.contentOffset.x / IMAGE_WIDTH);
-              setCurrentImageIndex(index);
+              setCurrentMediaIndex(index);
             }}
             style={styles.imagesScrollView}
             contentContainerStyle={styles.scrollContent}
@@ -663,26 +679,40 @@ export default function FeedPost({ post, onDelete }) {
             snapToInterval={IMAGE_WIDTH}
             snapToAlignment="start"
           >
-            {images.map((img, index) => (
-              <View key={index} style={styles.imageWrapper}>
-              <Image
-                source={{ uri: img }}
-                style={styles.image}
-                resizeMode="cover"
-              />
+            {mediaItems.map((media, index) => (
+              <View key={`${media.type}-${index}`} style={styles.imageWrapper}>
+                {media.type === 'image' ? (
+                  <Image
+                    source={{ uri: media.uri }}
+                    style={styles.image}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Video
+                    source={{ uri: media.uri }}
+                    style={styles.video}
+                    resizeMode="cover"
+                    useNativeControls
+                  />
+                )}
+                {media.type === 'video' && (
+                  <View style={styles.videoBadge}>
+                    <MaterialCommunityIcons name="play" size={18} color="#FFFFFF" />
+                  </View>
+                )}
               </View>
             ))}
           </ScrollView>
           
           {/* Dot Indicators */}
-          {images.length > 1 && (
+          {mediaItems.length > 1 && (
             <View style={styles.dotsContainer}>
-              {images.map((_, index) => (
+              {mediaItems.map((_, index) => (
                 <View
                   key={index}
                   style={[
                     styles.dot,
-                    currentImageIndex === index && styles.dotActive,
+                    currentMediaIndex === index && styles.dotActive,
                   ]}
                 />
               ))}
@@ -1222,6 +1252,20 @@ const styles = StyleSheet.create({
     height: '100%',
     opacity: 1,
     backgroundColor: '#D0CFCD',
+  },
+  video: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000',
+  },
+  videoBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
   dotsContainer: {
     flexDirection: 'row',

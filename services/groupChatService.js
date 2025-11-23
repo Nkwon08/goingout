@@ -11,7 +11,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { uploadImage } from './storageService';
+import { uploadImage, uploadVideo } from './storageService';
 import { addPhotoToAlbum, addVideoToAlbum } from './groupPhotosService';
 
 /**
@@ -173,7 +173,7 @@ export const sendVideoMessage = async (groupId, userId, videoUri, text, userData
     }
 
     // Upload video to Firebase Storage (using uploadImage function which handles blobs)
-    const { url, error: uploadError } = await uploadImage(videoUri, userId, 'group-chat');
+    const { url, error: uploadError } = await uploadVideo(videoUri, userId, 'group-chat');
     
     if (uploadError || !url) {
       return { messageId: null, error: uploadError || 'Failed to upload video' };

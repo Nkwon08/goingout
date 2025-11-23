@@ -70,6 +70,12 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
   const hasMediaSelected = images.length > 0 || !!video;
   const mediaCount = images.length + (video ? 1 : 0);
 
+  React.useEffect(() => {
+    if (video && currentStep === 'media') {
+      setCurrentStep('details');
+    }
+  }, [video, currentStep]);
+
   const handlePickMedia = async () => {
     if (video) {
       Alert.alert('Video Selected', 'Remove the video before adding photos.');
@@ -274,14 +280,16 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       // Reset form when modal opens
       console.log('🔄 Modal opened, resetting form');
       setText('');
-      // Set initial images if provided (from camera), otherwise reset
+      // Set initial media if provided (from camera), otherwise reset
       const hasInitialImages = initialImages && initialImages.length > 0;
+      const hasInitialVideo = !!initialVideo;
       setImages(hasInitialImages ? [...initialImages] : []);
+      setVideo(hasInitialVideo ? initialVideo : null);
       
       // Set step based on whether we have images
-      // If we have initial images (from camera), go to details step
+      // If we have initial media (from camera), go to details step
       // Otherwise, start at media selection step
-      setCurrentStep(hasInitialImages ? 'details' : 'media');
+      setCurrentStep(hasInitialImages || hasInitialVideo ? 'details' : 'media');
       
       // Try to restore state from AsyncStorage (if coming back from camera)
       AsyncStorage.getItem('composePostState')
@@ -347,6 +355,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       setLat(null);
       setLng(null);
       setImages([]);
+      setVideo(null);
       setVisibility('location');
       setBar(''); // Reset bar field
       setCurrentStep('media'); // Reset to media selection step
@@ -356,7 +365,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       setMentionQuery('');
       setMentionStartIndex(-1);
     }
-  }, [visible, currentUser]); // Removed initialImages from dependencies to prevent infinite loop
+  }, [visible, currentUser, initialVideo, initialImages]);
 
   const handleClose = () => {
     Keyboard.dismiss();
@@ -364,7 +373,20 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
   };
 
   const removeImage = (index) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
+    setImages((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      if (next.length === 0 && !video) {
+        setCurrentStep('media');
+      }
+      return next;
+    });
+  };
+
+  const removeVideo = () => {
+    setVideo(null);
+    if (images.length === 0) {
+      setCurrentStep('media');
+    }
   };
 
   return (
@@ -403,10 +425,10 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                       {currentStep === 'details' && (
                         <TouchableOpacity
                           onPress={handleSubmit}
-                          disabled={(!text.trim() && images.length === 0) || !bar.trim() || submitting}
+                          disabled={(!text.trim() && !hasMediaSelected) || !bar.trim() || submitting}
                           style={[
                             styles.postButtonTouchable,
-                            ((!text.trim() && images.length === 0) || !bar.trim() || submitting) && styles.postButtonDisabled
+                            ((!text.trim() && !hasMediaSelected) || !bar.trim() || submitting) && styles.postButtonDisabled
                           ]}
                         >
                           {submitting ? (
@@ -637,6 +659,23 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                 </ScrollView>
                           <Text style={[styles.imagesPreviewHint, { color: subText }]}>Swipe left/right to see all photos • All photos will be in one post</Text>
                         </View>
+              )}
+              {video && (
+                <View style={styles.videoPreviewContainer}>
+                  <Text style={[styles.imagesPreviewTitle, { color: textColor }]}>Video selected</Text>
+                  <View style={styles.videoPreview}>
+                    <Video
+                      source={{ uri: video }}
+                      style={styles.videoPlayer}
+                      useNativeControls
+                      resizeMode="contain"
+                    />
+                    <TouchableOpacity style={styles.removeImageButton} onPress={removeVideo}>
+                      <MaterialCommunityIcons name="close-circle" size={24} color="#FF6B6B" />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={[styles.imagesPreviewHint, { color: subText }]}>This video will be included in your post</Text>
+                </View>
               )}
               {/* Character count */}
               <View style={[styles.charCountContainer, { borderTopColor: divider }]}>
@@ -1144,6 +1183,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontStyle: 'italic',
     marginTop: 4,
+  },
+  videoPreviewContainer: {
+    marginTop: 12,
+    marginBottom: 12,
+  },
+  videoPreview: {
+    width: '100%',
+    aspectRatio: 3 / 4,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  videoPlayer: {
+    width: '100%',
+    height: '100%',
   },
   removeImageButton: {
     position: 'absolute',

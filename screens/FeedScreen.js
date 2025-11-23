@@ -13,7 +13,7 @@ import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { subscribeToPosts, createPost } from '../services/postsService';
-import { uploadImages } from '../services/storageService';
+import { uploadImages, uploadVideo } from '../services/storageService';
 import { getCurrentLocation } from '../services/locationService';
 import { subscribeToBlockedUsers } from '../services/blockService';
 
@@ -230,6 +230,12 @@ export default function FeedScreen() {
           : postData.image 
             ? [postData.image] 
             : [];
+        let videoUrl = null;
+        if (postData.videos && Array.isArray(postData.videos) && postData.videos.length > 0) {
+          videoUrl = postData.videos[0];
+        } else if (postData.video) {
+          videoUrl = postData.video;
+        }
         
         // If images are local URIs, upload them to Firebase Storage
         if (imageUrls.length > 0 && imageUrls[0]?.startsWith('file://')) {
@@ -242,6 +248,14 @@ export default function FeedScreen() {
           imageUrls = uploadResult.urls || [];
         }
 
+        if (videoUrl && videoUrl.startsWith('file://')) {
+          const uploadVideoResult = await uploadVideo(videoUrl, user.uid, 'posts');
+          if (uploadVideoResult.error) {
+            throw new Error(uploadVideoResult.error);
+          }
+          videoUrl = uploadVideoResult.url;
+        }
+
         // Prepare post data
         if (!postData.location || !postData.location.trim()) {
           throw new Error('Location is required for all posts');
@@ -252,6 +266,8 @@ export default function FeedScreen() {
           location: postData.location.trim(),
           image: imageUrls.length > 0 ? imageUrls[0] : null,
           images: imageUrls.length > 0 ? imageUrls : null,
+          video: videoUrl || null,
+          videos: videoUrl ? [videoUrl] : null,
           visibility: postData.visibility || 'location',
           bar: postData.bar || null, // Bar name (optional)
         };
