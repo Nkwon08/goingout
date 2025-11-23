@@ -27,18 +27,22 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
   }, [visible, initialSelectedGroup]);
 
   const handleGroupSelect = async (group) => {
+    console.log('handleGroupSelect called with group:', group?.id, 'media:', media?.uri);
+    if (!group) {
+      console.error('No group selected');
+      return;
+    }
+    if (!media || !media.uri) {
+      console.error('No media available');
+      Alert.alert('Error', 'No media to post. Please try again.');
+      return;
+    }
     setSelectedGroup(group);
     setShowGroupSelection(false);
-    // Close preview modal before posting
-    if (onCancel) {
-      onCancel();
+    // Pass media along with group to ensure it's available
+    if (onAddToGroup) {
+      onAddToGroup(group, media);
     }
-    // Small delay to ensure modals close before posting
-    setTimeout(() => {
-      if (onAddToGroup) {
-        onAddToGroup(group);
-      }
-    }, 200);
   };
 
   // Early return if no media - but only after all hooks are called

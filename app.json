@@ -16,6 +16,14 @@
           "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone to record audio with videos"
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#CC0000",
+          "sounds": []
+        }
+      ],
       "expo-font",
       "expo-apple-authentication"
     ],
@@ -33,6 +41,10 @@
         "NSLocationWhenInUseUsageDescription": "Allow access to your location to show nearby posts and events",
         "NSLocationAlwaysUsageDescription": "Allow access to your location to show nearby posts and events",
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "notification": {
+        "icon": "./assets/icon.png",
+        "color": "#CC0000"
       },
       "bundleIdentifier": "com.anonymous.roll"
     },

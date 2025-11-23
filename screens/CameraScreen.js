@@ -276,22 +276,12 @@ export default function CameraScreen() {
     }
 
     if (!cameraRef.current) {
-      console.error('Camera ref is null');
-      Alert.alert('Error', 'Camera is not ready.');
-      return;
-    }
-
-    if (!cameraReadyRef.current) {
-      Alert.alert('Camera Not Ready', 'Please wait a moment for the camera to initialize, then try again.');
+      console.warn('Camera ref is null');
       return;
     }
 
     if (typeof cameraRef.current.recordAsync !== 'function') {
-      console.error('recordAsync is not available on the camera ref');
-      Alert.alert(
-        'Recording Unavailable',
-        'Video recording is not available on this device. Please try restarting the app.'
-      );
+      console.warn('recordAsync not available yet');
       return;
     }
 
@@ -301,6 +291,18 @@ export default function CameraScreen() {
         requestMicPermission();
       }
       return;
+    }
+
+    // If camera isn't ready yet, wait briefly and check again (silently retry)
+    if (!cameraReadyRef.current) {
+      console.log('Camera not ready yet, waiting briefly...');
+      // Wait a short moment for camera to be ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Check again - if still not ready, proceed anyway (camera might be ready but callback hasn't fired)
+      if (!cameraReadyRef.current) {
+        console.log('Proceeding with recording despite ready flag - camera may be ready');
+      }
     }
 
     try {
@@ -326,7 +328,10 @@ export default function CameraScreen() {
     } catch (error) {
       console.error('Recording error:', error);
       const errorMessage = error?.message || error?.toString() || 'Unknown error';
-      Alert.alert('Error', `Failed to record video: ${errorMessage}`);
+      // Only show error for actual failures, not initialization issues
+      if (!errorMessage.toLowerCase().includes('not ready') && !errorMessage.toLowerCase().includes('initializing')) {
+        Alert.alert('Error', `Failed to record video: ${errorMessage}`);
+      }
     } finally {
       isRecordingRef.current = false;
       setIsRecording(false);
@@ -386,10 +391,14 @@ export default function CameraScreen() {
     setPreviewVisible(false);
   };
 
-  const handleAddToGroup = async (group) => {
-    console.log('handleAddToGroup called with group:', group?.id, 'media:', capturedMedia?.type);
+  const handleAddToGroup = async (group, mediaFromPreview = null) => {
+    // Use media from preview if provided, otherwise use capturedMedia state
+    const mediaToPost = mediaFromPreview || capturedMedia;
     
-    if (!capturedMedia || !group) {
+    console.log('handleAddToGroup called with group:', group?.id, 'media:', mediaToPost?.type, 'uri:', mediaToPost?.uri);
+    
+    if (!mediaToPost || !group) {
+      console.error('Missing media or group:', { media: !!mediaToPost, group: !!group });
       Alert.alert('Error', 'Please select a group to add the media to.');
       setShowGroupSelection(false);
       return;
@@ -408,12 +417,12 @@ export default function CameraScreen() {
       // Close preview modal first
       setPreviewVisible(false);
       
-      if (capturedMedia.type === 'video') {
-        console.log('Sending video to group:', group.id);
+      if (mediaToPost.type === 'video') {
+        console.log('Sending video to group:', group.id, 'uri:', mediaToPost.uri);
         const { messageId, error } = await sendVideoMessage(
           group.id,
           user.uid,
-          capturedMedia.uri,
+          mediaToPost.uri,
           '',
           userData
         );
@@ -425,11 +434,11 @@ export default function CameraScreen() {
         }
         console.log('Video sent successfully:', messageId);
       } else {
-        console.log('Sending image to group:', group.id);
+        console.log('Sending image to group:', group.id, 'uri:', mediaToPost.uri);
         const { messageId, error } = await sendImageMessage(
           group.id,
           user.uid,
-          capturedMedia.uri,
+          mediaToPost.uri,
           '',
           userData
         );
