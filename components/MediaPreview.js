@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { View, Modal, Image, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import { Text, Button } from 'react-native-paper';
+import { Text, Button, Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 
@@ -56,14 +56,43 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
                       key={group.id}
                       style={styles.groupModalItem}
                       onPress={() => handleGroupSelect(group)}
+                      activeOpacity={0.7}
                     >
-                      <Text style={styles.groupModalItemText}>{group.name}</Text>
+                      {group?.coverPhoto ? (
+                        <Avatar.Image
+                          size={50}
+                          source={{ uri: group.coverPhoto }}
+                          style={{ backgroundColor: '#E0E0E0', marginRight: 12 }}
+                        />
+                      ) : group?.profilePicture ? (
+                        <Avatar.Image
+                          size={50}
+                          source={{ uri: group.profilePicture }}
+                          style={{ backgroundColor: '#E0E0E0', marginRight: 12 }}
+                        />
+                      ) : (
+                        <Avatar.Text
+                          size={50}
+                          label={group?.name?.slice(0, 2).toUpperCase() || 'GR'}
+                          style={{ backgroundColor: IU_CRIMSON, marginRight: 12 }}
+                        />
+                      )}
+                      <View style={styles.groupModalItemContent}>
+                        <Text style={styles.groupModalItemText}>{group.name || 'Group'}</Text>
+                        <Text style={styles.groupModalItemSubtext}>
+                          {group?.memberCount || (Array.isArray(group.members) ? group.members.length : 0)} member{(group?.memberCount || (Array.isArray(group.members) ? group.members.length : 0)) !== 1 ? 's' : ''}
+                        </Text>
+                      </View>
                       <MaterialCommunityIcons name="chevron-right" size={24} color="#8A90A6" />
                     </TouchableOpacity>
                   ))
                 ) : (
                   <View style={styles.groupModalEmpty}>
+                    <MaterialCommunityIcons name="account-group-outline" size={64} color="#8A90A6" />
                     <Text style={styles.groupModalEmptyText}>No groups available</Text>
+                    <Text style={styles.groupModalEmptySubtext}>
+                      You need to be a member of at least one active group to post.
+                    </Text>
                   </View>
                 )}
               </ScrollView>
@@ -106,23 +135,8 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
             <TouchableOpacity 
               style={styles.actionButton} 
               onPress={() => {
-                if (navigation && media?.uri) {
-                  // Navigate to group selection screen
-                  navigation.navigate('Groups', {
-                    screen: 'SelectGroup',
-                    params: {
-                      mediaUri: media.uri,
-                      mediaType: media.type || 'image',
-                    }
-                  });
-                  // Close the preview
-                  if (onCancel) {
-                    onCancel();
-                  }
-                } else {
-                  // Fallback to modal if navigation not available
-                  setShowGroupSelection(true);
-                }
+                // Always show group selection modal
+                setShowGroupSelection(true);
               }}
             >
               <MaterialCommunityIcons name="account-group" size={24} color="#FFFFFF" />
@@ -154,24 +168,53 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
               <MaterialCommunityIcons name="close" size={24} color="#000000" />
             </TouchableOpacity>
           </View>
-          <ScrollView style={styles.groupModalList}>
-            {groups && groups.length > 0 ? (
-              groups.map((group) => (
-                <TouchableOpacity
-                  key={group.id}
-                  style={styles.groupModalItem}
-                  onPress={() => handleGroupSelect(group)}
-                >
-                  <Text style={styles.groupModalItemText}>{group.name}</Text>
-                  <MaterialCommunityIcons name="chevron-right" size={24} color="#8A90A6" />
-                </TouchableOpacity>
-              ))
-            ) : (
-              <View style={styles.groupModalEmpty}>
-                <Text style={styles.groupModalEmptyText}>No groups available</Text>
-              </View>
-            )}
-          </ScrollView>
+              <ScrollView style={styles.groupModalList}>
+                {groups && groups.length > 0 ? (
+                  groups.map((group) => (
+                    <TouchableOpacity
+                      key={group.id}
+                      style={styles.groupModalItem}
+                      onPress={() => handleGroupSelect(group)}
+                      activeOpacity={0.7}
+                    >
+                      {group?.coverPhoto ? (
+                        <Avatar.Image
+                          size={50}
+                          source={{ uri: group.coverPhoto }}
+                          style={{ backgroundColor: '#E0E0E0', marginRight: 12 }}
+                        />
+                      ) : group?.profilePicture ? (
+                        <Avatar.Image
+                          size={50}
+                          source={{ uri: group.profilePicture }}
+                          style={{ backgroundColor: '#E0E0E0', marginRight: 12 }}
+                        />
+                      ) : (
+                        <Avatar.Text
+                          size={50}
+                          label={group?.name?.slice(0, 2).toUpperCase() || 'GR'}
+                          style={{ backgroundColor: IU_CRIMSON, marginRight: 12 }}
+                        />
+                      )}
+                      <View style={styles.groupModalItemContent}>
+                        <Text style={styles.groupModalItemText}>{group.name || 'Group'}</Text>
+                        <Text style={styles.groupModalItemSubtext}>
+                          {group?.memberCount || (Array.isArray(group.members) ? group.members.length : 0)} member{(group?.memberCount || (Array.isArray(group.members) ? group.members.length : 0)) !== 1 ? 's' : ''}
+                        </Text>
+                      </View>
+                      <MaterialCommunityIcons name="chevron-right" size={24} color="#8A90A6" />
+                    </TouchableOpacity>
+                  ))
+                ) : (
+                  <View style={styles.groupModalEmpty}>
+                    <MaterialCommunityIcons name="account-group-outline" size={64} color="#8A90A6" />
+                    <Text style={styles.groupModalEmptyText}>No groups available</Text>
+                    <Text style={styles.groupModalEmptySubtext}>
+                      You need to be a member of at least one active group to post.
+                    </Text>
+                  </View>
+                )}
+              </ScrollView>
         </View>
       </View>
     </Modal>
@@ -251,23 +294,41 @@ const styles = StyleSheet.create({
   },
   groupModalItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
   },
+  groupModalItemContent: {
+    flex: 1,
+    marginLeft: 0,
+  },
   groupModalItemText: {
     fontSize: 16,
+    fontWeight: '600',
     color: '#000000',
+    marginBottom: 4,
+  },
+  groupModalItemSubtext: {
+    fontSize: 14,
+    color: '#8A90A6',
   },
   groupModalEmpty: {
     padding: 40,
     alignItems: 'center',
   },
   groupModalEmptyText: {
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#000000',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  groupModalEmptySubtext: {
+    fontSize: 14,
     color: '#8A90A6',
+    marginTop: 8,
+    textAlign: 'center',
   },
   footer: {
     flexDirection: 'row',
