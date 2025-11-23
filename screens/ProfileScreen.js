@@ -5,6 +5,7 @@ import { Appbar, Avatar, Text, Button, Switch, List, Divider, TextInput as Paper
 import { LinearGradient } from 'expo-linear-gradient';
 import UserAvatar from '../components/UserAvatar';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Video } from 'expo-av';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useRoute } from '@react-navigation/native';
@@ -548,8 +549,13 @@ export default function ProfileScreen({ navigation }) {
   const followersCount = friendsList?.length || 0;
   const followingCount = friendsList?.length || 0; // Mutual friendships
 
-  // Get work posts (posts with images) for "My works" section - limit to 9 for 3x3 grid
-  const workPosts = posts.filter(post => (post.images || []).length > 0).slice(0, 9);
+  // Get work posts (posts with images or videos) for "My works" section - show all posts
+  const workPosts = posts.filter(post => {
+    const images = post.images || [];
+    const videos = post.videos || [];
+    const video = post.video;
+    return images.length > 0 || videos.length > 0 || !!video;
+  });
 
 
   return (
@@ -832,8 +838,14 @@ export default function ProfileScreen({ navigation }) {
                 }}>
                   {workPosts.map((post, index) => {
                     const images = post.images || [];
-                    const firstImage = images[0];
-                    if (!firstImage) return null;
+                    const videos = post.videos || [];
+                    const video = post.video;
+                    const firstImage = images.length > 0 ? images[0] : null;
+                    const firstVideo = videos.length > 0 ? videos[0] : (video || null);
+                    const hasVideo = !!firstVideo;
+                    const hasImage = !!firstImage;
+                    
+                    if (!firstImage && !firstVideo) return null;
                 
                     return (
                       <TouchableOpacity
@@ -850,14 +862,34 @@ export default function ProfileScreen({ navigation }) {
                         }}
                         activeOpacity={0.8}
                       >
-                        <Image
-                          source={{ uri: firstImage }}
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                          }}
-                          resizeMode="cover"
-                        />
+                        {hasImage ? (
+                          <Image
+                            source={{ uri: firstImage }}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                            }}
+                            resizeMode="cover"
+                          />
+                        ) : hasVideo ? (
+                          <View style={{ width: '100%', height: '100%', backgroundColor: '#000' }}>
+                            <Video
+                              source={{ uri: firstVideo }}
+                              style={{ width: '100%', height: '100%' }}
+                              resizeMode="cover"
+                              shouldPlay={false}
+                              isMuted
+                            />
+                            <View style={{
+                              position: 'absolute',
+                              top: '50%',
+                              left: '50%',
+                              transform: [{ translateX: -12 }, { translateY: -12 }],
+                            }}>
+                              <MaterialCommunityIcons name="play-circle" size={24} color="rgba(255,255,255,0.9)" />
+                            </View>
+                          </View>
+                        ) : null}
                         {images.length > 1 && (
                           <View style={{
                             position: 'absolute',
@@ -870,6 +902,23 @@ export default function ProfileScreen({ navigation }) {
                           }}>
                             <MaterialCommunityIcons 
                               name="layers" 
+                              size={16} 
+                              color="#FFFFFF" 
+                            />
+                          </View>
+                        )}
+                        {hasVideo && (
+                          <View style={{
+                            position: 'absolute',
+                            top: 8,
+                            right: 8,
+                            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                            borderRadius: 12,
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                          }}>
+                            <MaterialCommunityIcons 
+                              name="video" 
                               size={16} 
                               color="#FFFFFF" 
                             />

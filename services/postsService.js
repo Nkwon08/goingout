@@ -435,6 +435,12 @@ export const subscribeToPosts = (callback, pageSize = 20, userLocation = null, u
               return true;
             }
             
+            // Always show own posts regardless of location
+            const isOwnPost = userId && post.userId && userId === post.userId;
+            if (isOwnPost) {
+              return true; // Always show own posts
+            }
+            
             // For location-based posts, filter by matching account location
             // Normalize location strings for comparison (trim and lowercase)
             const normalizeLocation = (loc) => {

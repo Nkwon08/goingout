@@ -982,7 +982,7 @@ export default function FriendsTab() {
     >
       <View style={{ flex: 1 }}>
         <ScrollView 
-          contentContainerStyle={{ padding: 16 }}
+          contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

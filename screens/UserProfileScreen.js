@@ -3,6 +3,7 @@ import * as React from 'react';
 import { View, Alert, TouchableOpacity, Image, Modal, Dimensions, FlatList } from 'react-native';
 import { Appbar, Avatar, Text, IconButton } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Video } from 'expo-av';
 import UserAvatar from '../components/UserAvatar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../context/ThemeContext';
@@ -40,13 +41,13 @@ function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
         if (result.error) {
           console.error('Error loading posts:', result.error);
         } else {
-          // Limit to 9 posts for 3x3 grid
-          setPosts(result.posts.slice(0, 9));
+          // Show all posts, not limited to 9
+          setPosts(result.posts);
         }
         setLoading(false);
         setRefreshing(false);
       },
-      9 // Get up to 9 posts
+      100 // Get up to 100 posts (effectively all)
     );
 
     return () => unsubscribe();
@@ -221,13 +222,20 @@ function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
           alignContent: 'flex-start',
         }}>
         {posts.filter(post => {
-          // Only show posts that have at least one image
+          // Show posts that have images or videos
           const images = post.images || [];
-          return images.length > 0;
+          const videos = post.videos || [];
+          const video = post.video;
+          return images.length > 0 || videos.length > 0 || !!video;
         }).map((post) => {
-          // Get first image from post
+          // Get first image or video from post
           const images = post.images || [];
+          const videos = post.videos || [];
+          const video = post.video;
           const firstImage = images.length > 0 ? images[0] : null;
+          const firstVideo = videos.length > 0 ? videos[0] : (video || null);
+          const hasVideo = !!firstVideo;
+          const hasImage = !!firstImage;
           
           // Calculate height for 3:4 aspect ratio
           const itemHeight = itemSize * (4 / 3);
@@ -245,14 +253,34 @@ function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
               }}
               activeOpacity={0.8}
             >
-              <Image
-                source={{ uri: firstImage }}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                }}
-                resizeMode="cover"
-              />
+              {hasImage ? (
+                <Image
+                  source={{ uri: firstImage }}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                  }}
+                  resizeMode="cover"
+                />
+              ) : hasVideo ? (
+                <View style={{ width: '100%', height: '100%', backgroundColor: '#000' }}>
+                  <Video
+                    source={{ uri: firstVideo }}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="cover"
+                    shouldPlay={false}
+                    isMuted
+                  />
+                  <View style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: [{ translateX: -12 }, { translateY: -12 }],
+                  }}>
+                    <MaterialCommunityIcons name="play-circle" size={24} color="rgba(255,255,255,0.9)" />
+                  </View>
+                </View>
+              ) : null}
               {/* Overlay for multiple images indicator */}
               {images.length > 1 && (
                 <View style={{
@@ -266,6 +294,24 @@ function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
                 }}>
                   <MaterialCommunityIcons 
                     name="layers" 
+                    size={16} 
+                    color="#FFFFFF" 
+                  />
+                </View>
+              )}
+              {/* Video indicator */}
+              {hasVideo && (
+                <View style={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                  borderRadius: 12,
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                }}>
+                  <MaterialCommunityIcons 
+                    name="video" 
                     size={16} 
                     color="#FFFFFF" 
                   />
