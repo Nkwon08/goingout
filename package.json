@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
-    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-async-storage/async-storage": "1.24.0",
     "@react-native-community/datetimepicker": "8.4.4",
     "@react-navigation/bottom-tabs": "^7.7.2",
     "@react-navigation/material-top-tabs": "^7.4.1",
@@ -46,6 +46,13 @@
     "react-native-svg": "15.12.1",
     "react-native-tab-view": "^4.2.0",
     "react-native-worklets": "0.5.1"
+  },
+  "expo": {
+    "install": {
+      "exclude": [
+        "@react-native-async-storage/async-storage"
+      ]
+    }
   },
   "private": true
 }
