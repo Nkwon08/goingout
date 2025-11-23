@@ -23,7 +23,6 @@ export default function CameraScreen() {
   const [mode, setMode] = React.useState('photo'); // 'photo' or 'video'
   const [flash, setFlash] = React.useState('off'); // 'off', 'on', or 'auto'
   const [isRecording, setIsRecording] = React.useState(false);
-  const [recordingPromise, setRecordingPromise] = React.useState(null);
   const [cameraReady, setCameraReady] = React.useState(false);
   const [previewVisible, setPreviewVisible] = React.useState(false);
   const [capturedMedia, setCapturedMedia] = React.useState(null);
@@ -31,6 +30,7 @@ export default function CameraScreen() {
   const [micPermission, requestMicPermission] = useMicrophonePermissions?.() || [null, null];
   const cameraRef = React.useRef(null);
   const cameraReadyRef = React.useRef(false);
+  const isRecordingRef = React.useRef(false);
   const [composeVisible, setComposeVisible] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [groups, setGroups] = React.useState([]);
@@ -49,22 +49,20 @@ export default function CameraScreen() {
     }
   }, [micPermission, requestMicPermission]);
 
-  // Reset camera ready when mode changes - MUST be before any returns
-  React.useEffect(() => {
-    setCameraReady(false);
-    cameraReadyRef.current = false;
-  }, [mode]);
-
   // Reset ready state when camera facing changes - MUST be before any returns
   React.useEffect(() => {
     setCameraReady(false);
     cameraReadyRef.current = false;
   }, [facing]);
 
-  // Keep ref in sync with state
+  // Keep refs in sync with state
   React.useEffect(() => {
     cameraReadyRef.current = cameraReady;
   }, [cameraReady]);
+
+  React.useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
 
   // Subscribe to user groups
   React.useEffect(() => {
@@ -117,46 +115,6 @@ export default function CameraScreen() {
     return () => clearTimeout(timer);
   }, [mode, facing, cameraReady]);
   
-  // Additional delay for video mode - ensure camera is fully initialized before allowing recording
-  const [videoReady, setVideoReady] = React.useState(true); // Start as true for photo mode
-  React.useEffect(() => {
-    if (mode === 'video') {
-      setVideoReady(false);
-      // Wait for camera to be ready AND give extra time for video mode to initialize
-      const checkVideoReady = () => {
-        if (cameraReadyRef.current && cameraRef.current) {
-          // Check if startRecording is available
-          if (typeof cameraRef.current.startRecording === 'function') {
-            setVideoReady(true);
-            console.log('Video mode ready - startRecording available');
-          } else {
-            // If not available yet, check again after a delay
-            setTimeout(checkVideoReady, 200);
-          }
-        } else {
-          // Camera not ready yet, check again
-          setTimeout(checkVideoReady, 200);
-        }
-      };
-      
-      // Start checking after a short initial delay
-      const timer = setTimeout(checkVideoReady, 300);
-      
-      // Fallback: set videoReady to true after max 3 seconds
-      const fallbackTimer = setTimeout(() => {
-        setVideoReady(true);
-        console.log('Video mode ready (fallback)');
-      }, 3000);
-      
-      return () => {
-        clearTimeout(timer);
-        clearTimeout(fallbackTimer);
-      };
-    } else {
-      setVideoReady(true);
-    }
-  }, [mode, cameraReady]);
-
   if (!permission) {
     // Still loading permission status
     return (
@@ -351,11 +309,7 @@ export default function CameraScreen() {
   };
 
   const handlePressIn = async () => {
-    if (mode !== 'video') {
-      return;
-    }
-
-    if (isRecording) {
+    if (mode !== 'video' || isRecording) {
       return;
     }
 
@@ -365,50 +319,20 @@ export default function CameraScreen() {
       return;
     }
 
-    console.log('Starting video recording...');
-    console.log('Current camera ready state:', cameraReady, 'ref:', cameraReadyRef.current, 'videoReady:', videoReady);
-    
-    // Wait for camera to be ready and video mode to be initialized
-    let attempts = 0;
-    const maxAttempts = 30; // 3 seconds total
-    while ((!cameraReadyRef.current || !videoReady) && attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      attempts++;
-      
-      // Check if startRecording is available yet
-      if (cameraRef.current && typeof cameraRef.current.startRecording === 'function') {
-        console.log('startRecording is now available after', attempts, 'attempts');
-        break;
-      }
-    }
-
-    if (!cameraRef.current) {
-      console.error('Camera ref lost');
-      Alert.alert('Error', 'Camera is not available.');
+    if (!cameraReadyRef.current) {
+      Alert.alert('Camera Not Ready', 'Please wait a moment for the camera to initialize, then try again.');
       return;
     }
 
-    // Check if startRecording is available and is a function
-    if (!cameraRef.current.startRecording || typeof cameraRef.current.startRecording !== 'function') {
-      console.error('startRecording is not available or not a function');
-      console.log('Camera ref:', cameraRef.current);
-      console.log('Available methods:', Object.keys(cameraRef.current || {}));
-      console.log('Camera mode:', mode);
-      console.log('Camera ready:', cameraReadyRef.current);
-      console.log('Video ready:', videoReady);
-      
-      // Try to provide more helpful error message
-      if (!cameraReadyRef.current) {
-        Alert.alert('Camera Not Ready', 'Please wait a moment for the camera to initialize, then try again.');
-      } else if (!videoReady) {
-        Alert.alert('Video Mode Not Ready', 'Please wait a moment for video mode to initialize, then try again.');
-      } else {
-        Alert.alert('Recording Unavailable', 'Video recording is not available on this device. Please try switching to photo mode or restart the app.');
-      }
+    if (typeof cameraRef.current.recordAsync !== 'function') {
+      console.error('recordAsync is not available on the camera ref');
+      Alert.alert(
+        'Recording Unavailable',
+        'Video recording is not available on this device. Please try restarting the app.'
+      );
       return;
     }
 
-    // Check microphone permission
     if (!micPermission?.granted) {
       Alert.alert('Microphone Permission Required', 'Please grant microphone permission to record videos.');
       if (typeof requestMicPermission === 'function') {
@@ -418,62 +342,32 @@ export default function CameraScreen() {
     }
 
     try {
-      // Set recording state first
+      console.log('Starting video recording...');
       setIsRecording(true);
-      
-      // Small wait to ensure everything is stable
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      if (!cameraRef.current) {
-        console.error('Camera ref lost before recording');
-        setIsRecording(false);
-        return;
-      }
+      isRecordingRef.current = true;
 
-      // Final check - ensure startRecording is still available
-      if (!cameraRef.current.startRecording || typeof cameraRef.current.startRecording !== 'function') {
-        console.error('startRecording became unavailable');
-        setIsRecording(false);
-        Alert.alert('Error', 'Video recording became unavailable. Please try again.');
-        return;
-      }
-      
-      console.log('Calling startRecording...');
-      
-      // expo-camera v17+ uses startRecording() with callbacks (not promise-based)
-      // Set up callbacks before starting recording
-      cameraRef.current.startRecording({
+      const recording = cameraRef.current.recordAsync({
         maxDuration: 60,
-        onRecordingFinished: (video) => {
-          console.log('Recording finished:', video);
-          setIsRecording(false);
-          setRecordingPromise(null);
-          if (video && video.uri) {
-            setCapturedMedia({ type: 'video', uri: video.uri });
-            setPreviewVisible(true);
-          } else {
-            console.error('No video data received');
-            Alert.alert('Error', 'No video data received.');
-          }
-        },
-        onRecordingError: (error) => {
-          console.error('Recording error:', error);
-          setIsRecording(false);
-          setRecordingPromise(null);
-          const errorMessage = error?.message || error?.toString() || 'Unknown error';
-          Alert.alert('Error', `Failed to record video: ${errorMessage}`);
-        },
+        mute: false,
       });
-      
-      console.log('Recording started successfully');
-      // Store a dummy promise reference for state tracking
-      setRecordingPromise(Promise.resolve());
+
+      const video = await recording;
+      console.log('Recording finished:', video);
+
+      if (video && video.uri) {
+        setCapturedMedia({ type: 'video', uri: video.uri });
+        setPreviewVisible(true);
+      } else {
+        console.error('No video data received');
+        Alert.alert('Error', 'No video data received.');
+      }
     } catch (error) {
-      setIsRecording(false);
-      setRecordingPromise(null);
-      console.error('Start recording error:', error);
+      console.error('Recording error:', error);
       const errorMessage = error?.message || error?.toString() || 'Unknown error';
-      Alert.alert('Error', `Failed to start recording: ${errorMessage}`);
+      Alert.alert('Error', `Failed to record video: ${errorMessage}`);
+    } finally {
+      isRecordingRef.current = false;
+      setIsRecording(false);
     }
   };
 
@@ -482,30 +376,27 @@ export default function CameraScreen() {
       return;
     }
 
-    if (!cameraRef.current || !isRecording) {
+    if (!cameraRef.current || !isRecordingRef.current) {
       return;
     }
 
     // Check if stopRecording is available and is a function
     if (!cameraRef.current.stopRecording || typeof cameraRef.current.stopRecording !== 'function') {
       console.error('stopRecording is not available or not a function');
-      // Manually resolve the state if stopRecording is not available
+      isRecordingRef.current = false;
       setIsRecording(false);
-      setRecordingPromise(null);
       Alert.alert('Error', 'Failed to stop recording. The recording may have already finished.');
       return;
     }
 
     try {
       console.log('Stopping video recording...');
-      // expo-camera v17+ uses stopRecording() to stop recording
       cameraRef.current.stopRecording();
-      // Note: The actual stop and video data will be handled by onRecordingFinished callback
+      // recordAsync promise resolution will handle resetting state
     } catch (error) {
       console.error('Stop recording error:', error);
-      // If stopRecording fails, manually resolve the state
+      isRecordingRef.current = false;
       setIsRecording(false);
-      setRecordingPromise(null);
       const errorMessage = error?.message || error?.toString() || 'Unknown error';
       Alert.alert('Error', `Failed to stop recording: ${errorMessage}`);
     }
@@ -520,20 +411,11 @@ export default function CameraScreen() {
     // Verify that recording methods are available
     if (cameraRef.current) {
       const methods = {
-        hasStartRecording: typeof cameraRef.current.startRecording === 'function',
+        hasRecordAsync: typeof cameraRef.current.recordAsync === 'function',
         hasStopRecording: typeof cameraRef.current.stopRecording === 'function',
         hasTakePicture: typeof cameraRef.current.takePictureAsync === 'function',
       };
       console.log('Camera ref methods available:', methods);
-      
-      // If in video mode and startRecording is available, trigger videoReady check
-      if (mode === 'video' && methods.hasStartRecording) {
-        // Small delay to ensure everything is set up
-        setTimeout(() => {
-          setVideoReady(true);
-          console.log('Video mode ready - startRecording confirmed available');
-        }, 100);
-      }
     }
   };
 
@@ -875,12 +757,12 @@ export default function CameraScreen() {
               style={[
                 styles.captureButton,
                 isRecording && styles.recordingButton,
-                (mode === 'video' && (!videoReady || !cameraReady)) && styles.disabledButton
+                (mode === 'video' && !cameraReady) && styles.disabledButton
               ]}
               onPressIn={handlePressIn}
               onPressOut={handlePressOut}
               activeOpacity={1}
-              disabled={(mode === 'video' && (!videoReady || !cameraReady)) || isRecording}
+              disabled={(mode === 'video' && !cameraReady) || isRecording}
             >
               {isRecording ? (
                 <View style={styles.recordingIndicator} />
