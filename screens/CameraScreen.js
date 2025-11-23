@@ -399,6 +399,9 @@ export default function CameraScreen() {
     try {
       setSubmitting(true);
       
+      // Close preview modal first
+      setPreviewVisible(false);
+      
       if (capturedMedia.type === 'video') {
         const { messageId, error } = await sendVideoMessage(
           group.id,
@@ -410,17 +413,8 @@ export default function CameraScreen() {
         
         if (error) {
           Alert.alert('Error', error);
-        } else {
-          setCapturedMedia(null);
-          setPreviewVisible(false);
-          
-          // If camera was accessed through a group, navigate back to that group
-          if (selectedGroupId && selectedGroupId === group.id) {
-            // Store groupId in AsyncStorage for GroupsScreen to pick up
-            AsyncStorage.setItem('pendingGroupId', group.id);
-            // Navigate to Groups tab
-            navigation.navigate('Groups');
-          }
+          setSubmitting(false);
+          return;
         }
       } else {
         const { messageId, error } = await sendImageMessage(
@@ -433,23 +427,41 @@ export default function CameraScreen() {
         
         if (error) {
           Alert.alert('Error', error);
-        } else {
-          setCapturedMedia(null);
-          setPreviewVisible(false);
-          
-          // If camera was accessed through a group, navigate back to that group
-          if (selectedGroupId && selectedGroupId === group.id) {
-            // Store groupId in AsyncStorage for GroupsScreen to pick up
-            AsyncStorage.setItem('pendingGroupId', group.id);
-            // Navigate to Groups tab
-            navigation.navigate('Groups');
-          }
+          setSubmitting(false);
+          return;
         }
+      }
+      
+      // Success - clear captured media and navigate to group
+      setCapturedMedia(null);
+      setSubmitting(false);
+      
+      // Store groupId in AsyncStorage for GroupsScreen to pick up
+      await AsyncStorage.setItem('pendingGroupId', group.id);
+      
+      // Navigate to Groups tab and open the selected group
+      let rootNavigator = navigation.getParent();
+      while (rootNavigator && rootNavigator.getParent) {
+        const parent = rootNavigator.getParent();
+        if (!parent) break;
+        rootNavigator = parent;
+      }
+      
+      // Navigate to Groups tab
+      if (rootNavigator) {
+        rootNavigator.navigate('Groups', {
+          screen: 'GroupsMain',
+          params: { groupId: group.id }
+        });
+      } else {
+        navigation.navigate('Groups', {
+          screen: 'GroupsMain',
+          params: { groupId: group.id }
+        });
       }
     } catch (error) {
       console.error('Error adding media to group:', error);
       Alert.alert('Error', error.message || 'Failed to add media to group. Please try again.');
-    } finally {
       setSubmitting(false);
     }
   };

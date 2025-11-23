@@ -22,12 +22,19 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
     }
   }, [visible, initialSelectedGroup]);
 
-  const handleGroupSelect = (group) => {
+  const handleGroupSelect = async (group) => {
     setSelectedGroup(group);
     setShowGroupSelection(false);
-    if (onAddToGroup) {
-      onAddToGroup(group);
+    // Close preview modal before posting
+    if (onCancel) {
+      onCancel();
     }
+    // Small delay to ensure modals close before posting
+    setTimeout(() => {
+      if (onAddToGroup) {
+        onAddToGroup(group);
+      }
+    }, 200);
   };
 
   // Early return if no media - but only after all hooks are called
@@ -135,7 +142,7 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
             <TouchableOpacity 
               style={styles.actionButton} 
               onPress={() => {
-                // Always show group selection modal
+                // Show group selection modal (keep preview open for now)
                 setShowGroupSelection(true);
               }}
             >
