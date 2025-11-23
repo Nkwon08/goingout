@@ -1,15 +1,19 @@
 import * as React from 'react';
-import { View, Modal, Image, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Modal, Image, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
 import { Text, Button, Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 
 const IU_CRIMSON = '#CC0000';
 
-export default function MediaPreview({ visible, media, onDelete, onAddToGroup, onPostToFeed, onPostPublicly, onCancel, groups, initialSelectedGroup, navigation }) {
+export default function MediaPreview({ visible, media, onDelete, onAddToGroup, onPostToFeed, onPostPublicly, onCancel, groups, initialSelectedGroup, navigation, showGroupSelection: externalShowGroupSelection, onShowGroupSelection: setExternalShowGroupSelection }) {
   const [selectedGroup, setSelectedGroup] = React.useState(initialSelectedGroup || null);
-  const [showGroupSelection, setShowGroupSelection] = React.useState(false);
+  const [internalShowGroupSelection, setInternalShowGroupSelection] = React.useState(false);
   const isVideo = media?.type === 'video';
+  
+  // Use external state if provided, otherwise use internal state
+  const showGroupSelection = externalShowGroupSelection !== undefined ? externalShowGroupSelection : internalShowGroupSelection;
+  const setShowGroupSelection = setExternalShowGroupSelection || setInternalShowGroupSelection;
   
   // Update selectedGroup when initialSelectedGroup changes or when preview opens
   React.useEffect(() => {
@@ -142,8 +146,20 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
             <TouchableOpacity 
               style={styles.actionButton} 
               onPress={() => {
-                // Show group selection modal (keep preview open for now)
-                setShowGroupSelection(true);
+                console.log('Post to Group button pressed, groups available:', groups?.length);
+                if (!groups || groups.length === 0) {
+                  Alert.alert('No Groups', 'You need to be a member of at least one active group to post.');
+                  return;
+                }
+                // Close preview modal first, then show group selection
+                if (onCancel) {
+                  onCancel();
+                }
+                // Use a small delay to ensure preview closes before showing group selection
+                setTimeout(() => {
+                  console.log('Showing group selection modal, groups:', groups?.length);
+                  setShowGroupSelection(true);
+                }, 300);
               }}
             >
               <MaterialCommunityIcons name="account-group" size={24} color="#FFFFFF" />

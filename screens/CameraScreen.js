@@ -34,6 +34,7 @@ export default function CameraScreen() {
   const [composeVisible, setComposeVisible] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [groups, setGroups] = React.useState([]);
+  const [showGroupSelection, setShowGroupSelection] = React.useState(false);
   const lastTap = React.useRef(null); // For double tap detection
   const lastTapTimeout = React.useRef(null);
   const { user, userData } = useAuth();
@@ -386,23 +387,29 @@ export default function CameraScreen() {
   };
 
   const handleAddToGroup = async (group) => {
+    console.log('handleAddToGroup called with group:', group?.id, 'media:', capturedMedia?.type);
+    
     if (!capturedMedia || !group) {
       Alert.alert('Error', 'Please select a group to add the media to.');
+      setShowGroupSelection(false);
       return;
     }
 
     if (!user?.uid || !userData) {
       Alert.alert('Error', 'Please sign in to add media to a group.');
+      setShowGroupSelection(false);
       return;
     }
 
     try {
       setSubmitting(true);
+      setShowGroupSelection(false);
       
       // Close preview modal first
       setPreviewVisible(false);
       
       if (capturedMedia.type === 'video') {
+        console.log('Sending video to group:', group.id);
         const { messageId, error } = await sendVideoMessage(
           group.id,
           user.uid,
@@ -416,7 +423,9 @@ export default function CameraScreen() {
           setSubmitting(false);
           return;
         }
+        console.log('Video sent successfully:', messageId);
       } else {
+        console.log('Sending image to group:', group.id);
         const { messageId, error } = await sendImageMessage(
           group.id,
           user.uid,
@@ -430,6 +439,7 @@ export default function CameraScreen() {
           setSubmitting(false);
           return;
         }
+        console.log('Image sent successfully:', messageId);
       }
       
       // Success - clear captured media and navigate to group
@@ -469,6 +479,7 @@ export default function CameraScreen() {
   const handleCancelPreview = () => {
     setCapturedMedia(null);
     setPreviewVisible(false);
+    setShowGroupSelection(false);
   };
 
   const handlePostPublicly = () => {
@@ -831,6 +842,8 @@ export default function CameraScreen() {
         onPostPublicly={handlePostPublicly}
         onCancel={handleCancelPreview}
         navigation={navigation}
+        showGroupSelection={showGroupSelection}
+        onShowGroupSelection={setShowGroupSelection}
       />
 
       {/* Compose Post Modal */}
