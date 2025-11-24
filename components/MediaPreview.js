@@ -131,6 +131,7 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
                 style={styles.media}
                 useNativeControls
                 resizeMode="contain"
+                isLooping
               />
             ) : (
               <Image source={{ uri: media?.uri }} style={styles.media} resizeMode="contain" />

@@ -83,27 +83,11 @@ export default function SelectGroupScreen() {
         } else {
           // Store groupId in AsyncStorage for GroupsScreen to pick up
           await AsyncStorage.setItem('pendingGroupId', group.id);
-          // Navigate back to camera and then to groups
-          navigation.goBack();
-          
-          // Find root navigator to navigate through MainTabs
-          let rootNavigator = navigation;
-          let parent = navigation.getParent();
-          while (parent) {
-            rootNavigator = parent;
-            parent = parent.getParent();
-          }
-          
-          // Navigate to Groups tab through MainTabs (with delay to ensure goBack completes)
-          setTimeout(() => {
-            rootNavigator.navigate('MainTabs', {
-              screen: 'Groups',
-              params: {
-                screen: 'GroupsMain',
-                params: { groupId: group.id }
-              }
-            });
-          }, 100);
+          // Navigate to Groups tab and open the selected group
+          navigation.navigate('Groups', {
+            screen: 'GroupsMain',
+            params: { groupId: group.id }
+          });
         }
       } else {
         const { messageId, error } = await sendImageMessage(
@@ -119,27 +103,11 @@ export default function SelectGroupScreen() {
         } else {
           // Store groupId in AsyncStorage for GroupsScreen to pick up
           await AsyncStorage.setItem('pendingGroupId', group.id);
-          // Navigate back to camera and then to groups
-          navigation.goBack();
-          
-          // Find root navigator to navigate through MainTabs
-          let rootNavigator = navigation;
-          let parent = navigation.getParent();
-          while (parent) {
-            rootNavigator = parent;
-            parent = parent.getParent();
-          }
-          
-          // Navigate to Groups tab through MainTabs (with delay to ensure goBack completes)
-          setTimeout(() => {
-            rootNavigator.navigate('MainTabs', {
-              screen: 'Groups',
-              params: {
-                screen: 'GroupsMain',
-                params: { groupId: group.id }
-              }
-            });
-          }, 100);
+          // Navigate to Groups tab and open the selected group
+          navigation.navigate('Groups', {
+            screen: 'GroupsMain',
+            params: { groupId: group.id }
+          });
         }
       }
     } catch (error) {

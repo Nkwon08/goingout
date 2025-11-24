@@ -527,6 +527,12 @@ export default function FeedPost({ post, onDelete, isVisible = false, videoRefs 
 
       setShowSendToGroupModal(false);
       setSelectedGroup(null);
+      
+      // Navigate to the group after successfully sending
+      navigation.navigate('Groups', {
+        screen: 'GroupsMain',
+        params: { groupId: selectedGroup.id }
+      });
     } catch (error) {
       console.error('Error sending post to group:', error);
       Alert.alert('Error', error.message || 'Failed to send post to group. Please try again.');

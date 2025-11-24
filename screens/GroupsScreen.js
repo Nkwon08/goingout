@@ -993,6 +993,7 @@ function ChatTab({ groupId }) {
               style={{ width: 200, height: 200 }}
               useNativeControls
               resizeMode="contain"
+              isLooping
             />
           </View>
         )}

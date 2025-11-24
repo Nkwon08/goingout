@@ -272,6 +272,7 @@ function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
                     style={{ width: '100%', height: '100%' }}
                     resizeMode="cover"
                     shouldPlay={false}
+                    isLooping
                     isMuted
                   />
                   <View style={{
