@@ -442,22 +442,30 @@ export const subscribeToPosts = (callback, pageSize = 20, userLocation = null, u
             }
             
             // For location-based posts, filter by matching account location
-            // Normalize location strings for comparison (trim and lowercase)
+            // Show posts from others in the same location
+            // Normalize location strings for comparison (trim, lowercase, remove extra spaces)
             const normalizeLocation = (loc) => {
               if (!loc) return '';
-              return String(loc).trim().toLowerCase();
+              return String(loc).trim().toLowerCase().replace(/\s+/g, ' ');
             };
             
             const postLocation = normalizeLocation(post.location);
             const userAccountLocation = normalizeLocation(userLocation);
             
             // Show post if locations match (or if user hasn't set location yet)
+            // This ensures users see posts from others in their same location
             if (userAccountLocation && postLocation) {
+              // Only filter out if locations don't match
               if (postLocation !== userAccountLocation) {
-                return false;
+                return false; // Hide posts from different locations
               }
+              // If locations match, show the post (return true below)
             }
             
+            // Show post if:
+            // 1. User hasn't set location yet (userAccountLocation is empty)
+            // 2. Post location matches user's location
+            // 3. It's the user's own post (already handled above)
             return true;
           });
         // Sort posts by createdAt descending (newest first) - order always based on when it was posted

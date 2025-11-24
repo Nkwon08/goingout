@@ -120,7 +120,7 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
 
   return (
     <>
-      <Modal visible={visible && !!media?.uri} animationType="slide" transparent onRequestClose={onCancel}>
+      <Modal visible={visible && !!media?.uri && !showGroupSelection} animationType="slide" transparent onRequestClose={onCancel}>
         <View style={styles.overlay}>
           <View style={styles.modal}>
           {/* Media Preview */}
@@ -150,20 +150,18 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
             <TouchableOpacity 
               style={styles.actionButton} 
               onPress={() => {
-                console.log('Post to Group button pressed, groups available:', groups?.length);
+                console.log('Post to Group button pressed, groups available:', groups?.length, 'media:', media?.uri);
                 if (!groups || groups.length === 0) {
                   Alert.alert('No Groups', 'You need to be a member of at least one active group to post.');
                   return;
                 }
-                // Close preview modal first, then show group selection
-                if (onCancel) {
-                  onCancel();
+                if (!media || !media.uri) {
+                  Alert.alert('Error', 'No media to post. Please try again.');
+                  return;
                 }
-                // Use a small delay to ensure preview closes before showing group selection
-                setTimeout(() => {
-                  console.log('Showing group selection modal, groups:', groups?.length);
-                  setShowGroupSelection(true);
-                }, 300);
+                // Show group selection modal - hide preview modal temporarily
+                console.log('Showing group selection modal, groups:', groups?.length, 'media available:', !!media);
+                setShowGroupSelection(true);
               }}
             >
               <MaterialCommunityIcons name="account-group" size={24} color="#FFFFFF" />
@@ -185,11 +183,16 @@ export default function MediaPreview({ visible, media, onDelete, onAddToGroup, o
       visible={showGroupSelection} 
       animationType="slide" 
       transparent 
-      onRequestClose={() => setShowGroupSelection(false)}
+      onRequestClose={() => {
+        setShowGroupSelection(false);
+      }}
     >
       <View style={styles.overlay}>
         <View style={styles.groupModal}>
           <View style={styles.groupModalHeader}>
+            <TouchableOpacity onPress={() => setShowGroupSelection(false)}>
+              <MaterialCommunityIcons name="arrow-left" size={24} color="#000000" />
+            </TouchableOpacity>
             <Text style={styles.groupModalTitle}>Select Group</Text>
             <TouchableOpacity onPress={() => setShowGroupSelection(false)}>
               <MaterialCommunityIcons name="close" size={24} color="#000000" />
@@ -315,6 +318,8 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#000000',
+    flex: 1,
+    textAlign: 'center',
   },
   groupModalList: {
     maxHeight: 400,

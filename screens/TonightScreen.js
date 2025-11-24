@@ -236,11 +236,12 @@ export default function TonightScreen() {
             </TouchableOpacity>
           </View>
           {upcomingEvents.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+            <View style={{ gap: 12 }}>
               {upcomingEvents.map((e, index) => (
                 <EventCard 
                   key={e.id || index} 
                   event={e} 
+                  style={{ width: '100%' }}
                   onJoin={async (eventId) => {
                     if (!user?.uid) {
                       Alert.alert('Error', 'You must be logged in to join events.');
@@ -264,38 +265,15 @@ export default function TonightScreen() {
                             console.error('Error storing groupId:', storageError);
                           }
                           
-                          // Navigate to Groups tab - find BottomTabs navigator
-                          let bottomTabsNavigator = navigation;
-                          let parent = navigation.getParent();
-                          
-                          while (parent) {
-                            const state = parent.getState();
-                            const routeNames = state?.routeNames || state?.routes?.map(r => r.name);
-                            
-                            // Check if this navigator has 'Groups' (BottomTabs)
-                            if (routeNames && routeNames.includes('Groups')) {
-                              bottomTabsNavigator = parent;
-                              break;
-                            }
-                            
-                            bottomTabsNavigator = parent;
-                            parent = parent.getParent();
-                          }
-                          
-                          // Navigate to Groups tab using CommonActions
-                          bottomTabsNavigator.dispatch(
-                            CommonActions.navigate({
-                              name: 'Groups',
-                              params: {
-                                screen: 'GroupsMain',
-                                params: { groupId: result.groupId }
-                              }
-                            })
-                          );
+                          // Navigate to Groups tab (TonightScreen is inside BottomTabs)
+                          navigation.navigate('Groups', {
+                            screen: 'GroupsMain',
+                            params: { groupId: result.groupId }
+                          });
                         }
                       }
                     } catch (error) {
-                      Alert.alert('Error', 'Failed to join event. Please try again.');
+                        Alert.alert('Error', 'Failed to join event. Please try again.');
                     }
                   }}
                   onEdit={(event) => {
@@ -304,7 +282,7 @@ export default function TonightScreen() {
                   }}
                 />
               ))}
-            </ScrollView>
+            </View>
           ) : null}
 
           {/* Create/Edit Event Modal */}

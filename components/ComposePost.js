@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Video } from 'expo-av';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
+import { subscribeToVotesForLocation } from '../services/votesService';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
@@ -33,7 +34,7 @@ const PREDEFINED_BARS = [
 export default function ComposePost({ visible, onClose, onSubmit, currentUser, submitting = false, initialImages = [], initialVideo = null }) {
   // Get theme colors
   const { isDarkMode, text: textColor, subText, surface, border, divider, background } = useThemeColors();
-  const { user, friendsList } = useAuth();
+  const { user, friendsList, userData: authUserData } = useAuth();
   
   // State for post content
   const [text, setText] = React.useState('');
@@ -53,6 +54,8 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
   const [bar, setBar] = React.useState(''); // Bar name (used for location field)
   const [barDropdownVisible, setBarDropdownVisible] = React.useState(false);
   const [cityLocation, setCityLocation] = React.useState(''); // City location for filtering (hidden)
+  const [pollOptions, setPollOptions] = React.useState([]); // Poll options from "Where is everyone going tonight?"
+  const [showPollSuggestions, setShowPollSuggestions] = React.useState(false);
   const navigation = useNavigation();
   
   // State for @mention autocomplete
@@ -318,8 +321,8 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       setMentionStartIndex(-1);
       
       // Use account location from userData for filtering (hidden, stored in cityLocation)
-      // Get location from currentUser prop (which should be userData from AuthContext)
-      const accountLocation = currentUser?.location;
+      // Get location from currentUser prop first, then fallback to authUserData from AuthContext
+      const accountLocation = currentUser?.location || authUserData?.location;
       
       // Check if location exists and is valid
       if (accountLocation && accountLocation.trim() && accountLocation !== 'Unknown Location') {
@@ -327,11 +330,10 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
         setLocation(accountLocation.trim()); // Keep for backwards compatibility
         console.log('✅ Using account city location from profile:', accountLocation.trim());
       } else {
-        // Fallback to default location if not set in profile
-        console.warn('⚠️ Location not set in profile, using default');
-        const defaultLocation = 'Bloomington, IN';
-        setCityLocation(defaultLocation);
-        setLocation(defaultLocation); // Keep for backwards compatibility
+        // Don't set a default location - let it show "Location" if not set
+        console.warn('⚠️ Location not set in profile');
+        setCityLocation('');
+        setLocation('');
       }
       
       setLat(null); // GPS not needed for location filtering
@@ -366,6 +368,48 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       setMentionStartIndex(-1);
     }
   }, [visible, currentUser, initialVideo, initialImages]);
+
+  // Update location when currentUser.location changes (even if modal is already open)
+  // Also check AuthContext userData for the latest location
+  React.useEffect(() => {
+    if (visible) {
+      // Use location from currentUser prop first, then fallback to authUserData
+      const accountLocation = currentUser?.location || authUserData?.location;
+      if (accountLocation && accountLocation.trim() && accountLocation !== 'Unknown Location') {
+        setCityLocation(accountLocation.trim());
+        setLocation(accountLocation.trim()); // Keep for backwards compatibility
+        console.log('✅ Updated location from profile:', accountLocation.trim());
+      } else if (!cityLocation || cityLocation === 'Bloomington, IN' || cityLocation === 'Unknown Location') {
+        // Only use default if we don't have a valid location
+        console.warn('⚠️ Location not set in profile');
+        // Don't set a default - let it show "Location" or the actual location
+      }
+    }
+  }, [currentUser?.location, authUserData?.location, visible]);
+
+  // Subscribe to poll options for the user's location
+  React.useEffect(() => {
+    if (!visible || !cityLocation) {
+      setPollOptions([]);
+      return;
+    }
+
+    const unsubscribe = subscribeToVotesForLocation(cityLocation, (result) => {
+      if (result.error) {
+        console.error('Error subscribing to poll options:', result.error);
+        setPollOptions([]);
+      } else {
+        // Get all poll options (bars) from voteCounts
+        const options = Object.keys(result.voteCounts || {}).filter(option => (result.voteCounts[option] || 0) > 0);
+        setPollOptions(options);
+        console.log('✅ Loaded poll options:', options);
+      }
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [visible, cityLocation]);
 
   const handleClose = () => {
     Keyboard.dismiss();
@@ -681,23 +725,53 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
               <View style={[styles.charCountContainer, { borderTopColor: divider }]}>
                 <Text style={[styles.charCount, { color: subText }]}>{text.length}/280</Text>
               </View>
-              {/* Bar Location Selector (replaces location field) */}
+              {/* Bar Location Selector - TextInput with poll suggestions */}
               <View style={[styles.locationRow, { borderTopColor: divider }]}>
                 <MaterialCommunityIcons name="map-marker-outline" size={20} color={bar.trim() ? IU_CRIMSON : subText} />
-                <TouchableOpacity
-                  style={styles.locationInputTouchable}
-                  onPress={() => setBarDropdownVisible(true)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.locationInputText, { color: bar.trim() ? textColor : subText }]}>
-                    {bar.trim() || 'Select a bar (required)'}
-                  </Text>
-                  <MaterialCommunityIcons 
-                    name={barDropdownVisible ? 'chevron-up' : 'chevron-down'} 
-                    size={20} 
-                    color={subText} 
+                <View style={{ flex: 1, position: 'relative' }}>
+                  <TextInput
+                    style={[styles.locationInput, { color: textColor, borderColor: border, backgroundColor: background }]}
+                    placeholder="Select from poll or type location (required)"
+                    placeholderTextColor={subText}
+                    value={bar}
+                    onChangeText={(text) => {
+                      setBar(text);
+                      setShowPollSuggestions(text.length > 0 && pollOptions.length > 0);
+                    }}
+                    onFocus={() => {
+                      if (pollOptions.length > 0) {
+                        setShowPollSuggestions(true);
+                      }
+                    }}
+                    onBlur={() => {
+                      // Delay hiding suggestions to allow selection
+                      setTimeout(() => setShowPollSuggestions(false), 200);
+                    }}
                   />
-                </TouchableOpacity>
+                  {/* Poll suggestions dropdown */}
+                  {showPollSuggestions && pollOptions.length > 0 && (
+                    <View style={[styles.pollSuggestionsContainer, { backgroundColor: surface, borderColor: border }]}>
+                      <ScrollView style={styles.pollSuggestionsList} keyboardShouldPersistTaps="handled">
+                        {pollOptions
+                          .filter(option => option.toLowerCase().includes(bar.toLowerCase()))
+                          .map((option, index) => (
+                            <TouchableOpacity
+                              key={index}
+                              style={[styles.pollSuggestionItem, { borderBottomColor: divider }]}
+                              onPress={() => {
+                                setBar(option);
+                                setShowPollSuggestions(false);
+                                Keyboard.dismiss();
+                              }}
+                            >
+                              <MaterialCommunityIcons name="map-marker" size={18} color={IU_CRIMSON} />
+                              <Text style={[styles.pollSuggestionText, { color: textColor }]}>{option}</Text>
+                            </TouchableOpacity>
+                          ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
               </View>
                       
                       {/* Privacy/Visibility Selector */}
@@ -1247,6 +1321,45 @@ const styles = StyleSheet.create({
   },
   locationInputPlaceholder: {
     // Removed - using dynamic color
+  },
+  locationInput: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    borderWidth: 1,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  pollSuggestionsContainer: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    maxHeight: 200,
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  pollSuggestionsList: {
+    maxHeight: 200,
+  },
+  pollSuggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    gap: 8,
+  },
+  pollSuggestionText: {
+    fontSize: 14,
+    flex: 1,
   },
   locationLoading: {
     flex: 1,

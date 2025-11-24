@@ -29,36 +29,25 @@ export default function TonightSelector() {
   const { user, userData } = useAuth();
   const [voteCounts, setVoteCounts] = React.useState({});
   const [voters, setVoters] = React.useState({}); // Who voted for each option
-  const [dropdownVisible, setDropdownVisible] = React.useState(false);
   const [selectedBar, setSelectedBar] = React.useState(null);
   const [otherModalVisible, setOtherModalVisible] = React.useState(false);
   const [otherText, setOtherText] = React.useState('');
-  const [customBars, setCustomBars] = React.useState([]);
   const [location, setLocation] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   const [voting, setVoting] = React.useState(false);
   const [expandedOption, setExpandedOption] = React.useState(null); // To show/hide voter list
 
-  // Get all available bars (predefined + custom + voted options)
+  // Get all options that have been voted on (only show options that exist in voteCounts)
+  // Poll starts empty - users add options by voting for them
   const allBars = React.useMemo(() => {
-    const allOptions = new Set([...PREDEFINED_BARS, ...customBars, ...Object.keys(voteCounts)]);
-    return Array.from(allOptions);
-  }, [customBars, voteCounts]);
-
-  // Filter to only show bars with votes > 0 (for results display)
-  const barsWithVotes = React.useMemo(() => {
-    return allBars.filter(bar => (voteCounts[bar] || 0) > 0);
-  }, [allBars, voteCounts]);
+    // Only show options that have votes (users add options by voting for them)
+    return Object.keys(voteCounts).filter(option => (voteCounts[option] || 0) > 0);
+  }, [voteCounts]);
 
   // Sort all bars by votes (descending) - highest votes on top, lowest on bottom
   const sortedBars = React.useMemo(() => {
-    return [...barsWithVotes].sort((a, b) => (voteCounts[b] || 0) - (voteCounts[a] || 0));
-  }, [barsWithVotes, voteCounts]);
-
-  // Sort all predefined bars by votes for dropdown (highest first, lowest last)
-  const sortedPredefinedBars = React.useMemo(() => {
-    return [...PREDEFINED_BARS].sort((a, b) => (voteCounts[b] || 0) - (voteCounts[a] || 0));
-  }, [voteCounts]);
+    return [...allBars].sort((a, b) => (voteCounts[b] || 0) - (voteCounts[a] || 0));
+  }, [allBars, voteCounts]);
 
   const totalVotes = React.useMemo(() => {
     return Object.values(voteCounts).reduce((sum, count) => sum + count, 0);
@@ -111,45 +100,39 @@ export default function TonightSelector() {
   }, [location, user?.uid]);
 
   const handleSelectBar = async (bar) => {
-    if (bar === 'Other') {
-      setOtherModalVisible(true);
-      setDropdownVisible(false);
-    } else {
-      if (!user?.uid || !location || voting) return;
-      
-      setVoting(true);
-      try {
-        const result = await voteForOption(
-          user.uid,
-          location,
-          bar,
-          {
-            name: userData?.name || user?.displayName || 'User',
-            username: userData?.username || 'user',
-            photoURL: userData?.photoURL || userData?.avatar || null,
-            avatar: userData?.avatar || userData?.photoURL || null,
-          }
-        );
-
-        if (result.success) {
-          if (result.action === 'removed') {
-            // Vote removed - clear selection
-            setSelectedBar(null);
-          } else {
-            setSelectedBar(bar);
-            // Save last voted bar to AsyncStorage for auto-fill in compose post
-            AsyncStorage.setItem('lastVotedBar', bar).catch(err => console.error('Error saving last voted bar:', err));
-          }
-          setDropdownVisible(false);
-        } else {
-          Alert.alert('Error', result.error || 'Failed to vote. Please try again.');
+    if (!user?.uid || !location || voting) return;
+    
+    setVoting(true);
+    try {
+      const result = await voteForOption(
+        user.uid,
+        location,
+        bar,
+        {
+          name: userData?.name || user?.displayName || 'User',
+          username: userData?.username || 'user',
+          photoURL: userData?.photoURL || userData?.avatar || null,
+          avatar: userData?.avatar || userData?.photoURL || null,
         }
-      } catch (error) {
-        console.error('Error voting:', error);
-        Alert.alert('Error', 'Failed to vote. Please try again.');
-      } finally {
-        setVoting(false);
+      );
+
+      if (result.success) {
+        if (result.action === 'removed') {
+          // Vote removed - clear selection
+          setSelectedBar(null);
+        } else {
+          setSelectedBar(bar);
+          // Save last voted bar to AsyncStorage for auto-fill in compose post
+          AsyncStorage.setItem('lastVotedBar', bar).catch(err => console.error('Error saving last voted bar:', err));
+        }
+      } else {
+        Alert.alert('Error', result.error || 'Failed to vote. Please try again.');
       }
+    } catch (error) {
+      console.error('Error voting:', error);
+      Alert.alert('Error', 'Failed to vote. Please try again.');
+    } finally {
+      setVoting(false);
     }
   };
 
@@ -173,11 +156,6 @@ export default function TonightSelector() {
       );
 
       if (result.success) {
-        // Add to custom bars if not already there
-        if (!customBars.includes(newBar) && !PREDEFINED_BARS.includes(newBar)) {
-          setCustomBars(prev => [...prev, newBar]);
-        }
-        
         if (result.action !== 'removed') {
           setSelectedBar(newBar);
           // Save last voted bar to AsyncStorage for auto-fill in compose post
@@ -238,53 +216,41 @@ export default function TonightSelector() {
           elevation: 8,
         }}>
         <Card.Title 
-          title="Where's everyone going tonight?" 
+          title="Where is everyone going tonight?" 
           titleStyle={{ color: text }}
           subtitle={location ? `Showing results for ${location}` : undefined}
           subtitleStyle={{ color: subText }}
         />
         <Card.Content>
-          {/* Dropdown button */}
-          <TouchableOpacity
-            style={[styles.dropdownButton, { borderColor: border, backgroundColor: background }]}
-            onPress={() => setDropdownVisible(true)}
-            activeOpacity={0.7}
-            disabled={voting || !location}
-          >
-            {voting ? (
-              <ActivityIndicator size="small" color={IU_CRIMSON} />
-            ) : (
-              <>
-                <Text style={[styles.dropdownText, { color: selectedBar ? text : subText }]}>
-                  {selectedBar || 'Select'}
-                </Text>
-                <MaterialCommunityIcons 
-                  name={dropdownVisible ? 'chevron-up' : 'chevron-down'} 
-                  size={24} 
-                  color={subText} 
-                />
-              </>
-            )}
-          </TouchableOpacity>
-
-          {/* Results - only show bars with votes */}
-          {sortedBars.length > 0 && (
+          {/* Results - show all bars (with or without votes) */}
+          {sortedBars.length > 0 ? (
             <View style={styles.resultsContainer}>
-              <Text style={[styles.resultsTitle, { color: text, marginTop: 16 }]}>
-                Current Results ({totalVotes} {totalVotes === 1 ? 'vote' : 'votes'})
+              <Text style={[styles.resultsTitle, { color: text }]}>
+                Results ({totalVotes} {totalVotes === 1 ? 'vote' : 'votes'})
               </Text>
               {sortedBars.map((bar) => {
                 const voteCount = voteCounts[bar] || 0;
                 const ratio = totalVotes > 0 ? voteCount / totalVotes : 0;
                 const optionVoters = voters[bar] || [];
                 const isExpanded = expandedOption === bar;
+                const isSelected = selectedBar === bar;
                 
                 return (
-                  <View key={bar} style={styles.resultItem}>
+                  <TouchableOpacity
+                    key={bar}
+                    style={[
+                      styles.resultItem,
+                      isSelected && { backgroundColor: isDarkMode ? 'rgba(204, 0, 0, 0.15)' : 'rgba(204, 0, 0, 0.1)' },
+                      { borderColor: isSelected ? IU_CRIMSON : divider }
+                    ]}
+                    onPress={() => handleSelectBar(bar)}
+                    activeOpacity={0.7}
+                    disabled={voting || !location}
+                  >
                     <View style={styles.resultHeader}>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.resultLabel, { color: text }]}>{bar}</Text>
-                        {selectedBar === bar && (
+                        {isSelected && (
                           <Text style={[styles.yourVote, { color: IU_CRIMSON }]}>
                             Your vote
                           </Text>
@@ -294,20 +260,25 @@ export default function TonightSelector() {
                         {voteCount} vote{voteCount !== 1 ? 's' : ''}
                       </Text>
                     </View>
-                    <View style={[styles.progressBarContainer, { backgroundColor: divider }]}>
-                      <View 
-                        style={[
-                          styles.progressBar, 
-                          { width: `${ratio * 100}%`, backgroundColor: IU_CRIMSON }
-                        ]} 
-                      />
-                    </View>
+                    {totalVotes > 0 && (
+                      <View style={[styles.progressBarContainer, { backgroundColor: divider }]}>
+                        <View 
+                          style={[
+                            styles.progressBar, 
+                            { width: `${ratio * 100}%`, backgroundColor: IU_CRIMSON }
+                          ]} 
+                        />
+                      </View>
+                    )}
                     
                     {/* Voters list - expandable */}
                     {optionVoters.length > 0 && (
                       <TouchableOpacity
                         style={styles.votersToggle}
-                        onPress={() => setExpandedOption(isExpanded ? null : bar)}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          setExpandedOption(isExpanded ? null : bar);
+                        }}
                         activeOpacity={0.7}
                       >
                         <Text style={[styles.votersToggleText, { color: subText }]}>
@@ -338,62 +309,40 @@ export default function TonightSelector() {
                         ))}
                       </View>
                     )}
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
             </View>
+          ) : (
+            !loading && (
+              <Text style={[styles.noVotesText, { color: subText, marginTop: 16 }]}>
+                No options yet. Add an option to get started!
+              </Text>
+            )
           )}
-          
-          {!loading && sortedBars.length === 0 && (
-            <Text style={[styles.noVotesText, { color: subText, marginTop: 16 }]}>
-              No votes yet. Be the first to vote!
-            </Text>
-          )}
+
+          {/* Add Option Button */}
+          <TouchableOpacity
+            style={[styles.addOptionButton, { borderColor: border, backgroundColor: background }]}
+            onPress={() => setOtherModalVisible(true)}
+            activeOpacity={0.7}
+            disabled={voting || !location}
+          >
+            {voting ? (
+              <ActivityIndicator size="small" color={IU_CRIMSON} />
+            ) : (
+              <>
+                <MaterialCommunityIcons name="plus-circle" size={20} color={IU_CRIMSON} />
+                <Text style={[styles.addOptionText, { color: IU_CRIMSON }]}>
+                  Add Option
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
         </Card.Content>
       </Card>
 
-      {/* Dropdown Modal */}
-      <Modal
-        visible={dropdownVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setDropdownVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setDropdownVisible(false)}
-        >
-          <View style={[styles.dropdownContainer, { backgroundColor: surface, borderColor: border }]}>
-            <ScrollView style={styles.dropdownScroll} keyboardShouldPersistTaps="handled">
-              {sortedPredefinedBars.map((bar) => (
-                <TouchableOpacity
-                  key={bar}
-                  style={styles.dropdownItem}
-                  onPress={() => handleSelectBar(bar)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.dropdownItemText, { color: text }]}>{bar}</Text>
-                  {voteCounts[bar] > 0 && (
-                    <Text style={[styles.dropdownVoteCount, { color: subText }]}>
-                      {voteCounts[bar]} vote{voteCounts[bar] !== 1 ? 's' : ''}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              ))}
-              <TouchableOpacity
-                style={styles.dropdownItem}
-                onPress={() => handleSelectBar('Other')}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.dropdownItemText, { color: IU_CRIMSON }]}>Other</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Other Modal */}
+      {/* Add Option Modal */}
       <Modal
         visible={otherModalVisible}
         transparent
@@ -415,11 +364,14 @@ export default function TonightSelector() {
               onPress={(e) => e.stopPropagation()}
             >
               <Text style={[styles.otherModalTitle, { color: text }]}>
-                Enter a bar name
+                Add an Option
+              </Text>
+              <Text style={[styles.otherModalSubtitle, { color: subText, marginBottom: 16 }]}>
+                Add an option to vote for. You'll automatically vote for it when you add it.
               </Text>
               <TextInput
                 style={[styles.otherInput, { color: text, borderColor: border, backgroundColor: background }]}
-                placeholder="Type bar name here..."
+                placeholder="Enter option name..."
                 placeholderTextColor={subText}
                 value={otherText}
                 onChangeText={setOtherText}
@@ -442,7 +394,7 @@ export default function TonightSelector() {
                   disabled={!otherText.trim()}
                   style={styles.otherButton}
                 >
-                  Submit
+                  Add & Vote
                 </Button>
               </View>
             </TouchableOpacity>
@@ -473,29 +425,32 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   resultsTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   resultItem: {
-    marginBottom: 12,
+    marginBottom: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
   },
   resultHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   resultLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
     flex: 1,
   },
   resultVotes: {
-    fontSize: 13,
+    fontSize: 12,
   },
   progressBarContainer: {
-    height: 8,
-    borderRadius: 8,
+    height: 6,
+    borderRadius: 6,
     overflow: 'hidden',
   },
   progressBar: {
@@ -546,7 +501,11 @@ const styles = StyleSheet.create({
   otherModalTitle: {
     fontSize: 18,
     fontWeight: '600',
-    marginBottom: 16,
+    marginBottom: 8,
+  },
+  otherModalSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
   },
   otherInput: {
     borderWidth: 1,
@@ -568,7 +527,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   yourVote: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
     marginTop: 2,
   },
@@ -576,11 +535,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
-    paddingVertical: 8,
+    marginTop: 6,
+    paddingVertical: 6,
   },
   votersToggleText: {
-    fontSize: 12,
+    fontSize: 11,
   },
   votersList: {
     marginTop: 8,
@@ -602,6 +561,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  addOptionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 12,
+    gap: 6,
+  },
+  addOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 

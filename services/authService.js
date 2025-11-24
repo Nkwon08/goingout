@@ -891,7 +891,40 @@ export const signIn = async (email, password) => {
     return { user: userCredential.user, error: null };
   } catch (error) {
     console.error('Sign in error:', error);
-    return { user: null, error: error.message || 'Failed to sign in.' };
+    
+    // Extract error code and message for robust checking
+    const errorCode = error.code || '';
+    const errorMessage = error.message || '';
+    
+    // Provide user-friendly error messages
+    // Check both error code and message for invalid-credential (Firebase v9+ uses auth/invalid-credential)
+    if (errorCode === 'auth/invalid-credential' || 
+        errorCode === 'auth/wrong-password' || 
+        errorCode === 'auth/invalid-email' ||
+        errorMessage.includes('invalid-credential') ||
+        errorMessage.includes('wrong-password') ||
+        errorMessage.includes('invalid email or password')) {
+      return { user: null, error: 'Invalid email or password. Please try again.' };
+    }
+    
+    if (errorCode === 'auth/user-not-found' || errorMessage.includes('user-not-found')) {
+      return { user: null, error: 'No account found with this email address.' };
+    }
+    
+    if (errorCode === 'auth/user-disabled' || errorMessage.includes('user-disabled')) {
+      return { user: null, error: 'This account has been disabled. Please contact support.' };
+    }
+    
+    if (errorCode === 'auth/too-many-requests' || errorMessage.includes('too-many-requests')) {
+      return { user: null, error: 'Too many failed login attempts. Please try again later.' };
+    }
+    
+    if (errorCode === 'auth/network-request-failed' || errorMessage.includes('network')) {
+      return { user: null, error: 'Network error. Please check your internet connection and try again.' };
+    }
+    
+    // Default error message
+    return { user: null, error: 'Invalid email or password. Please try again.' };
   }
 };
 

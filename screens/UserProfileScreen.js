@@ -1,6 +1,6 @@
 // User Profile screen - view another user's profile with posts and following button
 import * as React from 'react';
-import { View, Alert, TouchableOpacity, Image, Modal, Dimensions, FlatList } from 'react-native';
+import { View, Alert, TouchableOpacity, Image, Modal, Dimensions, FlatList, ScrollView } from 'react-native';
 import { Appbar, Avatar, Text, IconButton } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
@@ -212,15 +212,18 @@ function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
           </Text>
         </View>
 
-        {/* Grid container */}
-        <View style={{
-          flex: 1,
-          padding: gridPadding,
-          flexDirection: 'row',
-          flexWrap: 'wrap',
-          gap: gridGap,
-          alignContent: 'flex-start',
-        }}>
+        {/* Scrollable Grid container */}
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            padding: gridPadding,
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            gap: gridGap,
+            alignContent: 'flex-start',
+          }}
+          showsVerticalScrollIndicator={true}
+        >
         {posts.filter(post => {
           // Show posts that have images or videos
           const images = post.images || [];
@@ -320,7 +323,7 @@ function UserPostsTab({ userId, username, themeColors, highlightPostId }) {
             </TouchableOpacity>
           );
         })}
-        </View>
+        </ScrollView>
       </View>
 
       {/* Modal for maximized post with horizontal scrolling */}

@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { addFriend, checkFriendship, getFriends, sendFriendRequest, cancelFriendRequest, subscribeToOutgoingFriendRequests, getAuthUidFromUsername, getUsernameFromAuthUid } from '../services/friendsService';
 import { getCardBorderOnly } from '../utils/cardStyles';
 import { getCurrentUserData as getUserData } from '../services/authService';
@@ -15,6 +16,7 @@ export default function FriendsTab() {
   const navigation = useNavigation();
   const { isDarkMode } = useTheme();
   const { user, userData, loading: authLoading, friendsList: friendsListFromContext } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [searchQuery, setSearchQuery] = React.useState('');
   const [friends, setFriends] = React.useState([]);
@@ -982,7 +984,8 @@ export default function FriendsTab() {
     >
       <View style={{ flex: 1 }}>
         <ScrollView 
-          contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+          contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 100 }}
+          showsVerticalScrollIndicator={true}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

@@ -1,6 +1,6 @@
 // Feed screen - shows feed of posts with camera and notifications buttons
 import * as React from 'react';
-import { View, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, StyleSheet, Alert, Modal, Platform } from 'react-native';
+import { View, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, StyleSheet, Alert, Modal, Platform, FlatList } from 'react-native';
 import { Text, Snackbar } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -48,6 +48,8 @@ export default function FeedScreen() {
   // ScrollView ref for scrolling to highlighted post
   const scrollViewRef = React.useRef(null);
   const postRefs = React.useRef({});
+  const videoRefs = React.useRef({});
+  const [visiblePostIds, setVisiblePostIds] = React.useState(new Set());
   
   // Get GPS location on mount and when user changes
   React.useEffect(() => {
@@ -93,24 +95,16 @@ export default function FeedScreen() {
     React.useCallback(() => {
       const highlightPostId = route.params?.highlightPostId;
       
-      if (highlightPostId && posts.length > 0) {
+      if (highlightPostId && posts.length > 0 && scrollViewRef.current) {
         // Wait a bit for posts to render
         setTimeout(() => {
-          const postRef = postRefs.current[highlightPostId];
-          if (postRef && scrollViewRef.current) {
-            postRef.measureLayout(
-              scrollViewRef.current,
-              (x, y) => {
-                scrollViewRef.current?.scrollTo({
-                  y: y - 20, // Add some padding above the post
-                  animated: true,
-                });
-              },
-              () => {
-                // If measureLayout fails, try scrollToEnd and then scroll back
-                console.warn('Could not measure post layout');
-              }
-            );
+          const postIndex = posts.findIndex(p => p.id === highlightPostId);
+          if (postIndex >= 0) {
+            scrollViewRef.current?.scrollToIndex({
+              index: postIndex,
+              animated: true,
+              viewPosition: 0.1, // Position near top with some padding
+            });
           }
         }, 300);
       }
@@ -354,31 +348,58 @@ export default function FeedScreen() {
         </View>
 
         {/* Scrollable list of posts with pull-to-refresh */}
-        <ScrollView
-          ref={scrollViewRef}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingTop: 16, paddingBottom: 80 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              tintColor={IU_CRIMSON}
-            />
-          }
-        >
-          {posts.length === 0 ? (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', minHeight: 400, padding: 20 }}>
-              <Text style={{ color: subText, fontSize: 16, textAlign: 'center' }}>Empty</Text>
-              {error && (
-                <Text style={{ color: '#FF6B6B', fontSize: 12, textAlign: 'center', marginTop: 12, padding: 12 }}>
-                  {error}
-                </Text>
-              )}
-            </View>
-          ) : (
-            posts.map((post) => (
+        {posts.length === 0 ? (
+          <ScrollView
+            ref={scrollViewRef}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingTop: 16, paddingBottom: 80, flexGrow: 1, justifyContent: 'center', alignItems: 'center', minHeight: 400 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                tintColor={IU_CRIMSON}
+              />
+            }
+          >
+            <Text style={{ color: subText, fontSize: 16, textAlign: 'center' }}>Empty</Text>
+            {error && (
+              <Text style={{ color: '#FF6B6B', fontSize: 12, textAlign: 'center', marginTop: 12, padding: 12 }}>
+                {error}
+              </Text>
+            )}
+          </ScrollView>
+        ) : (
+          <FlatList
+            ref={scrollViewRef}
+            data={posts}
+            keyExtractor={(item) => item.id}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingTop: 16, paddingBottom: 80 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                tintColor={IU_CRIMSON}
+              />
+            }
+            onViewableItemsChanged={({ viewableItems }) => {
+              const visibleIds = new Set(viewableItems.map(item => item.item.id));
+              setVisiblePostIds(visibleIds);
+            }}
+            viewabilityConfig={{
+              itemVisiblePercentThreshold: 50, // Post is considered visible when 50% is on screen
+            }}
+            onScrollToIndexFailed={(info) => {
+              // If scrollToIndex fails, wait a bit and try scrolling to offset instead
+              const wait = new Promise(resolve => setTimeout(resolve, 500));
+              wait.then(() => {
+                if (scrollViewRef.current) {
+                  scrollViewRef.current.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+                }
+              });
+            }}
+            renderItem={({ item: post }) => (
               <View
-                key={post.id}
                 ref={(ref) => {
                   if (ref) {
                     postRefs.current[post.id] = ref;
@@ -387,14 +408,16 @@ export default function FeedScreen() {
               >
                 <FeedPost
                   post={post}
+                  isVisible={visiblePostIds.has(post.id)}
+                  videoRefs={videoRefs.current}
                   onDelete={(postId) => {
                     // Post will be automatically removed from feed via real-time listener
                   }}
                 />
               </View>
-            ))
-          )}
-        </ScrollView>
+            )}
+          />
+        )}
 
         {/* Modal for composing new posts */}
         <ComposePost

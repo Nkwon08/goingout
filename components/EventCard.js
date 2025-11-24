@@ -45,9 +45,9 @@ export default function EventCard({ event, onJoin, onEdit, style }) {
   };
   
   return (
-    <TouchableOpacity activeOpacity={0.8} onPress={handlePress}>
+    <TouchableOpacity activeOpacity={0.8} onPress={handlePress} style={{ width: '100%' }}>
       <Card mode="contained" style={[{ 
-        width: 280, 
+        width: '100%', 
         backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
         borderRadius: 20,
         ...getCardBorderOnly(),

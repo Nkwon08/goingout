@@ -575,17 +575,19 @@ export default function ProfileScreen({ navigation }) {
         style={{ flex: 1 }}
         contentContainerStyle={{ 
           paddingBottom: 100, 
-          paddingTop: TOTAL_HEADER_HEIGHT // Minimal padding to raise profile section
+          paddingTop: TOTAL_HEADER_HEIGHT
         }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Dark Profile Card */}
+        {/* Dark Profile Card - Includes profile picture overlapping at top */}
         <View style={{
           backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.2)' : 'rgba(255, 255, 255, 0.3)',
           marginHorizontal: 16,
           marginTop: 20,
           borderTopLeftRadius: 20,
           borderTopRightRadius: 20,
+          borderBottomLeftRadius: 20,
+          borderBottomRightRadius: 20,
           paddingTop: 70,
           paddingBottom: 24,
           paddingHorizontal: 20,
@@ -696,7 +698,7 @@ export default function ProfileScreen({ navigation }) {
                 flex: 1,
                 backgroundColor: IU_CRIMSON,
                 paddingVertical: 12,
-                borderRadius: 8,
+                borderRadius: 20,
                 alignItems: 'center',
               }}
             >

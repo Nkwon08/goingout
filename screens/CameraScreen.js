@@ -459,6 +459,7 @@ export default function CameraScreen() {
       await AsyncStorage.setItem('pendingGroupId', group.id);
       
       // Navigate to Groups tab and open the selected group
+      // CameraScreen is in RootNavigator, so we need to navigate to MainTabs first
       let rootNavigator = navigation.getParent();
       while (rootNavigator && rootNavigator.getParent) {
         const parent = rootNavigator.getParent();
@@ -466,16 +467,23 @@ export default function CameraScreen() {
         rootNavigator = parent;
       }
       
-      // Navigate to Groups tab
+      // Navigate to Groups tab through MainTabs
       if (rootNavigator) {
-        rootNavigator.navigate('Groups', {
-          screen: 'GroupsMain',
-          params: { groupId: group.id }
+        rootNavigator.navigate('MainTabs', {
+          screen: 'Groups',
+          params: {
+            screen: 'GroupsMain',
+            params: { groupId: group.id }
+          }
         });
       } else {
-        navigation.navigate('Groups', {
-          screen: 'GroupsMain',
-          params: { groupId: group.id }
+        // Fallback: try to navigate directly (might work if already in correct context)
+        navigation.getParent()?.navigate('MainTabs', {
+          screen: 'Groups',
+          params: {
+            screen: 'GroupsMain',
+            params: { groupId: group.id }
+          }
         });
       }
     } catch (error) {
@@ -998,7 +1006,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'absolute',
     left: '50%',
-    bottom: 75, // Position above bottom tab bar
+    bottom: 65, // Position above bottom tab bar (lowered from 75)
     transform: [{ translateX: -35 }], // Half of width (70/2) to center perfectly
   },
   captureButtonInner: {

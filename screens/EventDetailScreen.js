@@ -205,10 +205,13 @@ export default function EventDetailScreen({ route, navigation }) {
             parent = parent.getParent();
           }
           
-          // Navigate to Groups tab
-          rootNavigator.navigate('Groups', {
-            screen: 'GroupsMain',
-            params: { groupId: result.groupId }
+          // Navigate to Groups tab through MainTabs (EventDetailScreen is a modal in RootNavigator)
+          rootNavigator.navigate('MainTabs', {
+            screen: 'Groups',
+            params: {
+              screen: 'GroupsMain',
+              params: { groupId: result.groupId }
+            }
           });
         }
       }

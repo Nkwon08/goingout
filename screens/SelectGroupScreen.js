@@ -85,34 +85,25 @@ export default function SelectGroupScreen() {
           await AsyncStorage.setItem('pendingGroupId', group.id);
           // Navigate back to camera and then to groups
           navigation.goBack();
-          // Navigate to Groups tab - find BottomTabs navigator
-          let bottomTabsNavigator = navigation;
-          let parent = navigation.getParent();
           
+          // Find root navigator to navigate through MainTabs
+          let rootNavigator = navigation;
+          let parent = navigation.getParent();
           while (parent) {
-            const state = parent.getState();
-            const routeNames = state?.routeNames || state?.routes?.map(r => r.name);
-            
-            // Check if this navigator has 'Groups' (BottomTabs)
-            if (routeNames && routeNames.includes('Groups')) {
-              bottomTabsNavigator = parent;
-              break;
-            }
-            
-            bottomTabsNavigator = parent;
+            rootNavigator = parent;
             parent = parent.getParent();
           }
           
-          // Navigate to Groups tab using CommonActions
-          bottomTabsNavigator.dispatch(
-            CommonActions.navigate({
-              name: 'Groups',
+          // Navigate to Groups tab through MainTabs (with delay to ensure goBack completes)
+          setTimeout(() => {
+            rootNavigator.navigate('MainTabs', {
+              screen: 'Groups',
               params: {
                 screen: 'GroupsMain',
                 params: { groupId: group.id }
               }
-            })
-          );
+            });
+          }, 100);
         }
       } else {
         const { messageId, error } = await sendImageMessage(
@@ -130,34 +121,25 @@ export default function SelectGroupScreen() {
           await AsyncStorage.setItem('pendingGroupId', group.id);
           // Navigate back to camera and then to groups
           navigation.goBack();
-          // Navigate to Groups tab - find BottomTabs navigator
-          let bottomTabsNavigator = navigation;
-          let parent = navigation.getParent();
           
+          // Find root navigator to navigate through MainTabs
+          let rootNavigator = navigation;
+          let parent = navigation.getParent();
           while (parent) {
-            const state = parent.getState();
-            const routeNames = state?.routeNames || state?.routes?.map(r => r.name);
-            
-            // Check if this navigator has 'Groups' (BottomTabs)
-            if (routeNames && routeNames.includes('Groups')) {
-              bottomTabsNavigator = parent;
-              break;
-            }
-            
-            bottomTabsNavigator = parent;
+            rootNavigator = parent;
             parent = parent.getParent();
           }
           
-          // Navigate to Groups tab using CommonActions
-          bottomTabsNavigator.dispatch(
-            CommonActions.navigate({
-              name: 'Groups',
+          // Navigate to Groups tab through MainTabs (with delay to ensure goBack completes)
+          setTimeout(() => {
+            rootNavigator.navigate('MainTabs', {
+              screen: 'Groups',
               params: {
                 screen: 'GroupsMain',
                 params: { groupId: group.id }
               }
-            })
-          );
+            });
+          }, 100);
         }
       }
     } catch (error) {

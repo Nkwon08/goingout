@@ -278,34 +278,11 @@ export default function ActivityMain() {
                         console.error('Error storing groupId:', storageError);
                       }
                       
-                      // Navigate to Groups tab - find BottomTabs navigator
-                      let bottomTabsNavigator = navigation;
-                      let parent = navigation.getParent();
-                      
-                      while (parent) {
-                        const state = parent.getState();
-                        const routeNames = state?.routeNames || state?.routes?.map(r => r.name);
-                        
-                        // Check if this navigator has 'Groups' (BottomTabs)
-                        if (routeNames && routeNames.includes('Groups')) {
-                          bottomTabsNavigator = parent;
-                          break;
-                        }
-                        
-                        bottomTabsNavigator = parent;
-                        parent = parent.getParent();
-                      }
-                      
-                      // Navigate to Groups tab using CommonActions
-                      bottomTabsNavigator.dispatch(
-                        CommonActions.navigate({
-                          name: 'Groups',
-                          params: {
-                            screen: 'GroupsMain',
-                            params: { groupId: result.groupId }
-                          }
-                        })
-                      );
+                      // Navigate to Groups tab (ActivityMain is inside BottomTabs)
+                      navigation.navigate('Groups', {
+                        screen: 'GroupsMain',
+                        params: { groupId: result.groupId }
+                      });
                     }
                   }
                 } catch (error) {

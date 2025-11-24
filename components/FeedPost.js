@@ -23,7 +23,7 @@ const IMAGE_WIDTH = SCREEN_WIDTH * 0.92 - 12; // Narrower by 12 pixels
 const IMAGE_HEIGHT = IMAGE_WIDTH * (4 / 3); // 3:4 aspect ratio (width:height = 3:4)
 const IU_CRIMSON = '#CC0000';
 
-export default function FeedPost({ post, onDelete }) {
+export default function FeedPost({ post, onDelete, isVisible = false, videoRefs }) {
       // Get current user and userData to check if they own this post and get current profile picture
   const { user, userData, friendsList } = useAuth();
   const navigation = useNavigation();
@@ -46,6 +46,9 @@ export default function FeedPost({ post, onDelete }) {
   const [sendingToGroup, setSendingToGroup] = React.useState(false);
   const [showCreateGroup, setShowCreateGroup] = React.useState(false);
   const [reporting, setReporting] = React.useState(false);
+  
+  // Local video refs for this post
+  const localVideoRefs = React.useRef({});
   
   // State for @mention autocomplete in comments
   const [mentionSuggestions, setMentionSuggestions] = React.useState([]);
@@ -229,6 +232,34 @@ export default function FeedPost({ post, onDelete }) {
 
     return items;
   }, [post.image, post.images, post.video, post.videos]);
+
+  // Auto-play/pause videos based on visibility
+  React.useEffect(() => {
+    // Pause all videos first
+    Object.keys(localVideoRefs.current).forEach((key) => {
+      const videoRef = localVideoRefs.current[key];
+      if (videoRef) {
+        videoRef.pauseAsync().catch(() => {
+          // Ignore pause errors
+        });
+      }
+    });
+
+    // If post is visible and current media item is a video, play it
+    if (isVisible) {
+      const currentMedia = mediaItems[currentMediaIndex];
+      if (currentMedia?.type === 'video') {
+        const videoKey = `${post.id}-${currentMediaIndex}`;
+        const videoRef = localVideoRefs.current[videoKey];
+        if (videoRef) {
+          videoRef.playAsync().catch((error) => {
+            // Ignore playback errors (e.g., if video is already playing)
+            console.log('Video play error:', error);
+          });
+        }
+      }
+    }
+  }, [isVisible, currentMediaIndex, mediaItems, post.id]);
 
   const imageUris = React.useMemo(() => {
     if (post.images && Array.isArray(post.images) && post.images.length > 0) {
@@ -679,29 +710,47 @@ export default function FeedPost({ post, onDelete }) {
             snapToInterval={IMAGE_WIDTH}
             snapToAlignment="start"
           >
-            {mediaItems.map((media, index) => (
-              <View key={`${media.type}-${index}`} style={styles.imageWrapper}>
-                {media.type === 'image' ? (
-                  <Image
-                    source={{ uri: media.uri }}
-                    style={styles.image}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <Video
-                    source={{ uri: media.uri }}
-                    style={styles.video}
-                    resizeMode="cover"
-                    useNativeControls
-                  />
-                )}
-                {media.type === 'video' && (
-                  <View style={styles.videoBadge}>
-                    <MaterialCommunityIcons name="play" size={18} color="#FFFFFF" />
-                  </View>
-                )}
-              </View>
-            ))}
+            {mediaItems.map((media, index) => {
+              const videoKey = `${post.id}-${index}`;
+              const isCurrentVideo = media.type === 'video' && index === currentMediaIndex;
+              const shouldShowPlayBadge = !(isVisible && isCurrentVideo);
+              
+              return (
+                <View key={`${media.type}-${index}`} style={styles.imageWrapper}>
+                  {media.type === 'image' ? (
+                    <Image
+                      source={{ uri: media.uri }}
+                      style={styles.image}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Video
+                      ref={(ref) => {
+                        if (ref) {
+                          localVideoRefs.current[videoKey] = ref;
+                          // Also store in parent's videoRefs if provided
+                          if (videoRefs && typeof videoRefs === 'object') {
+                            videoRefs[videoKey] = ref;
+                          }
+                        }
+                      }}
+                      source={{ uri: media.uri }}
+                      style={styles.video}
+                      resizeMode="cover"
+                      useNativeControls
+                      shouldPlay={false}
+                      isLooping
+                      isMuted
+                    />
+                  )}
+                  {media.type === 'video' && shouldShowPlayBadge && (
+                    <View style={styles.videoBadge}>
+                      <MaterialCommunityIcons name="play" size={18} color="#FFFFFF" />
+                    </View>
+                  )}
+                </View>
+              );
+            })}
           </ScrollView>
           
           {/* Dot Indicators */}
