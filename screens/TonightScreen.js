@@ -9,7 +9,6 @@ import TonightSelector from '../components/TonightSelector';
 import EventCard from '../components/EventCard';
 import TrendingSection from '../components/TrendingSection';
 import CreateEventModal from '../components/CreateEventModal';
-import { events, feedPosts } from '../data/mock';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -38,8 +37,8 @@ export default function TonightScreen() {
   // Load events from Firebase on mount and subscribe to real-time updates
   React.useEffect(() => {
     if (!user?.uid) {
-      // If not logged in, use mock events
-      setLocalEvents(events);
+      // If not logged in, show empty events
+      setLocalEvents([]);
       setLoadingEvents(false);
       setRefreshing(false);
       return;
@@ -49,8 +48,8 @@ export default function TonightScreen() {
     const unsubscribe = subscribeToUpcomingEvents(async ({ events: firebaseEvents, error }) => {
       if (error) {
         console.error('Error loading events:', error);
-        // Fallback to mock events if Firebase fails
-        setLocalEvents(events);
+        // If Firebase fails, show empty events
+        setLocalEvents([]);
         setLoadingEvents(false);
         setRefreshing(false);
         return;
@@ -80,12 +79,8 @@ export default function TonightScreen() {
         }
       }
 
-      // Combine Firebase events with mock events (for backward compatibility)
-      // Filter out duplicates based on ID
-      const allEvents = [...filteredEvents, ...events];
-      const uniqueEvents = allEvents.filter((event, index, self) =>
-        index === self.findIndex((e) => e.id === event.id)
-      );
+      // Use filtered Firebase events
+      const uniqueEvents = filteredEvents;
       
       // Check which events the user has joined
       if (user?.uid) {
@@ -175,11 +170,6 @@ export default function TonightScreen() {
   // Calculate trending locations from feed posts
   const trendingLocations = React.useMemo(() => {
     const locationCounts = {};
-    feedPosts.forEach((post) => {
-      if (post.location) {
-        locationCounts[post.location] = (locationCounts[post.location] || 0) + 1;
-      }
-    });
 
     return Object.entries(locationCounts)
       .map(([location, count]) => ({ location, count }))
@@ -266,10 +256,19 @@ export default function TonightScreen() {
                           }
                           
                           // Navigate to Groups tab (TonightScreen is inside BottomTabs)
-                          navigation.navigate('Groups', {
-                            screen: 'GroupsMain',
-                            params: { groupId: result.groupId }
-                          });
+                          // Get parent navigator (tab navigator) to navigate to Groups tab
+                          const parentNavigator = navigation.getParent();
+                          if (parentNavigator) {
+                            parentNavigator.navigate('Groups', {
+                              screen: 'GroupsMain',
+                              params: { groupId: result.groupId }
+                            });
+                          } else {
+                            navigation.navigate('Groups', {
+                              screen: 'GroupsMain',
+                              params: { groupId: result.groupId }
+                            });
+                          }
                         }
                       }
                     } catch (error) {

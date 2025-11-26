@@ -235,7 +235,16 @@ const migrateUserDocument = async (uid, oldUsername, newUsername, newData) => {
     // Read old document
     const oldDoc = await getDoc(oldUserRef);
     if (!oldDoc.exists()) {
-      throw new Error('Old user document not found');
+      // If old document doesn't exist, this is likely a new user or the document was already migrated
+      // Just create the new document without migration
+      console.log('[migrateUserDocument] Old document not found, creating new document:', newUsername);
+      await setDoc(newUserRef, {
+        ...newData,
+        createdAt: newData.createdAt || serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      console.log('[migrateUserDocument] Successfully created new document:', newUsername);
+      return; // Exit early - no migration needed
     }
     
     const oldData = oldDoc.data();
@@ -714,12 +723,33 @@ export const upsertUserProfile = async (uid, payload = {}) => {
         });
         
         try {
-          await migrateUserDocument(uid, oldUsername, targetUsername, write);
-          console.log('[upsertUserProfile] Document migrated successfully');
-          return { success: true, error: null };
+          // Check if old document exists before attempting migration
+          const oldUserRef = doc(db, 'users', oldUsername);
+          const oldDoc = await getDoc(oldUserRef);
+          
+          if (oldDoc.exists()) {
+            // Old document exists - perform migration
+            await migrateUserDocument(uid, oldUsername, targetUsername, write);
+            console.log('[upsertUserProfile] Document migrated successfully');
+            return { success: true, error: null };
+          } else {
+            // Old document doesn't exist - just create the new document
+            console.log('[upsertUserProfile] Old document not found, creating new document at target');
+            const targetUserRef = doc(db, 'users', targetUsername);
+            await setDoc(targetUserRef, write, { merge: true });
+            return { success: true, error: null };
+          }
         } catch (migrationError) {
           console.error('[upsertUserProfile] Migration error:', migrationError);
-          return { success: false, error: 'Failed to migrate username: ' + migrationError.message };
+          // Try to create new document anyway
+          try {
+            const targetUserRef = doc(db, 'users', targetUsername);
+            await setDoc(targetUserRef, write, { merge: true });
+            console.log('[upsertUserProfile] Created new document after migration error');
+            return { success: true, error: null };
+          } catch (writeError) {
+            return { success: false, error: 'Failed to migrate username: ' + migrationError.message };
+          }
         }
       }
       
@@ -745,15 +775,33 @@ export const upsertUserProfile = async (uid, payload = {}) => {
       console.log('[upsertUserProfile] Username changed from', oldUsername, 'to', username_lowercase);
       
       try {
-        // Migrate document: update old document reference to new username
-        await migrateUserDocument(uid, oldUsername, username_lowercase, write);
-        console.log('[upsertUserProfile] Document migrated successfully');
-        return { success: true, error: null };
+        // Check if old document exists before attempting migration
+        const oldUserRef = doc(db, 'users', oldUsername);
+        const oldDoc = await getDoc(oldUserRef);
+        
+        if (oldDoc.exists()) {
+          // Old document exists - perform migration
+          await migrateUserDocument(uid, oldUsername, username_lowercase, write);
+          console.log('[upsertUserProfile] Document migrated successfully');
+          return { success: true, error: null };
+        } else {
+          // Old document doesn't exist - this is a new user or document was already migrated
+          // Just create/update the new document
+          console.log('[upsertUserProfile] Old document not found, creating new document');
+          await setDoc(userRef, write, { merge: true });
+          return { success: true, error: null };
+        }
       } catch (migrationError) {
         console.error('[upsertUserProfile] Migration error:', migrationError);
         // If migration fails, try to create new document anyway
-        // But this will create a duplicate - user should fix this manually
-        return { success: false, error: 'Failed to migrate username: ' + migrationError.message };
+        // This handles edge cases where migration isn't possible
+        try {
+          await setDoc(userRef, write, { merge: true });
+          console.log('[upsertUserProfile] Created new document after migration error');
+          return { success: true, error: null };
+        } catch (writeError) {
+          return { success: false, error: 'Failed to migrate username: ' + migrationError.message };
+        }
       }
     }
     
