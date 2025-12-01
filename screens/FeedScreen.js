@@ -12,6 +12,7 @@ import NotificationsTab from './NotificationsTab';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { useNotifications } from '../context/NotificationContext';
 import { subscribeToPosts, createPost } from '../services/postsService';
 import { uploadImages, uploadVideo } from '../services/storageService';
 import { getCurrentLocation } from '../services/locationService';
@@ -44,6 +45,9 @@ export default function FeedScreen() {
   const { isDarkMode } = useTheme();
   const { background, subText, text, surface, divider } = useThemeColors();
   const insets = useSafeAreaInsets();
+  
+  // Get notification context
+  const { unreadCount = 0, clearNewNotification = () => {} } = useNotifications();
   
   // ScrollView ref for scrolling to highlighted post
   const scrollViewRef = React.useRef(null);
@@ -340,10 +344,39 @@ export default function FeedScreen() {
           
           <TouchableOpacity
             style={styles.headerButton}
-            onPress={() => setNotificationsVisible(true)}
+            onPress={() => {
+              clearNewNotification();
+              setNotificationsVisible(true);
+            }}
             activeOpacity={0.7}
           >
-            <MaterialCommunityIcons name="bell-outline" size={24} color="#FFFFFF" />
+            <View style={{ position: 'relative' }}>
+              <MaterialCommunityIcons name="bell-outline" size={24} color="#FFFFFF" />
+              {unreadCount > 0 && (
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: -4,
+                    right: -4,
+                    backgroundColor: IU_CRIMSON,
+                    borderRadius: 8,
+                    minWidth: 16,
+                    height: 16,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    paddingHorizontal: 4,
+                    borderWidth: 2,
+                    borderColor: '#FFFFFF',
+                  }}
+                >
+                  {unreadCount > 9 ? (
+                    <Text style={{ color: '#FFFFFF', fontSize: 8, fontWeight: 'bold' }}>9+</Text>
+                  ) : (
+                    <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: 'bold' }}>{unreadCount}</Text>
+                  )}
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
         </View>
 

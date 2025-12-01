@@ -2,10 +2,11 @@
 import { StatusBar } from 'expo-status-bar';
 import * as React from 'react';
 import { Provider as PaperProvider, MD3DarkTheme, MD3LightTheme } from 'react-native-paper';
-import { NavigationContainer, DarkTheme as NavigationDarkTheme, DefaultTheme as NavigationDefaultTheme } from '@react-navigation/native';
+import { NavigationContainer, DarkTheme as NavigationDarkTheme, DefaultTheme as NavigationDefaultTheme, useNavigation } from '@react-navigation/native';
 import { GroupPhotosProvider } from './context/GroupPhotosContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { NotificationProvider, useNotifications } from './context/NotificationContext';
 import RootNavigator from './navigation/RootNavigator';
 import AuthStack from './navigation/AuthStack';
 import { ActivityIndicator, View, StyleSheet, Alert } from 'react-native';
@@ -13,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { checkIsEmailSignInLink, completeEmailLinkSignIn } from './services/authService';
+import NotificationPopup from './components/NotificationPopup';
 
 // Brand colors
 const PRIMARY_COLOR = '#CC0000';      // IU Crimson
@@ -22,6 +24,47 @@ const ACCENT_COLOR_2 = '#CC0000';     // IU Crimson
 const ACCENT_COLOR_3 = '#CC0000';     // IU Crimson
 const ACCENT_COLOR_4 = '#CC0000';     // IU Crimson
 const IU_CREAM = '#FAFAFA';
+
+// Component to handle notification popup inside NavigationContainer
+function NotificationPopupWrapper() {
+  const navigation = useNavigation();
+  const { latestNotification, hasNewNotification, clearNewNotification } = useNotifications();
+
+  const handleNotificationPress = () => {
+    clearNewNotification();
+    // Navigate to notifications tab
+    try {
+      // Try to navigate to Notifications screen
+      navigation.navigate('Notifications');
+    } catch (e) {
+      // If navigation fails, try to get parent navigator
+      let rootNavigator = navigation;
+      let parent = navigation.getParent();
+      while (parent) {
+        rootNavigator = parent;
+        parent = parent.getParent();
+      }
+      try {
+        rootNavigator.navigate('Notifications');
+      } catch (err) {
+        console.log('Could not navigate to Notifications:', err);
+      }
+    }
+  };
+
+  const handleDismiss = () => {
+    clearNewNotification();
+  };
+
+  return (
+    <NotificationPopup
+      visible={hasNewNotification}
+      notification={latestNotification}
+      onPress={handleNotificationPress}
+      onDismiss={handleDismiss}
+    />
+  );
+}
 
 // App content component that uses theme context and auth
 function AppContent() {
@@ -216,6 +259,7 @@ function AppContent() {
       >
         <StatusBar style={isDarkMode ? 'light' : 'dark'} />
         {user ? <RootNavigator /> : <AuthStack key={`auth-stack-${authStackKey}`} />}
+        {user && <NotificationPopupWrapper />}
       </NavigationContainer>
     </PaperProvider>
   );
@@ -228,7 +272,9 @@ export default function App() {
     <ThemeProvider>
       <AuthProvider>
       <GroupPhotosProvider>
-        <AppContent />
+        <NotificationProvider>
+          <AppContent />
+        </NotificationProvider>
       </GroupPhotosProvider>
       </AuthProvider>
     </ThemeProvider>

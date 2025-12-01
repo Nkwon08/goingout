@@ -22,14 +22,17 @@ export default function NotificationsTab() {
   const [groupInvitations, setGroupInvitations] = React.useState([]);
   const [invitationsWithData, setInvitationsWithData] = React.useState([]);
   const [postNotifications, setPostNotifications] = React.useState([]);
+  const [groupMessages, setGroupMessages] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [processingRequest, setProcessingRequest] = React.useState(null);
   const [processingInvitation, setProcessingInvitation] = React.useState(null);
   const [clearingPostNotifications, setClearingPostNotifications] = React.useState(false);
+  const [clearingGroupMessages, setClearingGroupMessages] = React.useState(false);
   const [selectionMode, setSelectionMode] = React.useState(false);
   const [selectedNotifications, setSelectedNotifications] = React.useState(new Set());
   const [refreshing, setRefreshing] = React.useState(false);
   const [refreshKey, setRefreshKey] = React.useState(0);
+  const [groupMessagesWithData, setGroupMessagesWithData] = React.useState([]);
   
   const bgColor = isDarkMode ? '#121212' : '#FAFAFA';
   const surfaceColor = isDarkMode ? '#1E1E1E' : '#F5F4F2';
@@ -119,6 +122,7 @@ export default function NotificationsTab() {
       setGroupInvitations([]);
       setInvitationsWithData([]);
       setPostNotifications([]);
+      setGroupMessages([]);
       return;
     }
 
@@ -128,6 +132,7 @@ export default function NotificationsTab() {
       if (result.error) {
         setGroupInvitations([]);
         setPostNotifications([]);
+        setGroupMessages([]);
         return;
       }
 
@@ -135,6 +140,12 @@ export default function NotificationsTab() {
         (notif) => notif.type === 'group_invitation' && !notif.read
       );
       setGroupInvitations(invitations);
+
+      // Separate group messages from post notifications
+      const groupMsgNotifs = (result.notifications || []).filter(
+        (notif) => notif.type === 'group_message' && notif.groupId
+      );
+      setGroupMessages(groupMsgNotifs);
 
       const postNotifs = (result.notifications || []).filter(
         (notif) => (notif.type === 'like' || notif.type === 'comment' || notif.type === 'tag' || notif.type === 'mention') && notif.postId
@@ -157,6 +168,80 @@ export default function NotificationsTab() {
 
     return () => unsubscribe && unsubscribe();
   }, [user?.uid, refreshKey]);
+
+  // Load group data for group messages
+  React.useEffect(() => {
+    if (!groupMessages.length) {
+      setGroupMessagesWithData([]);
+      return;
+    }
+
+    let isMounted = true;
+    const loadGroupMessageData = async () => {
+      try {
+        // Group messages by groupId
+        const groupedByGroup = {};
+        groupMessages.forEach((msg) => {
+          const groupId = msg.groupId;
+          if (!groupId) return;
+          
+          if (!groupedByGroup[groupId]) {
+            groupedByGroup[groupId] = {
+              groupId,
+              notifications: [],
+              unreadCount: 0,
+            };
+          }
+          
+          groupedByGroup[groupId].notifications.push(msg);
+          if (!msg.read) {
+            groupedByGroup[groupId].unreadCount++;
+          }
+        });
+
+        // Load group names for each group
+        const { getGroupById } = await import('../services/groupsService');
+        const groupedMessages = await Promise.all(
+          Object.values(groupedByGroup).map(async (groupData) => {
+            try {
+              const { group } = await getGroupById(groupData.groupId);
+              return {
+                ...groupData,
+                groupName: group?.name || 'Unknown Group',
+                latestNotification: groupData.notifications.sort((a, b) => {
+                  const aTime = a.createdAt?.getTime ? a.createdAt.getTime() : new Date(a.createdAt || 0).getTime();
+                  const bTime = b.createdAt?.getTime ? b.createdAt.getTime() : new Date(b.createdAt || 0).getTime();
+                  return bTime - aTime; // Newest first
+                })[0], // Get the latest notification
+              };
+            } catch (error) {
+              console.error('Error loading group data:', error);
+              return {
+                ...groupData,
+                groupName: 'Unknown Group',
+                latestNotification: groupData.notifications[0],
+              };
+            }
+          })
+        );
+
+        // Sort by latest notification time (newest first)
+        groupedMessages.sort((a, b) => {
+          const aTime = a.latestNotification?.createdAt?.getTime ? a.latestNotification.createdAt.getTime() : new Date(a.latestNotification?.createdAt || 0).getTime();
+          const bTime = b.latestNotification?.createdAt?.getTime ? b.latestNotification.createdAt.getTime() : new Date(b.latestNotification?.createdAt || 0).getTime();
+          return bTime - aTime;
+        });
+
+        if (isMounted) setGroupMessagesWithData(groupedMessages);
+      } catch (error) {
+        console.error('Error loading group message data:', error);
+        if (isMounted) setGroupMessagesWithData([]);
+      }
+    };
+
+    loadGroupMessageData();
+    return () => { isMounted = false; };
+  }, [groupMessages]);
 
   React.useEffect(() => {
     if (!groupInvitations.length) {
@@ -332,9 +417,58 @@ export default function NotificationsTab() {
     }
   }, [user?.uid, clearingPostNotifications, postNotifications]);
 
-  // Handle notification tap - navigate to post
+  const handleClearAllGroupMessages = React.useCallback(async () => {
+    if (!user?.uid || clearingGroupMessages || groupMessages.length === 0) return;
+
+    setClearingGroupMessages(true);
+    const allMessageIds = groupMessages.map(n => n.id);
+    
+    try {
+      // Delete all group message notifications from Firestore
+      const result = await deleteNotifications(user.uid, allMessageIds);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to delete notifications');
+      }
+    } catch (error) {
+      console.error('Error deleting all group messages:', error);
+      Alert.alert('Error', 'Failed to delete notifications. Please try again.', [{ text: 'OK' }]);
+    } finally {
+      setClearingGroupMessages(false);
+    }
+  }, [user?.uid, clearingGroupMessages, groupMessages]);
+
+  // Handle notification tap - navigate to post or group
   const handleNotificationTap = React.useCallback(async (notification) => {
-    if (!user?.uid || !notification?.postId) return;
+    if (!user?.uid) return;
+    
+    // For group messages, navigate to the group
+    if (notification.type === 'group_message' && notification.groupId) {
+      try {
+        if (!notification.read) {
+          await markNotificationAsRead(user.uid, notification.id);
+        }
+        // Navigate to Groups tab and open the specific group
+        let rootNavigator = navigation;
+        let parent = navigation.getParent();
+        while (parent) {
+          rootNavigator = parent;
+          parent = parent.getParent();
+        }
+        rootNavigator.navigate('MainTabs', {
+          screen: 'Groups',
+          params: {
+            groupId: notification.groupId,
+          },
+        });
+      } catch (error) {
+        console.error('Error navigating to group:', error);
+      }
+      return;
+    }
+    
+    // For post notifications, require postId
+    if (!notification?.postId) return;
 
     // Mark as read if not already read (but allow navigation even if already read)
     if (!notification.read) {
@@ -517,7 +651,7 @@ export default function NotificationsTab() {
     );
   }
 
-  const hasNotifications = requestsWithData.length > 0 || invitationsWithData.length > 0 || postNotifications.length > 0;
+  const hasNotifications = requestsWithData.length > 0 || invitationsWithData.length > 0 || postNotifications.length > 0 || groupMessagesWithData.length > 0;
 
   return (
     <LinearGradient
@@ -539,6 +673,91 @@ export default function NotificationsTab() {
             />
           }
         >
+        {/* New Messages section */}
+        {groupMessagesWithData.length > 0 && (
+          <View style={{ 
+            backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+            borderRadius: 20,
+            overflow: 'hidden',
+            marginBottom: 16,
+            borderWidth: 1,
+            borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.3,
+            shadowRadius: 16,
+            elevation: 8,
+          }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingBottom: 8 }}>
+              <Text style={{ color: textColor, fontSize: 16, fontWeight: '600' }}>
+                New Messages ({groupMessagesWithData.length})
+              </Text>
+              <TouchableOpacity
+                onPress={handleClearAllGroupMessages}
+                disabled={clearingGroupMessages || groupMessages.length === 0}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                  backgroundColor: (clearingGroupMessages || groupMessages.length === 0) ? dividerColor : primaryColor,
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>
+                  {clearingGroupMessages ? 'Clearing...' : 'Clear'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {groupMessagesWithData.map((groupData, idx) => {
+              const latestNotif = groupData.latestNotification;
+              return (
+                <TouchableOpacity
+                  key={groupData.groupId}
+                  onPress={() => handleNotificationTap(latestNotif)}
+                  activeOpacity={0.7}
+                >
+                  <View style={{ 
+                    padding: 16, 
+                    borderBottomWidth: idx < groupMessagesWithData.length - 1 ? 1 : 0,
+                    borderBottomColor: dividerColor,
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <UserAvatar 
+                        size={48} 
+                        uri={latestNotif?.fromUserAvatar || latestNotif?.fromUser?.photoURL || latestNotif?.fromUser?.avatar}
+                      />
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text style={{ color: textColor, fontSize: 15, fontWeight: '600' }}>
+                          {groupData.groupName}
+                        </Text>
+                        <Text style={{ color: subTextColor, fontSize: 14, marginTop: 2 }}>
+                          {groupData.unreadCount} new {groupData.unreadCount === 1 ? 'notification' : 'notifications'}
+                        </Text>
+                      </View>
+                      {groupData.unreadCount > 0 && (
+                        <View style={{
+                          minWidth: 24,
+                          height: 24,
+                          borderRadius: 12,
+                          backgroundColor: primaryColor,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          paddingHorizontal: 8,
+                          marginLeft: 8,
+                        }}>
+                          <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: 'bold' }}>
+                            {groupData.unreadCount > 9 ? '9+' : groupData.unreadCount}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
         {/* Post notifications section */}
         {postNotifications.length > 0 && (
           <View style={{ 
@@ -657,6 +876,7 @@ export default function NotificationsTab() {
                            notification.type === 'comment' ? 'commented on your post' :
                            notification.type === 'tag' ? 'mentioned you in a post' : 
                            notification.type === 'mention' ? 'mentioned you in a comment' :
+                           notification.type === 'group_message' ? 'sent a message in a group' :
                            'interacted with your post')}
                       </Text>
                     </View>

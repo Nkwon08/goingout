@@ -285,7 +285,14 @@ export const getAllUsers = async (currentUserId, pageSize = 20, lastUserId = nul
       .filter((doc) => {
         const data = doc.data();
         // Exclude current user by comparing authUid (document ID is now username)
-        return data.authUid !== currentUserId;
+        if (data.authUid === currentUserId) return false;
+        // Exclude temp documents (users who haven't selected a username yet)
+        if (doc.id.startsWith('temp_')) return false;
+        // Exclude users without a proper username field (incomplete profiles)
+        if (!data.username || !data.username.trim()) return false;
+        // Exclude users without username_lowercase (needed for searching)
+        if (!data.username_lowercase || !data.username_lowercase.trim()) return false;
+        return true;
       })
       .map((doc) => {
         const data = doc.data();

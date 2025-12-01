@@ -48,6 +48,38 @@ export const sendMessage = async (groupId, userId, text, userData, isPost = fals
     const messagesRef = collection(db, 'groups', groupId, 'messages');
     const messageRef = await addDoc(messagesRef, messageData);
 
+    // Send notifications to all group members except the sender
+    (async () => {
+      try {
+        const { getGroupById } = await import('./groupsService');
+        const { createNotification } = await import('./notificationsService');
+        const { group } = await getGroupById(groupId);
+        
+        if (group?.members && Array.isArray(group.members)) {
+          const otherMembers = group.members.filter(memberId => memberId !== userId);
+          
+          // Send notifications to all other members
+          const notificationPromises = otherMembers.map(async (memberId) => {
+            try {
+              await createNotification(memberId, {
+                type: 'group_message',
+                groupId: groupId,
+                fromUserId: userId,
+                message: 'sent a message',
+              });
+            } catch (error) {
+              console.error(`⚠️ Error sending notification to ${memberId}:`, error);
+            }
+          });
+          
+          await Promise.all(notificationPromises);
+        }
+      } catch (error) {
+        console.error('⚠️ Error sending group message notifications (non-fatal):', error);
+        // Don't fail message sending if notifications fail
+      }
+    })();
+
     return { messageId: messageRef.id, error: null };
   } catch (error) {
     console.error('❌ Error sending message:', error);
@@ -100,6 +132,38 @@ export const sendImageMessage = async (groupId, userId, imageUri, text, userData
     // Also add photo to group album
     await addPhotoToAlbum(groupId, userId, url, userData);
 
+    // Send notifications to all group members except the sender
+    (async () => {
+      try {
+        const { getGroupById } = await import('./groupsService');
+        const { createNotification } = await import('./notificationsService');
+        const { group } = await getGroupById(groupId);
+        
+        if (group?.members && Array.isArray(group.members)) {
+          const otherMembers = group.members.filter(memberId => memberId !== userId);
+          
+          // Send notifications to all other members
+          const notificationPromises = otherMembers.map(async (memberId) => {
+            try {
+              await createNotification(memberId, {
+                type: 'group_message',
+                groupId: groupId,
+                fromUserId: userId,
+                message: 'sent a photo/video',
+              });
+            } catch (error) {
+              console.error(`⚠️ Error sending notification to ${memberId}:`, error);
+            }
+          });
+          
+          await Promise.all(notificationPromises);
+        }
+      } catch (error) {
+        console.error('⚠️ Error sending group photo notifications (non-fatal):', error);
+        // Don't fail message sending if notifications fail
+      }
+    })();
+
     return { messageId: messageRef.id, error: null };
   } catch (error) {
     console.error('❌ Error sending image message:', error);
@@ -145,6 +209,38 @@ export const sendImageMessageWithUrl = async (groupId, userId, imageUrl, text, u
 
     // Also add photo to group album
     await addPhotoToAlbum(groupId, userId, imageUrl, userData);
+
+    // Send notifications to all group members except the sender
+    (async () => {
+      try {
+        const { getGroupById } = await import('./groupsService');
+        const { createNotification } = await import('./notificationsService');
+        const { group } = await getGroupById(groupId);
+        
+        if (group?.members && Array.isArray(group.members)) {
+          const otherMembers = group.members.filter(memberId => memberId !== userId);
+          
+          // Send notifications to all other members
+          const notificationPromises = otherMembers.map(async (memberId) => {
+            try {
+              await createNotification(memberId, {
+                type: 'group_message',
+                groupId: groupId,
+                fromUserId: userId,
+                message: 'sent a photo/video',
+              });
+            } catch (error) {
+              console.error(`⚠️ Error sending notification to ${memberId}:`, error);
+            }
+          });
+          
+          await Promise.all(notificationPromises);
+        }
+      } catch (error) {
+        console.error('⚠️ Error sending group photo notifications (non-fatal):', error);
+        // Don't fail message sending if notifications fail
+      }
+    })();
 
     return { messageId: messageRef.id, error: null };
   } catch (error) {
@@ -197,6 +293,38 @@ export const sendVideoMessage = async (groupId, userId, videoUri, text, userData
     // Also add video to group album
     await addVideoToAlbum(groupId, userId, url, userData);
 
+    // Send notifications to all group members except the sender
+    (async () => {
+      try {
+        const { getGroupById } = await import('./groupsService');
+        const { createNotification } = await import('./notificationsService');
+        const { group } = await getGroupById(groupId);
+        
+        if (group?.members && Array.isArray(group.members)) {
+          const otherMembers = group.members.filter(memberId => memberId !== userId);
+          
+          // Send notifications to all other members
+          const notificationPromises = otherMembers.map(async (memberId) => {
+            try {
+              await createNotification(memberId, {
+                type: 'group_message',
+                groupId: groupId,
+                fromUserId: userId,
+                message: 'sent a photo/video',
+              });
+            } catch (error) {
+              console.error(`⚠️ Error sending notification to ${memberId}:`, error);
+            }
+          });
+          
+          await Promise.all(notificationPromises);
+        }
+      } catch (error) {
+        console.error('⚠️ Error sending group video notifications (non-fatal):', error);
+        // Don't fail message sending if notifications fail
+      }
+    })();
+
     return { messageId: messageRef.id, error: null };
   } catch (error) {
     console.error('❌ Error sending video message:', error);
@@ -241,6 +369,38 @@ export const sendPollMessage = async (groupId, userId, pollId, question, options
 
     const messagesRef = collection(db, 'groups', groupId, 'messages');
     const messageRef = await addDoc(messagesRef, messageData);
+
+    // Send notifications to all group members except the sender
+    (async () => {
+      try {
+        const { getGroupById } = await import('./groupsService');
+        const { createNotification } = await import('./notificationsService');
+        const { group } = await getGroupById(groupId);
+        
+        if (group?.members && Array.isArray(group.members)) {
+          const otherMembers = group.members.filter(memberId => memberId !== userId);
+          
+          // Send notifications to all other members
+          const notificationPromises = otherMembers.map(async (memberId) => {
+            try {
+              await createNotification(memberId, {
+                type: 'group_message',
+                groupId: groupId,
+                fromUserId: userId,
+                message: 'sent a poll',
+              });
+            } catch (error) {
+              console.error(`⚠️ Error sending notification to ${memberId}:`, error);
+            }
+          });
+          
+          await Promise.all(notificationPromises);
+        }
+      } catch (error) {
+        console.error('⚠️ Error sending group poll notifications (non-fatal):', error);
+        // Don't fail message sending if notifications fail
+      }
+    })();
 
     return { messageId: messageRef.id, error: null };
   } catch (error) {

@@ -427,7 +427,13 @@ export default function FriendsTab() {
       try {
         const result = await searchUsersByUsername(searchQuery.trim());
         const users = Array.isArray(result?.users) ? result.users : [];
-        const filtered = users.filter((u) => u?.uid !== user.uid);
+        const filtered = users.filter((u) => {
+          // Exclude temp documents (users who haven't selected a username yet)
+          if (u?.uid && u.uid.startsWith('temp_')) return false;
+          // Exclude users without proper username
+          if (!u?.username || !u.username.trim() || u.username === 'username') return false;
+          return u?.uid !== user.uid;
+        });
 
         // Optimistic UI - use cached friends list if available (optimized)
         const friendsSet = new Set(friends);
@@ -513,6 +519,10 @@ export default function FriendsTab() {
           
           // Filter out current user, friends, pending friends, and already clicked users
           const filteredUsers = result.users.filter((u) => {
+            // Exclude temp documents (users who haven't selected a username yet)
+            if (u.uid && u.uid.startsWith('temp_')) return false;
+            // Exclude users without proper username
+            if (!u.username || !u.username.trim() || u.username === 'username') return false;
             // Exclude current user by comparing UID
             if (u.uid === user.uid) return false;
             // Also check if username matches current user's username (case-insensitive)
@@ -631,6 +641,10 @@ export default function FriendsTab() {
             const excludedUsernames = new Set([...friendsUsernames, ...pendingUsernames]);
             
             const filteredUsers = result.users.filter((u) => {
+              // Exclude temp documents (users who haven't selected a username yet)
+              if (u.uid && u.uid.startsWith('temp_')) return false;
+              // Exclude users without proper username
+              if (!u.username || !u.username.trim() || u.username === 'username') return false;
               if (u.uid === user.uid) return false;
               // Case-insensitive username comparison
               if (userData?.username && u.username) {
@@ -734,6 +748,10 @@ export default function FriendsTab() {
       } else {
         // Filter out current user from the new users
         const filteredUsers = result.users.filter((u) => {
+          // Exclude temp documents (users who haven't selected a username yet)
+          if (u.uid && u.uid.startsWith('temp_')) return false;
+          // Exclude users without proper username
+          if (!u.username || !u.username.trim() || u.username === 'username') return false;
           // Exclude current user by comparing UID
           if (u.uid === user.uid) return false;
           // Also check if username matches current user's username
@@ -780,11 +798,23 @@ export default function FriendsTab() {
       const result = await sendFriendRequest(targetUid);
       if (result.success) {
         setSearchResultsWithStatus((prev) =>
-          prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: true } : u))
+          prev.map((u) => {
+            // Match by UID or username (case-insensitive)
+            const matches = u.uid === targetUid || 
+                          u.authUid === targetUid ||
+                          (u.username && targetUid && String(u.username).toLowerCase().replace(/\s+/g, '') === String(targetUid).toLowerCase().replace(/\s+/g, ''));
+            return matches ? { ...u, requestSent: true } : u;
+          })
         );
         // Also update suggestedUsers list
         setSuggestedUsers((prev) =>
-          prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: true } : u))
+          prev.map((u) => {
+            // Match by UID or username (case-insensitive)
+            const matches = u.uid === targetUid || 
+                          u.authUid === targetUid ||
+                          (u.username && targetUid && String(u.username).toLowerCase().replace(/\s+/g, '') === String(targetUid).toLowerCase().replace(/\s+/g, ''));
+            return matches ? { ...u, requestSent: true } : u;
+          })
         );
       } else {
         // Don't show error for "already sent" - it's expected if user clicks twice
@@ -811,11 +841,23 @@ export default function FriendsTab() {
       const result = await cancelFriendRequest(targetUid);
       if (result.success) {
         setSearchResultsWithStatus((prev) =>
-          prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: false } : u))
+          prev.map((u) => {
+            // Match by UID or username (case-insensitive)
+            const matches = u.uid === targetUid || 
+                          u.authUid === targetUid ||
+                          (u.username && targetUid && String(u.username).toLowerCase().replace(/\s+/g, '') === String(targetUid).toLowerCase().replace(/\s+/g, ''));
+            return matches ? { ...u, requestSent: false } : u;
+          })
         );
         // Also update suggestedUsers list
         setSuggestedUsers((prev) =>
-          prev.map((u) => (u.uid === targetUid ? { ...u, requestSent: false } : u))
+          prev.map((u) => {
+            // Match by UID or username (case-insensitive)
+            const matches = u.uid === targetUid || 
+                          u.authUid === targetUid ||
+                          (u.username && targetUid && String(u.username).toLowerCase().replace(/\s+/g, '') === String(targetUid).toLowerCase().replace(/\s+/g, ''));
+            return matches ? { ...u, requestSent: false } : u;
+          })
         );
       } else {
         Alert.alert('Error', result.error || 'Failed to cancel friend request', [{ text: 'OK' }]);
@@ -869,6 +911,10 @@ export default function FriendsTab() {
     setAllAvailableUsers((prevAvailable) => {
       // Find a user that's not already suggested and not clicked
       const availableUser = prevAvailable.find(u => {
+        // Exclude temp documents (users who haven't selected a username yet)
+        if (u.uid && u.uid.startsWith('temp_')) return false;
+        // Exclude users without proper username
+        if (!u.username || !u.username.trim() || u.username === 'username') return false;
         const uId = u.uid || u.username;
         const isClicked = clickedUserIds.has(uId) || userId === uId;
         return !isClicked;
@@ -902,6 +948,10 @@ export default function FriendsTab() {
                 const excludedUsernames = new Set([...friendsUsernames, ...pendingUsernames]);
                 
                 const filteredUsers = result.users.filter((u) => {
+                  // Exclude temp documents (users who haven't selected a username yet)
+                  if (u.uid && u.uid.startsWith('temp_')) return false;
+                  // Exclude users without proper username
+                  if (!u.username || !u.username.trim() || u.username === 'username') return false;
                   if (u.uid === user.uid) return false;
                   if (userData?.username && u.username === userData.username) return false;
                   if (u.username && excludedUsernames.has(u.username)) return false;
@@ -1123,8 +1173,20 @@ export default function FriendsTab() {
                       {(() => {
                         // Check if user is already a friend (by username or uid)
                         const isFriend = u.username && friendsListFromContext?.includes(u.username);
-                        // Check if there's a pending request
-                        const hasPendingRequest = pendingFriendsWithData.some((p) => p.username === u.username);
+                        // Check if there's a pending request (case-insensitive username comparison and also check by UID)
+                        const hasPendingRequest = pendingFriendsWithData.some((p) => {
+                          // Case-insensitive username comparison
+                          if (p.username && u.username) {
+                            const pUsernameLower = String(p.username).toLowerCase().replace(/\s+/g, '');
+                            const uUsernameLower = String(u.username).toLowerCase().replace(/\s+/g, '');
+                            if (pUsernameLower === uUsernameLower) return true;
+                          }
+                          // Also check by UID if available
+                          if (p.uid && u.uid && p.uid === u.uid) return true;
+                          if (p.authUid && u.uid && p.authUid === u.uid) return true;
+                          if (p.uid && u.authUid && p.uid === u.authUid) return true;
+                          return false;
+                        });
                         
                         if (isFriend) {
                           return <Button mode="outlined" textColor={colors.subText} compact disabled icon="account-check">Friends</Button>;

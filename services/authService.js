@@ -1096,19 +1096,62 @@ export const signInWithGoogle = async (idToken) => {
     const userCredential = await signInWithCredential(auth, credential);
     const user = userCredential.user;
 
-    // Use upsertUserProfile to create/update profile (idempotent)
-    const email = user.email || '';
-    const profileResult = await upsertUserProfile(user.uid, {
-      name: user.displayName && user.displayName.trim() ? user.displayName.trim() : null, // Use provider display name
-      username: null, // username will be derived from email if not provided
-    });
+    // Check if user already has a username by querying Firestore
+    let hasUsername = false;
+    try {
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('authUid', '==', user.uid), limit(1));
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        const userData = querySnapshot.docs[0].data();
+        hasUsername = userData?.username && userData.username.trim();
+      }
+    } catch (error) {
+      console.warn('[signInWithGoogle] Error checking for existing username:', error);
+    }
+    
+    // Only create/update profile if user already has a username
+    // If they don't have a username, they'll set it on the username selection screen
+    if (hasUsername) {
+      const email = user.email || '';
+      const profileResult = await upsertUserProfile(user.uid, {
+        name: user.displayName && user.displayName.trim() ? user.displayName.trim() : null, // Use provider display name
+        // Don't pass username - preserve existing
+      });
 
-    if (!profileResult.success && profileResult.error !== 'username_taken') {
-      console.warn('[signInWithGoogle] Profile update warning:', profileResult.error);
-      // Continue anyway - user is signed in
+      if (!profileResult.success && profileResult.error !== 'username_taken') {
+        console.warn('[signInWithGoogle] Profile update warning:', profileResult.error);
+        // Continue anyway - user is signed in
+      }
+    } else {
+      // New user without username - create minimal profile without username
+      // This will be updated when they select a username
+      try {
+        const email = user.email || '';
+        // Create a temporary document with authUid so we can find it later
+        // We'll use a placeholder username that will be replaced
+        const tempUsername = `temp_${user.uid.slice(0, 8)}`;
+        const userRef = doc(db, 'users', tempUsername);
+        await setDoc(userRef, {
+          authUid: user.uid,
+          email: email,
+          name: user.displayName && user.displayName.trim() ? user.displayName.trim() : null,
+          friends: [], // Initialize friends array
+          blocked: [], // Initialize blocked array
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          // Don't set username - user will set it on username selection screen
+          // This temp document will be migrated to the real username when user selects one
+        }, { merge: true });
+        console.log('[signInWithGoogle] Created temp profile for username selection:', tempUsername);
+      } catch (error) {
+        console.warn('[signInWithGoogle] Error creating temp profile:', error);
+        // Continue anyway - user is signed in
+      }
     }
 
-    return { user, error: null };
+    // Return needsUsername flag if user doesn't have a username
+    return { user, error: null, needsUsername: !hasUsername };
   } catch (error) {
     console.error('Google sign in error:', error);
     return { user: null, error: error.message || 'Failed to sign in with Google' };
@@ -1161,27 +1204,74 @@ export const signInWithApple = async () => {
       ? `${appleCredential.fullName.givenName || ''} ${appleCredential.fullName.familyName || ''}`.trim() 
       : null;
     
-    const email = appleCredential.email || user.email || '';
-    const profileResult = await upsertUserProfile(user.uid, {
-      name: name || (user.displayName && user.displayName.trim() ? user.displayName.trim() : null),
-      username: null, // username will be derived from email if not provided
-    });
+    // Check if user already has a username by querying Firestore
+    let hasUsername = false;
+    try {
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('authUid', '==', user.uid), limit(1));
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        const userData = querySnapshot.docs[0].data();
+        hasUsername = userData?.username && userData.username.trim();
+      }
+    } catch (error) {
+      console.warn('[signInWithApple] Error checking for existing username:', error);
+    }
+    
+    // Only create/update profile if user already has a username
+    // If they don't have a username, they'll set it on the username selection screen
+    if (hasUsername) {
+      const email = appleCredential.email || user.email || '';
+      const profileResult = await upsertUserProfile(user.uid, {
+        name: name || (user.displayName && user.displayName.trim() ? user.displayName.trim() : null),
+        // Don't pass username - preserve existing
+      });
 
-    if (!profileResult.success && profileResult.error !== 'username_taken') {
-      console.warn('[signInWithApple] Profile update warning:', profileResult.error);
-      // Continue anyway - user is signed in
+      if (!profileResult.success && profileResult.error !== 'username_taken') {
+        console.warn('[signInWithApple] Profile update warning:', profileResult.error);
+        // Continue anyway - user is signed in
+      }
+    } else {
+      // New user without username - create minimal profile without username
+      // This will be updated when they select a username
+      try {
+        const email = appleCredential.email || user.email || '';
+        const finalName = name || (user.displayName && user.displayName.trim() ? user.displayName.trim() : null);
+        // Create a temporary document with authUid so we can find it later
+        // We'll use a placeholder username that will be replaced
+        const tempUsername = `temp_${user.uid.slice(0, 8)}`;
+        const userRef = doc(db, 'users', tempUsername);
+        await setDoc(userRef, {
+          authUid: user.uid,
+          email: email,
+          name: finalName,
+          friends: [], // Initialize friends array
+          blocked: [], // Initialize blocked array
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          // Don't set username - user will set it on username selection screen
+          // This temp document will be migrated to the real username when user selects one
+        }, { merge: true });
+        console.log('[signInWithApple] Created temp profile for username selection:', tempUsername);
+      } catch (error) {
+        console.warn('[signInWithApple] Error creating temp profile:', error);
+        // Continue anyway - user is signed in
+      }
     }
 
-    return { user, error: null };
+    // Return needsUsername flag if user doesn't have a username
+    return { user, error: null, needsUsername: !hasUsername };
   } catch (error) {
+    // User cancellation is not an error - just return silently
+    if (error.code === 'ERR_REQUEST_CANCELED') {
+      return { user: null, error: null }; // Return null error for cancellation
+    }
+    
+    // Log actual errors (not cancellations)
     console.error('Apple sign in error:', error);
     console.error('Error code:', error.code);
     console.error('Error message:', error.message);
     console.error('Full error:', JSON.stringify(error, null, 2));
-    
-    if (error.code === 'ERR_REQUEST_CANCELED') {
-      return { user: null, error: 'Apple sign in cancelled' };
-    }
     
     // Handle Firebase audience mismatch error (common in Expo Go)
     const errorMessage = error.message || '';

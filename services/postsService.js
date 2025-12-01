@@ -424,7 +424,11 @@ export const subscribeToPosts = (callback, pageSize = 20, userLocation = null, u
             // Filter by visibility setting
             // If post visibility is 'friends', only show if user is friends with post author
             if (post.visibility === 'friends') {
-              const isPostAuthorFriend = friendsList.includes(post.userId);
+              // friendsList contains usernames (document IDs), not userIds
+              // Compare post.username (normalized) with friendsList (normalized)
+              const postAuthorUsername = post.username ? String(post.username).toLowerCase().replace(/\s+/g, '') : '';
+              const normalizedFriendsList = friendsList.map(f => String(f).toLowerCase().replace(/\s+/g, ''));
+              const isPostAuthorFriend = postAuthorUsername && normalizedFriendsList.includes(postAuthorUsername);
               const isOwnPost = userId === post.userId; // Always show own posts
               
               if (!isOwnPost && !isPostAuthorFriend) {
@@ -443,29 +447,41 @@ export const subscribeToPosts = (callback, pageSize = 20, userLocation = null, u
             
             // For location-based posts, filter by matching account location
             // Show posts from others in the same location
-            // Normalize location strings for comparison (trim, lowercase, remove extra spaces)
+            // Normalize location strings for comparison (trim, lowercase, remove extra spaces and punctuation)
             const normalizeLocation = (loc) => {
               if (!loc) return '';
-              return String(loc).trim().toLowerCase().replace(/\s+/g, ' ');
+              const normalized = String(loc).trim().toLowerCase();
+              // Treat "Unknown Location" and empty strings as no location
+              if (normalized === 'unknown location' || normalized === '' || normalized === 'unknown') {
+                return '';
+              }
+              // Remove all spaces, punctuation, and convert to lowercase for more flexible matching
+              return normalized.replace(/[,\s]+/g, '').replace(/[^\w]/g, '');
             };
             
             const postLocation = normalizeLocation(post.location);
             const userAccountLocation = normalizeLocation(userLocation);
             
-            // Show post if locations match (or if user hasn't set location yet)
-            // This ensures users see posts from others in their same location
-            if (userAccountLocation && postLocation) {
-              // Only filter out if locations don't match
+            // Show post if:
+            // 1. User hasn't set location yet (userAccountLocation is empty) - show all posts
+            // 2. Post doesn't have a location (or has "Unknown Location") - show it (backwards compatibility)
+            // 3. Post location matches user's location
+            // 4. It's the user's own post (already handled above)
+            
+            // If user has a location set, only filter out posts with different locations
+            if (userAccountLocation) {
+              // If post has no location (or unknown), show it (backwards compatibility)
+              if (!postLocation) {
+                return true;
+              }
+              // If post has a location and it doesn't match, filter it out
               if (postLocation !== userAccountLocation) {
                 return false; // Hide posts from different locations
               }
-              // If locations match, show the post (return true below)
+              // If post location matches, show it (return true below)
             }
             
-            // Show post if:
-            // 1. User hasn't set location yet (userAccountLocation is empty)
-            // 2. Post location matches user's location
-            // 3. It's the user's own post (already handled above)
+            // Show the post
             return true;
           });
         // Sort posts by createdAt descending (newest first) - order always based on when it was posted

@@ -52,6 +52,9 @@ export default function LoginScreen({ navigation }) {
       if (result.error) {
         setError(result.error);
         setSnackbarVisible(true);
+      } else if (result.needsUsername) {
+        // Navigate to username selection screen
+        navigation.navigate('UsernameSelection');
       } else {
         // Navigation handled by auth state change in App.js
       }
@@ -125,12 +128,17 @@ export default function LoginScreen({ navigation }) {
     
     setAppleLoading(false);
 
+    // Only show error if it's not a cancellation (cancellation returns null error)
     if (result.error) {
       setError(result.error);
       setSnackbarVisible(true);
-    } else {
+    } else if (result.needsUsername) {
+      // Navigate to username selection screen
+      navigation.navigate('UsernameSelection');
+    } else if (result.user) {
       // Navigation handled by auth state change in App.js
     }
+    // If result.error is null and result.user is null, user cancelled - do nothing
   };
 
 
