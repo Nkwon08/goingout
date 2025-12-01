@@ -2,7 +2,7 @@
 import { StatusBar } from 'expo-status-bar';
 import * as React from 'react';
 import { Provider as PaperProvider, MD3DarkTheme, MD3LightTheme } from 'react-native-paper';
-import { NavigationContainer, DarkTheme as NavigationDarkTheme, DefaultTheme as NavigationDefaultTheme, useNavigation } from '@react-navigation/native';
+import { NavigationContainer, DarkTheme as NavigationDarkTheme, DefaultTheme as NavigationDefaultTheme, useNavigation, CommonActions } from '@react-navigation/native';
 import { GroupPhotosProvider } from './context/GroupPhotosContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -32,23 +32,47 @@ function NotificationPopupWrapper() {
 
   const handleNotificationPress = () => {
     clearNewNotification();
-    // Navigate to notifications tab
+    // Navigate to Notifications modal screen
     try {
-      // Try to navigate to Notifications screen
-      navigation.navigate('Notifications');
-    } catch (e) {
-      // If navigation fails, try to get parent navigator
-      let rootNavigator = navigation;
+      // Get the root navigator that contains the Notifications screen
+      let currentNav = navigation;
+      let rootNavigator = null;
       let parent = navigation.getParent();
+      
+      // Walk up the navigation tree to find RootNavigator (which has Notifications modal)
       while (parent) {
-        rootNavigator = parent;
+        const state = parent.getState();
+        const routeNames = state?.routeNames || state?.routes?.map(r => r.name);
+        
+        // Check if this navigator has 'Notifications' (RootNavigator)
+        if (routeNames && routeNames.includes('Notifications')) {
+          rootNavigator = parent;
+          break;
+        }
+        
+        // Also check for MainTabs (RootNavigator)
+        if (routeNames && routeNames.includes('MainTabs')) {
+          rootNavigator = parent;
+          break;
+        }
+        
+        currentNav = parent;
         parent = parent.getParent();
       }
-      try {
+      
+      if (rootNavigator) {
+        // Navigate to Notifications modal
         rootNavigator.navigate('Notifications');
-      } catch (err) {
-        console.log('Could not navigate to Notifications:', err);
+      } else {
+        // Fallback: try direct navigation
+        try {
+          navigation.navigate('Notifications');
+        } catch (e) {
+          console.log('Could not navigate to Notifications:', e);
+        }
       }
+    } catch (err) {
+      console.log('Could not navigate to Notifications:', err);
     }
   };
 

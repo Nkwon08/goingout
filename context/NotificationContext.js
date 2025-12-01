@@ -62,27 +62,41 @@ export function NotificationProvider({ children }) {
           )
         );
 
-        // Check for new notifications
+        // Sort by createdAt descending to get the most recent first
+        const sortedNotifications = [...postNotifications].sort((a, b) => {
+          const aTime = a.createdAt?.getTime ? a.createdAt.getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+          const bTime = b.createdAt?.getTime ? b.createdAt.getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+          return bTime - aTime; // Most recent first
+        });
+
+        // Find the most recent new notification (not seen before)
+        const newNotification = sortedNotifications.find(notif => !previousNotificationIdsRef.current.has(notif.id));
+        
+        if (newNotification) {
+          // This is a new notification - show popup
+          setLatestNotification({
+            id: newNotification.id,
+            type: newNotification.type,
+            message: newNotification.message || `${newNotification.fromUserName || 'Someone'} ${getNotificationMessage(newNotification.type)}`,
+            fromUserName: newNotification.fromUserName || 'Someone',
+            fromUserAvatar: newNotification.fromUserAvatar,
+            postId: newNotification.postId,
+            groupId: newNotification.groupId,
+            timestamp: newNotification.createdAt,
+          });
+          setHasNewNotification(true);
+          
+          // Add to seen set
+          previousNotificationIdsRef.current.add(newNotification.id);
+          
+          // Auto-hide after 5 seconds
+          setTimeout(() => {
+            setHasNewNotification(false);
+          }, 5000);
+        }
+        
+        // Add all current notification IDs to the seen set (to prevent showing popups for old notifications)
         postNotifications.forEach(notif => {
-          if (!previousNotificationIdsRef.current.has(notif.id)) {
-            // This is a new notification
-            setLatestNotification({
-              id: notif.id,
-              type: notif.type,
-              message: notif.message || `${notif.fromUserName || 'Someone'} ${getNotificationMessage(notif.type)}`,
-              fromUserName: notif.fromUserName || 'Someone',
-              fromUserAvatar: notif.fromUserAvatar,
-              postId: notif.postId,
-              groupId: notif.groupId,
-              timestamp: notif.createdAt,
-            });
-            setHasNewNotification(true);
-            
-            // Auto-hide after 5 seconds
-            setTimeout(() => {
-              setHasNewNotification(false);
-            }, 5000);
-          }
           previousNotificationIdsRef.current.add(notif.id);
         });
       });
