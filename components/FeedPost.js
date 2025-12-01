@@ -529,10 +529,19 @@ export default function FeedPost({ post, onDelete, isVisible = false, videoRefs 
       setSelectedGroup(null);
       
       // Navigate to the group after successfully sending
-      navigation.navigate('Groups', {
-        screen: 'GroupsMain',
-        params: { groupId: selectedGroup.id }
-      });
+      // Get parent navigator (tab navigator) to navigate to Groups tab
+      const parentNavigator = navigation.getParent();
+      if (parentNavigator) {
+        parentNavigator.navigate('Groups', {
+          screen: 'GroupsMain',
+          params: { groupId: selectedGroup.id }
+        });
+      } else {
+        navigation.navigate('Groups', {
+          screen: 'GroupsMain',
+          params: { groupId: selectedGroup.id }
+        });
+      }
     } catch (error) {
       console.error('Error sending post to group:', error);
       Alert.alert('Error', error.message || 'Failed to send post to group. Please try again.');
@@ -546,10 +555,19 @@ export default function FeedPost({ post, onDelete, isVisible = false, videoRefs 
     setShowSendToGroupModal(false);
     setShowCreateGroup(true);
     // Navigate to CreateGroup screen
-    navigation.navigate('Groups', {
-      screen: 'CreateGroup',
-      params: { returnToPost: true, postData: post }
-    });
+    // Get parent navigator (tab navigator) to navigate to Groups tab
+    const parentNavigator = navigation.getParent();
+    if (parentNavigator) {
+      parentNavigator.navigate('Groups', {
+        screen: 'CreateGroup',
+        params: { returnToPost: true, postData: post }
+      });
+    } else {
+      navigation.navigate('Groups', {
+        screen: 'CreateGroup',
+        params: { returnToPost: true, postData: post }
+      });
+    }
   };
 
   // Handle delete post

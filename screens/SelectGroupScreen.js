@@ -83,11 +83,8 @@ export default function SelectGroupScreen() {
         } else {
           // Store groupId in AsyncStorage for GroupsScreen to pick up
           await AsyncStorage.setItem('pendingGroupId', group.id);
-          // Navigate to Groups tab and open the selected group
-          navigation.navigate('Groups', {
-            screen: 'GroupsMain',
-            params: { groupId: group.id }
-          });
+          // Navigate to GroupsMain directly (we're already in GroupsStack)
+          navigation.navigate('GroupsMain', { groupId: group.id });
         }
       } else {
         const { messageId, error } = await sendImageMessage(
@@ -103,11 +100,8 @@ export default function SelectGroupScreen() {
         } else {
           // Store groupId in AsyncStorage for GroupsScreen to pick up
           await AsyncStorage.setItem('pendingGroupId', group.id);
-          // Navigate to Groups tab and open the selected group
-          navigation.navigate('Groups', {
-            screen: 'GroupsMain',
-            params: { groupId: group.id }
-          });
+          // Navigate to GroupsMain directly (we're already in GroupsStack)
+          navigation.navigate('GroupsMain', { groupId: group.id });
         }
       }
     } catch (error) {

@@ -9,7 +9,7 @@ import * as ImagePicker from 'expo-image-picker';
 import MediaPreview from '../components/MediaPreview';
 import ComposePost from '../components/ComposePost';
 import { useAuth } from '../context/AuthContext';
-import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
+import { useNavigation, useRoute, CommonActions, StackActions } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { uploadImages, uploadVideo } from '../services/storageService';
 import { createPost } from '../services/postsService';
@@ -458,11 +458,29 @@ export default function CameraScreen() {
       // Store groupId in AsyncStorage for GroupsScreen to pick up
       await AsyncStorage.setItem('pendingGroupId', group.id);
       
-      // Navigate to Groups tab and open the selected group
-      navigation.navigate('Groups', {
-        screen: 'GroupsMain',
-        params: { groupId: group.id }
-      });
+      // Close camera modal and navigate to Groups tab with groupId
+      // Get root navigator (Camera is a modal in RootNavigator)
+      let rootNavigator = navigation;
+      let parent = navigation.getParent();
+      while (parent) {
+        rootNavigator = parent;
+        parent = parent.getParent();
+      }
+      
+      // Pop the Camera modal from the stack to close it
+      rootNavigator.dispatch(StackActions.pop());
+      
+      // Then navigate to Groups tab with groupId
+      // Use a small delay to ensure the camera modal is fully closed
+      setTimeout(() => {
+        rootNavigator.navigate('MainTabs', {
+          screen: 'Groups',
+          params: {
+            screen: 'GroupsMain',
+            params: { groupId: group.id }
+          }
+        });
+      }, 50);
     } catch (error) {
       console.error('Error adding media to group:', error);
       Alert.alert('Error', error.message || 'Failed to add media to group. Please try again.');

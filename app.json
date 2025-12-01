@@ -46,7 +46,7 @@
         "icon": "./assets/icon.png",
         "color": "#CC0000"
       },
-      "bundleIdentifier": "com.anonymous.roll"
+      "bundleIdentifier": "com.roll.roll"
     },
     "android": {
       "adaptiveIcon": {
@@ -60,7 +60,7 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
       ],
-      "package": "com.anonymous.roll",
+      "package": "com.roll.roll",
       "intentFilters": [
         {
           "action": "VIEW",
