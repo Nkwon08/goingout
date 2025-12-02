@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { addFriend, checkFriendship, getFriends, sendFriendRequest, cancelFriendRequest, subscribeToOutgoingFriendRequests, getAuthUidFromUsername, getUsernameFromAuthUid } from '../services/friendsService';
 import { getCardBorderOnly } from '../utils/cardStyles';
 import { getCurrentUserData as getUserData } from '../services/authService';
-import { searchUsersByUsername, getAllUsers, getUserById } from '../services/usersService';
+import { searchUsersByNameOrUsername, getAllUsers, getUserById } from '../services/usersService';
 
 export default function FriendsTab() {
   const navigation = useNavigation();
@@ -425,7 +425,7 @@ export default function FriendsTab() {
     const timeout = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const result = await searchUsersByUsername(searchQuery.trim());
+        const result = await searchUsersByNameOrUsername(searchQuery.trim());
         const users = Array.isArray(result?.users) ? result.users : [];
         const filtered = users.filter((u) => {
           // Exclude temp documents (users who haven't selected a username yet)
@@ -782,7 +782,7 @@ export default function FriendsTab() {
   // Track which friend requests are currently being sent to prevent duplicates
   const [sendingRequests, setSendingRequests] = React.useState(new Set());
 
-  /** Send a friend request */
+  /** Send a friend request - optimistic UI update for instant feedback */
   const handleSendFriendRequest = React.useCallback(async (targetUid) => {
     if (!user || targetUid === user.uid) return;
     
@@ -794,36 +794,81 @@ export default function FriendsTab() {
     
     setSendingRequests((prev) => new Set(prev).add(targetUid));
     
+    // Optimistic UI update - update immediately for instant feedback
+    const updateUI = () => {
+      setSearchResultsWithStatus((prev) =>
+        prev.map((u) => {
+          // Match by UID or username (case-insensitive)
+          const matches = u.uid === targetUid || 
+                        u.authUid === targetUid ||
+                        (u.username && targetUid && String(u.username).toLowerCase().replace(/\s+/g, '') === String(targetUid).toLowerCase().replace(/\s+/g, ''));
+          return matches ? { ...u, requestSent: true } : u;
+        })
+      );
+      // Also update suggestedUsers list
+      setSuggestedUsers((prev) =>
+        prev.map((u) => {
+          // Match by UID or username (case-insensitive)
+          const matches = u.uid === targetUid || 
+                        u.authUid === targetUid ||
+                        (u.username && targetUid && String(u.username).toLowerCase().replace(/\s+/g, '') === String(targetUid).toLowerCase().replace(/\s+/g, ''));
+          return matches ? { ...u, requestSent: true } : u;
+        })
+      );
+    };
+    
+    // Update UI immediately (optimistic update)
+    updateUI();
+    
+    // Send request in background
     try {
       const result = await sendFriendRequest(targetUid);
-      if (result.success) {
+      if (!result.success) {
+        // Revert optimistic update on error
         setSearchResultsWithStatus((prev) =>
           prev.map((u) => {
-            // Match by UID or username (case-insensitive)
             const matches = u.uid === targetUid || 
                           u.authUid === targetUid ||
                           (u.username && targetUid && String(u.username).toLowerCase().replace(/\s+/g, '') === String(targetUid).toLowerCase().replace(/\s+/g, ''));
-            return matches ? { ...u, requestSent: true } : u;
+            return matches ? { ...u, requestSent: false } : u;
           })
         );
-        // Also update suggestedUsers list
         setSuggestedUsers((prev) =>
           prev.map((u) => {
-            // Match by UID or username (case-insensitive)
             const matches = u.uid === targetUid || 
                           u.authUid === targetUid ||
                           (u.username && targetUid && String(u.username).toLowerCase().replace(/\s+/g, '') === String(targetUid).toLowerCase().replace(/\s+/g, ''));
-            return matches ? { ...u, requestSent: true } : u;
+            return matches ? { ...u, requestSent: false } : u;
           })
         );
-      } else {
+        
         // Don't show error for "already sent" - it's expected if user clicks twice
         if (result.error !== 'Friend request already sent') {
           Alert.alert('Error', result.error || 'Failed to send friend request', [{ text: 'OK' }]);
+        } else {
+          // If already sent, keep the optimistic update
+          updateUI();
         }
       }
     } catch (err) {
       console.error('Error sending friend request:', err);
+      // Revert optimistic update on error
+      setSearchResultsWithStatus((prev) =>
+        prev.map((u) => {
+          const matches = u.uid === targetUid || 
+                        u.authUid === targetUid ||
+                        (u.username && targetUid && String(u.username).toLowerCase().replace(/\s+/g, '') === String(targetUid).toLowerCase().replace(/\s+/g, ''));
+          return matches ? { ...u, requestSent: false } : u;
+        })
+      );
+      setSuggestedUsers((prev) =>
+        prev.map((u) => {
+          const matches = u.uid === targetUid || 
+                        u.authUid === targetUid ||
+                        (u.username && targetUid && String(u.username).toLowerCase().replace(/\s+/g, '') === String(targetUid).toLowerCase().replace(/\s+/g, ''));
+          return matches ? { ...u, requestSent: false } : u;
+        })
+      );
       Alert.alert('Error', 'Failed to send friend request. Please try again.', [{ text: 'OK' }]);
     } finally {
       setSendingRequests((prev) => {

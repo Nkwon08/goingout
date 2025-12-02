@@ -524,10 +524,20 @@ export const upsertUserProfile = async (uid, payload = {}) => {
         oldUsername,
       });
       
-      // If no username provided, use existing username
-      if (!username) {
-        username = existingData.username;
-        username_lowercase = existingDoc.id; // Document ID is the username_lowercase
+      // Check if this is a temp document (users who haven't selected a username yet)
+      const isTempDocument = existingDoc.id.startsWith('temp_') || !existingData.username || !existingData.username.trim();
+      
+      if (isTempDocument) {
+        // This is a temp document - treat it as if there's no username
+        // User needs to select a username on the username selection screen
+        console.log('[upsertUserProfile] User has temp document or no username - treating as new user');
+        oldUsername = null; // Reset oldUsername so username can be set
+      } else {
+        // If no username provided, use existing username
+        if (!username) {
+          username = existingData.username;
+          username_lowercase = existingDoc.id; // Document ID is the username_lowercase
+        }
       }
     } else {
       console.log('[upsertUserProfile] No existing document found by authUid');
@@ -597,11 +607,14 @@ export const upsertUserProfile = async (uid, payload = {}) => {
       }
     } else {
       // No username provided and no existing document - derive from email (NOT displayName, as that might be the user's name)
+      // BUT: Don't auto-generate if user has a temp document - they need to select a username
       if (!oldUsername) {
-        // IMPORTANT: Don't use displayName here as it might be the user's actual name, not a username
-        // Always derive username from email prefix for new users
-        username = email ? email.split('@')[0] : `user_${uid.slice(0, 6)}`;
-        username_lowercase = username.toLowerCase().replace(/\s+/g, '');
+        // IMPORTANT: Don't auto-generate username for OAuth users - they should select it
+        // Only auto-generate for email/password signups (which should have username from signup form)
+        // For OAuth users, username should be null so they're prompted to select one
+        console.log('[upsertUserProfile] No username provided and no existing document - user should select username');
+        // Don't set username - return error or let caller handle it
+        return { success: false, error: 'username_required' };
       } else {
         // This shouldn't happen - we already set username from existing doc above
         username_lowercase = oldUsername;
@@ -1016,30 +1029,76 @@ export const ensureUserDoc = async (uid) => {
     
     let username = null;
     let displayName = null;
+    let isTempDocument = false;
     
     if (!existingDocs.empty) {
-      // User document exists - preserve existing username
+      // User document exists - check if it's a temp document or has a username
       const existingDoc = existingDocs.docs[0];
       const existingData = existingDoc.data();
-      username = existingData.username; // Use existing username
-      displayName = existingData.name || authUser?.displayName || (email ? email.split('@')[0] : 'User');
+      const docId = existingDoc.id;
+      
+      // Check if this is a temp document (users who haven't selected a username yet)
+      isTempDocument = docId.startsWith('temp_') || !existingData.username || !existingData.username.trim();
+      
+      if (isTempDocument) {
+        // This is a temp document or has no username - don't auto-generate
+        // User needs to select a username on the username selection screen
+        console.log('[ensureUserDoc] User has temp document or no username - skipping auto-generation');
+        displayName = existingData.name || authUser?.displayName || (email ? email.split('@')[0] : 'User');
+        // Don't set username - user will set it on username selection screen
+      } else {
+        // User has a real username - preserve it
+        username = existingData.username;
+        displayName = existingData.name || authUser?.displayName || (email ? email.split('@')[0] : 'User');
+      }
     } else {
-      // No existing document - derive from displayName or email (for new users only)
-      const base = authUser?.displayName ?? (email ? email.split('@')[0] : `user_${uid.slice(0, 6)}`);
-      username = base;
-      displayName = base;
+      // No existing document - this shouldn't happen for OAuth users (they should have temp doc)
+      // But if it does, don't auto-generate username - let user select it
+      console.log('[ensureUserDoc] No existing document found - user should select username');
+      displayName = authUser?.displayName || (email ? email.split('@')[0] : 'User');
+      // Don't set username - user will set it on username selection screen
     }
 
-    // Use upsertUserProfile for consistency (it will handle fallbacks)
-    // Only provide username if we have one (preserve existing or set new)
-    const result = await upsertUserProfile(uid, username ? {
+    // Only call upsertUserProfile if user has a username (not a temp document)
+    // For temp documents, we don't want to auto-generate a username
+    if (isTempDocument || !username) {
+      // User has temp document or no username - don't auto-generate
+      // Just return the existing data without calling upsertUserProfile
+      if (!existingDocs.empty) {
+        const existingDoc = existingDocs.docs[0];
+        const existingData = existingDoc.data();
+        return {
+          userData: {
+            username: existingData.username || null,
+            name: existingData.name || displayName,
+            photo: existingData.photoURL || authUser?.photoURL || null,
+            bio: existingData.bio || null,
+            age: existingData.age || null,
+            gender: existingData.gender || null,
+          },
+          error: null,
+        };
+      }
+      // No document exists - return minimal data
+      return {
+        userData: {
+          username: null,
+          name: displayName,
+          photo: authUser?.photoURL || null,
+          bio: null,
+          age: null,
+          gender: null,
+        },
+        error: null,
+      };
+    }
+
+    // User has a username - use upsertUserProfile to ensure profile is up to date
+    const result = await upsertUserProfile(uid, {
       name: displayName,
-      username: username, // Preserve existing username or set new one
+      username: username, // Preserve existing username
       // Don't pass bio/age/gender - let them remain null/undefined
       // photoURL will be handled by upsertUserProfile's fallback logic
-    } : {
-      name: displayName,
-      // Don't pass username - let upsertUserProfile derive it (only for new users)
     });
 
     if (!result.success) {

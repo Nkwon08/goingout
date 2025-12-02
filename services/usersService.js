@@ -178,6 +178,114 @@ export const searchUsersByUsername = async (username) => {
 };
 
 /**
+ * Search users by name or username (case-insensitive prefix match)
+ * Searches both username_lowercase and name fields
+ * @param {string} searchQuery - The search query (name or username)
+ * @returns {Promise<{ users: Array, error: string|null }>}
+ */
+export const searchUsersByNameOrUsername = async (searchQuery) => {
+  try {
+    if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
+      return { users: [], error: 'Firestore not configured' };
+    }
+
+    if (!searchQuery || !searchQuery.trim()) {
+      return { users: [], error: null };
+    }
+
+    const queryLower = searchQuery.toLowerCase().trim();
+    const queryUpper = queryLower.slice(0, -1) + String.fromCharCode(queryLower.charCodeAt(queryLower.length - 1) + 1);
+
+    const usersRef = collection(db, 'users');
+    
+    // Search by username prefix (using username_lowercase field)
+    const usernameQuery = query(
+      usersRef,
+      where('username_lowercase', '>=', queryLower),
+      where('username_lowercase', '<', queryUpper),
+      orderBy('username_lowercase'),
+      limit(50) // Limit to prevent too many results
+    );
+
+    // Search by name prefix (using name field - case-insensitive matching on client side)
+    // Note: Firestore doesn't support case-insensitive queries or prefix matching on name field
+    // We'll fetch a limited set and filter client-side
+    // For better performance, we could add a name_lowercase field, but for now we'll do client-side filtering
+    // Try to get users with name field, but don't use orderBy to avoid index requirement
+    const nameQuery = query(
+      usersRef,
+      limit(100) // Get more results for name search since we filter client-side
+    );
+
+    // Run both queries in parallel
+    const [usernameSnapshot, nameSnapshot] = await Promise.all([
+      getDocsFromServer(usernameQuery).catch((err) => {
+        console.warn('Username search error:', err);
+        return { docs: [] };
+      }),
+      getDocsFromServer(nameQuery).catch((err) => {
+        console.warn('Name search error (non-critical):', err);
+        // If name query fails (e.g., no index), just return empty - username search will still work
+        return { docs: [] };
+      }),
+    ]);
+
+    // Process username matches
+    const usernameMatches = usernameSnapshot.docs.map((doc) => ({
+      uid: doc.id,
+      ...doc.data(),
+      matchType: 'username',
+    }));
+
+    // Process name matches (filter client-side for case-insensitive prefix match)
+    const nameMatches = nameSnapshot.docs
+      .filter((doc) => {
+        const data = doc.data();
+        const name = data.name || '';
+        const nameLower = name.toLowerCase();
+        return nameLower.startsWith(queryLower);
+      })
+      .map((doc) => ({
+        uid: doc.id,
+        ...doc.data(),
+        matchType: 'name',
+      }));
+
+    // Combine results and remove duplicates (by uid)
+    const allMatches = [...usernameMatches, ...nameMatches];
+    const uniqueUsers = new Map();
+    
+    allMatches.forEach((user) => {
+      const existing = uniqueUsers.get(user.uid);
+      if (!existing) {
+        uniqueUsers.set(user.uid, user);
+      } else {
+        // If user matches both username and name, prefer username match
+        if (user.matchType === 'username' && existing.matchType === 'name') {
+          uniqueUsers.set(user.uid, user);
+        }
+      }
+    });
+
+    const users = Array.from(uniqueUsers.values());
+
+    return { users, error: null };
+  } catch (error) {
+    console.error('❌ searchUsersByNameOrUsername error:', error);
+    
+    // Handle different error types
+    if (error.code === 'unavailable') {
+      return { users: [], error: 'Unable to connect to database. Please check your internet connection and try again.' };
+    }
+    if (error.code === 'permission-denied') {
+      return { users: [], error: 'Permission denied. Please check Firestore security rules.' };
+    }
+    
+    return { users: [], error: error.message || 'Failed to search users' };
+  }
+};
+
+/**
  * Get all users (excluding current user) with pagination
  * Returns users with: username, name, avatar, bio, age, gender
  * Waits for Auth initialization via onAuthStateChanged before querying

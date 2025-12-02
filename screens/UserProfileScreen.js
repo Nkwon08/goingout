@@ -667,21 +667,26 @@ export default function UserProfileScreen({ route, navigation }) {
       else {
         console.log('📤 [UserProfileScreen] Sending friend request (not friends):', friendAuthUid);
         
+        // Optimistic UI update - update immediately for instant feedback
+        setHasPendingRequest(true);
+        
         // Use username for sendFriendRequest (it accepts username or UID)
         const result = await sendFriendRequest(targetUsername);
         
         console.log('📤 [UserProfileScreen] Send friend request result:', result);
         
         if (result.success) {
-          setHasPendingRequest(true);
           console.log('✅ [UserProfileScreen] Successfully sent friend request');
         } else {
+          // Revert optimistic update on error
+          setHasPendingRequest(false);
+          
           // Don't show error for "already sent" - it's expected if user clicks twice
           if (result.error !== 'Friend request already sent') {
             console.error('❌ [UserProfileScreen] Failed to send friend request:', result.error);
             Alert.alert('Error', result.error || 'Failed to send friend request');
           } else {
-            // Request already exists, update state to reflect that
+            // Request already exists, keep the optimistic update
             setHasPendingRequest(true);
           }
         }

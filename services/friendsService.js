@@ -779,50 +779,103 @@ export const sendFriendRequest = async (targetId) => {
 
     const fromUserId = auth.currentUser.uid;
     
-    // Convert targetId to UID if it's a username
-    // UIDs are typically 28 characters, usernames are shorter
-    let toUserId = targetId;
-    if (targetId && targetId.length < 20) {
-      // Likely a username, convert to UID
-      const authUid = await getAuthUidFromUsername(targetId);
-      if (!authUid) {
-        return { success: false, error: 'User not found' };
-      }
-      toUserId = authUid;
+    // Quick validation - reject self-requests immediately
+    if (!targetId || fromUserId === targetId) {
+      return { success: false, error: 'Cannot send friend request to yourself' };
     }
 
     if (!db || typeof db !== 'object' || Object.keys(db).length === 0) {
       return { success: false, error: 'Firestore not configured' };
     }
 
-    // Reject self-requests
-    if (!toUserId || fromUserId === toUserId) {
-      return { success: false, error: 'Cannot send friend request to yourself' };
+    // Convert targetId to UID if it's a username (run in parallel with other checks)
+    // UIDs are typically 28 characters, usernames are shorter
+    let toUserId = targetId;
+    const usernameToUidPromise = targetId && targetId.length < 20 
+      ? getAuthUidFromUsername(targetId) 
+      : Promise.resolve(targetId);
+
+    // Run all validation checks in parallel for speed
+    const [authUid, blockedCheck, reverseBlockedCheck, existingRequestSnapshot] = await Promise.all([
+      usernameToUidPromise,
+      isUserBlocked(fromUserId, targetId), // Check with original targetId first
+      isUserBlocked(targetId, fromUserId), // Reverse check
+      (async () => {
+        // Check existing request - use targetId first, will update if username conversion needed
+        const requestsRef = collection(db, 'friendRequests');
+        const existingRequestQuery = query(
+          requestsRef,
+          where('fromUserId', '==', fromUserId),
+          where('toUserId', '==', targetId),
+          where('status', '==', 'pending'),
+          limit(1)
+        );
+        return getDocs(existingRequestQuery);
+      })(),
+    ]);
+
+    // Update toUserId if username conversion was needed
+    if (targetId && targetId.length < 20) {
+      if (!authUid) {
+        return { success: false, error: 'User not found' };
+      }
+      toUserId = authUid;
+      
+      // Re-check existing request and blocking with correct UID if username was converted
+      if (toUserId !== targetId) {
+        const [recheckSnapshot, recheckBlocked, recheckReverseBlocked] = await Promise.all([
+          (async () => {
+            const requestsRef = collection(db, 'friendRequests');
+            const existingRequestQuery = query(
+              requestsRef,
+              where('fromUserId', '==', fromUserId),
+              where('toUserId', '==', toUserId),
+              where('status', '==', 'pending'),
+              limit(1)
+            );
+            return getDocs(existingRequestQuery);
+          })(),
+          isUserBlocked(fromUserId, toUserId),
+          isUserBlocked(toUserId, fromUserId),
+        ]);
+        
+        if (!recheckSnapshot.empty) {
+          console.log('⚠️ Friend request already exists');
+          return { success: false, error: 'Friend request already sent' };
+        }
+        
+        // Use re-checked blocking status
+        if (recheckBlocked.isBlocked) {
+          return { success: false, error: 'Cannot send friend request to a blocked user' };
+        }
+        if (recheckReverseBlocked.isBlocked) {
+          return { success: false, error: 'Cannot send friend request to this user' };
+        }
+      } else {
+        // Use original blocking checks if no conversion needed
+        if (blockedCheck.isBlocked) {
+          return { success: false, error: 'Cannot send friend request to a blocked user' };
+        }
+        if (reverseBlockedCheck.isBlocked) {
+          return { success: false, error: 'Cannot send friend request to this user' };
+        }
+      }
+    } else {
+      // Final validation for UID case
+      if (!toUserId || fromUserId === toUserId) {
+        return { success: false, error: 'Cannot send friend request to yourself' };
+      }
+
+      // Check blocking status for UID case
+      if (blockedCheck.isBlocked) {
+        return { success: false, error: 'Cannot send friend request to a blocked user' };
+      }
+      if (reverseBlockedCheck.isBlocked) {
+        return { success: false, error: 'Cannot send friend request to this user' };
+      }
     }
 
-    // Check if users are blocked
-    const blockedCheck = await isUserBlocked(fromUserId, toUserId);
-    if (blockedCheck.isBlocked) {
-      return { success: false, error: 'Cannot send friend request to a blocked user' };
-    }
-    
-    // Check if target user has blocked current user (bidirectional check)
-    const reverseBlockedCheck = await isUserBlocked(toUserId, fromUserId);
-    if (reverseBlockedCheck.isBlocked) {
-      return { success: false, error: 'Cannot send friend request to this user' };
-    }
-
-    // Check if a pending request already exists
-    const requestsRef = collection(db, 'friendRequests');
-    const existingRequestQuery = query(
-      requestsRef,
-      where('fromUserId', '==', fromUserId),
-      where('toUserId', '==', toUserId),
-      where('status', '==', 'pending'),
-      limit(1)
-    );
-    const existingRequestSnapshot = await getDocs(existingRequestQuery);
-    
+    // Check if request already exists (from parallel check)
     if (!existingRequestSnapshot.empty) {
       console.log('⚠️ Friend request already exists');
       return { success: false, error: 'Friend request already sent' };
@@ -836,38 +889,14 @@ export const sendFriendRequest = async (targetId) => {
       createdAt: serverTimestamp(),
     };
 
-    // Log path and payload before write
-    const collectionPath = 'friendRequests';
-    console.log('📝 Sending friend request:');
-    console.log('   Path: friendRequests/ (addDoc will generate ID)');
-    console.log('   Payload:', {
-      fromUserId: payload.fromUserId,
-      toUserId: payload.toUserId,
-      status: payload.status,
-      createdAt: '[serverTimestamp]',
-    });
-    console.log('   Method: addDoc');
-
     // Use addDoc to create document (Firestore will generate ID)
-    const collectionRef = collection(db, collectionPath);
+    const collectionRef = collection(db, 'friendRequests');
     const docRef = await addDoc(collectionRef, payload);
 
     console.log('✅ Friend request sent successfully:', fromUserId, '→', toUserId);
-    console.log('   Document ID:', docRef.id);
-    console.log('   Full path: friendRequests/' + docRef.id);
     return { success: true, error: null };
   } catch (error) {
     console.error('❌ Error sending friend request:', error);
-    console.error('   Error code:', error.code);
-    console.error('   Error message:', error.message);
-    console.error('   Write path: friendRequests/ (addDoc)');
-    console.error('   Full payload:', {
-      fromUserId: auth?.currentUser?.uid || 'unknown',
-      toUserId: targetUid || 'unknown',
-      status: 'pending',
-      createdAt: '[serverTimestamp]',
-    });
-    console.error('   Method used: addDoc');
     return { success: false, error: error.message || 'Failed to send friend request' };
   }
 };
