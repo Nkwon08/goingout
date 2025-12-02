@@ -7,7 +7,7 @@ import { subscribeToFriends, subscribeToOutgoingFriendRequests } from '../servic
 import { debugListUsernames } from '../services/usersService';
 import { registerForPushNotifications } from '../services/notificationsService';
 import { auth, db } from '../config/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, collection, query, where, limit, getDocs } from 'firebase/firestore';
 
 const AuthContext = createContext();
 
@@ -18,6 +18,8 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   // Friends list state - managed centrally
   const [friendsList, setFriendsList] = useState([]);
+  // Track if user needs to select a username
+  const [needsUsername, setNeedsUsername] = useState(false);
 
   // Function to refresh user data manually
   const refreshUserData = React.useCallback(async (uid, forceRefresh = true) => {
@@ -25,6 +27,10 @@ export function AuthProvider({ children }) {
     try {
       const { userData: data } = await getCurrentUserData(uid, forceRefresh);
       if (data) {
+        // Check if user needs a username (temp document or no username)
+        const hasUsername = data.username && data.username.trim() && !data.username.startsWith('temp_');
+        setNeedsUsername(!hasUsername);
+        
         // Prevent overwriting with stale/null data if we already have valid data
         // Only update if the new data has a photoURL or if we don't have one yet
         setUserData(prevData => {
@@ -44,7 +50,22 @@ export function AuthProvider({ children }) {
           photoURL: data.photoURL,
           avatar: data.avatar,
           forceRefresh,
+          needsUsername: !hasUsername,
         });
+      } else {
+        // No user data found - check if it's a temp document
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('authUid', '==', uid), limit(1));
+        const snapshots = await getDocs(q);
+        if (!snapshots.empty) {
+          const userDoc = snapshots.docs[0];
+          const userData = userDoc.data();
+          const isTempDoc = userDoc.id.startsWith('temp_') || !userData.username || !userData.username.trim();
+          setNeedsUsername(isTempDoc);
+        } else {
+          // No document found - user needs to set username
+          setNeedsUsername(true);
+        }
       }
     } catch (error) {
       console.error('Error refreshing user data:', error);
@@ -78,6 +99,7 @@ export function AuthProvider({ children }) {
         setFriendsList([]);
         setUser(null);
         setUserData(null);
+        setNeedsUsername(false);
         setLoading(false);
         return;
       }
@@ -115,6 +137,10 @@ export function AuthProvider({ children }) {
           // Fetch full user data after ensuring document
           const { userData: data } = await getCurrentUserData(firebaseUser.uid);
           if (isMounted && data) {
+            // Check if user needs a username (temp document or no username)
+            const hasUsername = data.username && data.username.trim() && !data.username.startsWith('temp_');
+            setNeedsUsername(!hasUsername);
+            
             setUserData({
               username: data.username,
               name: data.name,
@@ -124,6 +150,20 @@ export function AuthProvider({ children }) {
               age: data.age,
               gender: data.gender,
             });
+          } else {
+            // No user data found - check if it's a temp document
+            const usersRef = collection(db, 'users');
+            const q = query(usersRef, where('authUid', '==', firebaseUser.uid), limit(1));
+            const snapshots = await getDocs(q);
+            if (!snapshots.empty) {
+              const userDoc = snapshots.docs[0];
+              const userData = userDoc.data();
+              const isTempDoc = userDoc.id.startsWith('temp_') || !userData.username || !userData.username.trim();
+              setNeedsUsername(isTempDoc);
+            } else {
+              // No document found - user needs to set username
+              setNeedsUsername(true);
+            }
           }
 
           // Register for push notifications and save token
@@ -217,7 +257,7 @@ export function AuthProvider({ children }) {
   }, []); // Run once on mount - onAuthStateChanged handles all auth state changes
 
   return (
-    <AuthContext.Provider value={{ user, userData, loading, refreshUserData, friendsList }}>
+    <AuthContext.Provider value={{ user, userData, loading, refreshUserData, friendsList, needsUsername }}>
       {children}
     </AuthContext.Provider>
   );

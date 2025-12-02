@@ -13,7 +13,7 @@ const IU_CRIMSON = '#CC0000';
 
 export default function UsernameSelectionScreen({ route }) {
   const navigation = useNavigation();
-  const { user } = useAuth();
+  const { user, refreshUserData } = useAuth();
   const { isDarkMode } = useTheme();
   const { background, surface, text, subText } = useThemeColors();
   
@@ -143,11 +143,16 @@ export default function UsernameSelectionScreen({ route }) {
           
           if (userData?.username && userData.username.trim()) {
             console.log('✅ Username successfully set:', userData.username);
+            // Refresh user data in AuthContext to update needsUsername flag
+            // This will cause App.js to switch from AuthStack to RootNavigator
+            await refreshUserData(user.uid, true);
             // Navigation will be handled by auth state change
             // The app will automatically navigate to the main screen
           } else {
             console.warn('⚠️ Username may not have been set correctly');
             // Still allow navigation - the profile update should have worked
+            // Refresh user data anyway to update state
+            await refreshUserData(user.uid, true);
           }
         } catch (verifyError) {
           console.error('Error verifying username:', verifyError);

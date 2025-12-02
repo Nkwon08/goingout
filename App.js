@@ -93,7 +93,7 @@ function NotificationPopupWrapper() {
 // App content component that uses theme context and auth
 function AppContent() {
   const { isDarkMode } = useTheme();
-  const { user, loading } = useAuth();
+  const { user, loading, needsUsername } = useAuth();
   const [authStackKey, setAuthStackKey] = React.useState(0);
   const prevUserRef = React.useRef(user);
 
@@ -273,7 +273,7 @@ function AppContent() {
   }
 
   // Render app with Paper provider (for Material Design components) and Navigation
-  // Show AuthStack if not logged in, BottomTabs if logged in
+  // Show AuthStack if not logged in, UsernameSelection if user needs username, BottomTabs if logged in
   // Use key props to force remount and reset navigation state when user logs out
   return (
     <PaperProvider theme={paperTheme}>
@@ -282,8 +282,19 @@ function AppContent() {
         theme={navTheme}
       >
         <StatusBar style={isDarkMode ? 'light' : 'dark'} />
-        {user ? <RootNavigator /> : <AuthStack key={`auth-stack-${authStackKey}`} />}
-        {user && <NotificationPopupWrapper />}
+        {!user ? (
+          <AuthStack key={`auth-stack-${authStackKey}`} />
+        ) : needsUsername ? (
+          <AuthStack 
+            key={`auth-stack-${authStackKey}`}
+            initialRouteName="UsernameSelection"
+          />
+        ) : (
+          <>
+            <RootNavigator />
+            <NotificationPopupWrapper />
+          </>
+        )}
       </NavigationContainer>
     </PaperProvider>
   );

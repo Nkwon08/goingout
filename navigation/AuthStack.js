@@ -9,10 +9,10 @@ import UsernameSelectionScreen from '../screens/UsernameSelectionScreen';
 
 const Stack = createNativeStackNavigator();
 
-export default function AuthStack() {
+export default function AuthStack({ initialRouteName = "Onboarding" }) {
   return (
     <Stack.Navigator
-      initialRouteName="Onboarding"
+      initialRouteName={initialRouteName}
       screenOptions={{
         headerShown: false,
       }}
