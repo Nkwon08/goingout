@@ -76,21 +76,58 @@ export default function NotificationsTab() {
     return () => unsubscribe && unsubscribe();
   }, [user?.uid, refreshKey]);
 
+  // Track which request IDs we've already loaded to avoid duplicate loads
+  const loadedRequestIdsRef = React.useRef(new Set());
+  
   React.useEffect(() => {
     if (!friendRequests.length) {
       setRequestsWithData([]);
+      loadedRequestIdsRef.current.clear();
       return;
     }
 
     let isMounted = true;
+    
+    // Show requests immediately with placeholder data, then load real data incrementally
     const loadRequestData = async () => {
-      try {
-        const requestsData = await Promise.all(
-          friendRequests.map(async (request) => {
+      // First, show all requests immediately with placeholder data for new ones
+      setRequestsWithData((prev) => {
+        const prevMap = new Map(prev.map(r => [r.id, r]));
+        const newRequests = friendRequests.map((request) => {
+          // If we already have data for this request, keep it
+          if (prevMap.has(request.id)) {
+            return prevMap.get(request.id);
+          }
+          // New request - show immediately with placeholder
+          return {
+            ...request,
+            sender: {
+              name: 'Loading...',
+              username: 'loading',
+              avatar: null,
+              photoURL: null,
+            },
+          };
+        });
+        return newRequests;
+      });
+
+      // Then load user data for new requests in parallel (incremental updates)
+      const newRequests = friendRequests.filter(r => !loadedRequestIdsRef.current.has(r.id));
+      
+      if (newRequests.length > 0) {
+        // Load all new requests in parallel
+        Promise.all(
+          newRequests.map(async (request) => {
             try {
               const { userData } = await getUserById(request.fromUserId);
+              if (!isMounted) return null;
+              
+              // Mark as loaded
+              loadedRequestIdsRef.current.add(request.id);
+              
               return {
-                ...request,
+                requestId: request.id,
                 sender: {
                   name: userData?.name || 'Unknown User',
                   username: userData?.username || 'unknown',
@@ -99,17 +136,35 @@ export default function NotificationsTab() {
                 },
               };
             } catch (error) {
+              if (!isMounted) return null;
+              
+              // Mark as loaded even on error (to avoid retrying)
+              loadedRequestIdsRef.current.add(request.id);
+              
               return {
-                ...request,
+                requestId: request.id,
                 sender: { name: 'Unknown User', username: 'unknown', avatar: null, photoURL: null },
               };
             }
           })
-        );
-
-        if (isMounted) setRequestsWithData(requestsData);
-      } catch (error) {
-        console.error(error);
+        ).then((results) => {
+          if (!isMounted) return;
+          
+          // Update requests incrementally as data loads
+          setRequestsWithData((prev) => {
+            const updated = prev.map((req) => {
+              const result = results.find(r => r && r.requestId === req.id);
+              if (result) {
+                return {
+                  ...req,
+                  sender: result.sender,
+                };
+              }
+              return req;
+            });
+            return updated;
+          });
+        });
       }
     };
 

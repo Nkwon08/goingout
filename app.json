@@ -40,7 +40,8 @@
         "NSMicrophoneUsageDescription": "Allow access to your microphone to record audio with videos",
         "NSLocationWhenInUseUsageDescription": "Allow access to your location to show nearby posts and events",
         "NSLocationAlwaysUsageDescription": "Allow access to your location to show nearby posts and events",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["remote-notification"]
       },
       "notification": {
         "icon": "./assets/icon.png",

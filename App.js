@@ -9,12 +9,13 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider, useNotifications } from './context/NotificationContext';
 import RootNavigator from './navigation/RootNavigator';
 import AuthStack from './navigation/AuthStack';
-import { ActivityIndicator, View, StyleSheet, Alert } from 'react-native';
+import { ActivityIndicator, View, StyleSheet, Alert, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { checkIsEmailSignInLink, completeEmailLinkSignIn } from './services/authService';
 import NotificationPopup from './components/NotificationPopup';
+import * as Notifications from 'expo-notifications';
 
 // Brand colors
 const PRIMARY_COLOR = '#CC0000';      // IU Crimson
@@ -303,6 +304,37 @@ function AppContent() {
 // Main app export - wraps everything in context providers
 // Order matters: ThemeProvider must wrap components that use theme
 export default function App() {
+  // Set up notification listeners for when app is opened from a notification
+  React.useEffect(() => {
+    // Handle notification received while app is in foreground (already handled by NotificationContext)
+    // This listener is for when app is opened from a notification tap
+    const responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data;
+      console.log('📱 Notification tapped:', data);
+      
+      // Navigate based on notification type
+      // Note: Navigation will be handled when AppContent mounts and user is authenticated
+      // For now, we'll store the notification data to handle navigation later
+      if (data.type === 'group_message' && data.groupId) {
+        // Will navigate to group chat when app opens
+        AsyncStorage.setItem('pendingNotification', JSON.stringify({
+          type: 'group_message',
+          groupId: data.groupId,
+        }));
+      } else if (data.postId) {
+        // Will navigate to post when app opens
+        AsyncStorage.setItem('pendingNotification', JSON.stringify({
+          type: data.type,
+          postId: data.postId,
+        }));
+      }
+    });
+
+    return () => {
+      responseSubscription.remove();
+    };
+  }, []);
+
   return (
     <ThemeProvider>
       <AuthProvider>
