@@ -33,33 +33,49 @@ Notifications.setNotificationHandler({
  */
 export const registerForPushNotifications = async () => {
   try {
+    console.log('📱 Registering for push notifications...');
+    
     // Request permissions
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    console.log('📱 Current notification permission status:', existingStatus);
     let finalStatus = existingStatus;
     
     if (existingStatus !== 'granted') {
+      console.log('📱 Requesting notification permissions...');
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
+      console.log('📱 Permission request result:', status);
     }
     
     if (finalStatus !== 'granted') {
-      return { success: false, token: null, error: 'Permission not granted' };
+      console.warn('⚠️ Notification permission not granted. Status:', finalStatus);
+      return { success: false, token: null, error: `Permission not granted. Status: ${finalStatus}` };
     }
+
+    console.log('✅ Notification permissions granted');
 
     // Get push token
     const projectId = Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId;
     if (!projectId) {
-      console.warn('Project ID not found, cannot get push token');
+      console.warn('⚠️ Project ID not found, cannot get push token');
+      console.warn('💡 Make sure app.json has extra.eas.projectId configured');
       return { success: false, token: null, error: 'Project ID not configured' };
     }
 
-    const token = (await Notifications.getExpoPushTokenAsync({
+    console.log('📱 Getting Expo push token with projectId:', projectId);
+    const tokenData = await Notifications.getExpoPushTokenAsync({
       projectId,
-    })).data;
+    });
+    const token = tokenData.data;
 
+    console.log('✅ Push token obtained:', token.substring(0, 30) + '...');
     return { success: true, token, error: null };
   } catch (error) {
-    console.error('Error registering for push notifications:', error);
+    console.error('❌ Error registering for push notifications:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      stack: error.stack,
+    });
     return { success: false, token: null, error: error.message };
   }
 };
@@ -160,21 +176,25 @@ export const createNotification = async (userId, notificationData) => {
  */
 const sendPushNotification = async (userId, notification) => {
   try {
+    console.log('📤 Attempting to send push notification to userId:', userId);
+    
     // Get username from authUid (document IDs are usernames, not authUids)
     const { getUsernameFromAuthUid } = await import('./friendsService');
     const username = await getUsernameFromAuthUid(userId);
     
     if (!username) {
-      console.warn('User not found for push notification');
+      console.warn('⚠️ User not found for push notification, userId:', userId);
       return;
     }
+
+    console.log('✅ Found username for push notification:', username);
 
     // Get user's push token from Firestore
     const userRef = doc(db, 'users', username);
     const userDoc = await getDoc(userRef);
     
     if (!userDoc.exists()) {
-      console.warn('User document not found for push notification');
+      console.warn('⚠️ User document not found for push notification, username:', username);
       return;
     }
 
@@ -182,9 +202,12 @@ const sendPushNotification = async (userId, notification) => {
     const pushToken = userData.pushToken;
 
     if (!pushToken) {
-      console.warn('User has no push token registered');
+      console.warn('⚠️ User has no push token registered, username:', username);
+      console.warn('💡 Make sure the app has requested notification permissions and the user has granted them.');
       return;
     }
+
+    console.log('✅ Found push token for user:', username, 'Token:', pushToken.substring(0, 30) + '...');
 
     // Send via Expo push notification service
     const message = {
@@ -195,7 +218,13 @@ const sendPushNotification = async (userId, notification) => {
       data: notification.data,
     };
 
-    await fetch('https://exp.host/--/api/v2/push/send', {
+    console.log('📨 Sending push notification:', {
+      to: pushToken.substring(0, 30) + '...',
+      title: notification.title,
+      body: notification.body,
+    });
+
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -204,8 +233,104 @@ const sendPushNotification = async (userId, notification) => {
       },
       body: JSON.stringify(message),
     });
+
+    // Check HTTP status
+    console.log('📡 Push notification API response status:', response.status, response.statusText);
+
+    // Parse response JSON
+    let responseData;
+    try {
+      responseData = await response.json();
+    } catch (jsonError) {
+      console.error('❌ Failed to parse push notification API response as JSON');
+      console.error('❌ Response status:', response.status);
+      console.error('❌ Response text:', await response.text().catch(() => 'Could not read response'));
+      return;
+    }
+    
+    // Check if request was successful
+    if (response.ok) {
+      // Expo API returns data in different formats
+      if (responseData.data) {
+        // Success response with data array
+        const results = Array.isArray(responseData.data) ? responseData.data : [responseData.data];
+        const successCount = results.filter(r => r.status === 'ok').length;
+        const errorCount = results.filter(r => r.status === 'error').length;
+        
+        if (errorCount > 0) {
+          console.warn('⚠️ Push notification sent with some errors:', {
+            successCount,
+            errorCount,
+            results,
+          });
+          // Log individual errors
+          results.forEach((result, index) => {
+            if (result.status === 'error') {
+              console.error(`  Error ${index + 1}:`, {
+                message: result.message,
+                details: result.details,
+                error: result.error,
+              });
+            }
+          });
+        } else {
+          console.log('✅ Push notification sent successfully:', {
+            successCount,
+            results,
+          });
+        }
+      } else {
+        // Different response format
+        console.log('✅ Push notification sent successfully:', responseData);
+      }
+    } else {
+      // HTTP error status
+      console.error('❌ Push notification API returned error status:', response.status);
+      console.error('❌ Response data:', responseData);
+      
+      // Check for Expo-specific error format
+      if (responseData.errors && Array.isArray(responseData.errors)) {
+        console.error('❌ Expo API errors:');
+        responseData.errors.forEach((error, index) => {
+          console.error(`  Error ${index + 1}:`, {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          });
+        });
+      } else if (responseData.error) {
+        console.error('❌ Expo API error:', responseData.error);
+      }
+      
+      // Log common error scenarios
+      if (response.status === 400) {
+        console.error('💡 Bad request - check push token format and message structure');
+      } else if (response.status === 401) {
+        console.error('💡 Unauthorized - check API credentials');
+      } else if (response.status === 429) {
+        console.error('💡 Rate limited - too many requests');
+      } else if (response.status >= 500) {
+        console.error('💡 Server error - Expo push service may be down');
+      }
+    }
   } catch (error) {
-    console.error('Error sending push notification:', error);
+    // Network errors, timeouts, etc.
+    console.error('❌ Error sending push notification (network/request error):', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+    });
+    
+    // Check for specific error types
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      console.error('💡 Network error - check internet connection');
+    } else if (error.name === 'AbortError') {
+      console.error('💡 Request was aborted');
+    } else if (error.message?.includes('timeout')) {
+      console.error('💡 Request timed out');
+    }
+    
     // Don't throw - notification sending is best effort
   }
 };

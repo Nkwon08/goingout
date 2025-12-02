@@ -15,8 +15,9 @@ import { useNavigation } from '@react-navigation/native';
 import { searchUsersByPrefix } from '../services/usersService';
 import { subscribeToUserGroups } from '../services/groupsService';
 import { subscribeToGroupPhotos } from '../services/groupPhotosService';
+import { searchPlaces } from '../services/placesService';
+import { getCurrentLocation } from '../services/locationService';
 // Removed albums import - images will come from user's own photos
-// Removed getCurrentLocation import - using account location instead of GPS
 
 const IU_CRIMSON = '#CC0000';
 
@@ -57,6 +58,14 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
   const [pollOptions, setPollOptions] = React.useState([]); // Poll options from "Where is everyone going tonight?"
   const [showPollSuggestions, setShowPollSuggestions] = React.useState(false);
   const navigation = useNavigation();
+  
+  // Autocomplete state for location (Google Places API)
+  const [locationSuggestions, setLocationSuggestions] = React.useState([]);
+  const [showLocationSuggestions, setShowLocationSuggestions] = React.useState(false);
+  const [searchingPlaces, setSearchingPlaces] = React.useState(false);
+  const [userLocationForAutocomplete, setUserLocationForAutocomplete] = React.useState(null);
+  const suggestionPressRef = React.useRef(false);
+  const lastSelectedLocationRef = React.useRef(null);
   
   // State for @mention autocomplete
   const [mentionSuggestions, setMentionSuggestions] = React.useState([]);
@@ -366,6 +375,10 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
       setMentionSuggestions([]);
       setMentionQuery('');
       setMentionStartIndex(-1);
+      // Reset location autocomplete
+      setLocationSuggestions([]);
+      setShowLocationSuggestions(false);
+      setUserLocationForAutocomplete(null);
     }
   }, [visible, currentUser, initialVideo, initialImages]);
 
@@ -387,6 +400,67 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
     }
   }, [currentUser?.location, authUserData?.location, visible]);
 
+  // Get user location for autocomplete biasing when modal opens
+  React.useEffect(() => {
+    if (visible && !userLocationForAutocomplete) {
+      getCurrentLocation().then((loc) => {
+        if (loc.lat && loc.lng) {
+          setUserLocationForAutocomplete({ lat: loc.lat, lng: loc.lng });
+        }
+      });
+    }
+  }, [visible]);
+  
+  // Search places when typing in location field (debounced)
+  React.useEffect(() => {
+    if (!visible) {
+      setLocationSuggestions([]);
+      setShowLocationSuggestions(false);
+      lastSelectedLocationRef.current = null;
+      return;
+    }
+    
+    if (!bar || bar.trim().length < 2) {
+      setLocationSuggestions([]);
+      setShowLocationSuggestions(false);
+      // Clear the ref when input is cleared
+      if (!bar.trim()) {
+        lastSelectedLocationRef.current = null;
+      }
+      return;
+    }
+    
+    // If the current bar value matches the last selected location, don't show suggestions
+    if (lastSelectedLocationRef.current === bar.trim()) {
+      setShowLocationSuggestions(false);
+      return;
+    }
+    
+    const timeoutId = setTimeout(async () => {
+      setSearchingPlaces(true);
+      try {
+        const suggestions = await searchPlaces(bar.trim(), userLocationForAutocomplete);
+        setLocationSuggestions(suggestions || []);
+        // Only show suggestions if the current input doesn't exactly match any suggestion
+        // and it's not the last selected location
+        const hasExactMatch = suggestions?.some(s => s.name === bar.trim());
+        if (suggestions && suggestions.length > 0 && !hasExactMatch && lastSelectedLocationRef.current !== bar.trim()) {
+          setShowLocationSuggestions(true);
+        } else {
+          setShowLocationSuggestions(false);
+        }
+      } catch (error) {
+        console.error('Error searching places:', error);
+        setLocationSuggestions([]);
+        setShowLocationSuggestions(false);
+      } finally {
+        setSearchingPlaces(false);
+      }
+    }, 300);
+    
+    return () => clearTimeout(timeoutId);
+  }, [bar, visible, userLocationForAutocomplete]);
+  
   // Subscribe to poll options for the user's location
   React.useEffect(() => {
     if (!visible || !cityLocation) {
@@ -725,7 +799,7 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
               <View style={[styles.charCountContainer, { borderTopColor: divider }]}>
                 <Text style={[styles.charCount, { color: subText }]}>{text.length}/280</Text>
               </View>
-              {/* Bar Location Selector - TextInput with poll suggestions */}
+              {/* Bar Location Selector - TextInput with poll suggestions and Google Places autocomplete */}
               <View style={[styles.locationRow, { borderTopColor: divider }]}>
                 <MaterialCommunityIcons name="map-marker-outline" size={20} color={bar.trim() ? IU_CRIMSON : subText} />
                 <View style={{ flex: 1, position: 'relative' }}>
@@ -736,20 +810,87 @@ export default function ComposePost({ visible, onClose, onSubmit, currentUser, s
                     value={bar}
                     onChangeText={(text) => {
                       setBar(text);
+                      // Clear the last selected location ref when user types something different
+                      if (lastSelectedLocationRef.current && text !== lastSelectedLocationRef.current) {
+                        lastSelectedLocationRef.current = null;
+                      }
                       setShowPollSuggestions(text.length > 0 && pollOptions.length > 0);
                     }}
                     onFocus={() => {
                       if (pollOptions.length > 0) {
                         setShowPollSuggestions(true);
                       }
+                      // Only show suggestions if we haven't just selected one
+                      if (locationSuggestions.length > 0 && lastSelectedLocationRef.current !== bar.trim()) {
+                        setShowLocationSuggestions(true);
+                      }
                     }}
                     onBlur={() => {
-                      // Delay hiding suggestions to allow selection
-                      setTimeout(() => setShowPollSuggestions(false), 200);
+                      // Don't hide suggestions on blur - let user tap on them
                     }}
                   />
-                  {/* Poll suggestions dropdown */}
-                  {showPollSuggestions && pollOptions.length > 0 && (
+                  {/* Google Places API suggestions dropdown */}
+                  {showLocationSuggestions && locationSuggestions.length > 0 && (
+                    <View style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      zIndex: 1000,
+                      backgroundColor: surface,
+                      borderRadius: 12,
+                      marginTop: 4,
+                      maxHeight: 150,
+                      borderWidth: 1,
+                      borderColor: border,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.25,
+                      shadowRadius: 4,
+                      elevation: 5,
+                    }}>
+                      <ScrollView 
+                        keyboardShouldPersistTaps="always"
+                        nestedScrollEnabled={true}
+                        showsVerticalScrollIndicator={true}
+                        scrollEnabled={locationSuggestions.length > 3}
+                      >
+                        {locationSuggestions.map((suggestion, index) => (
+                          <TouchableOpacity
+                            key={suggestion.id || index}
+                            activeOpacity={0.7}
+                            onPressIn={() => {
+                              suggestionPressRef.current = true;
+                            }}
+                            onPress={() => {
+                              const selectedName = suggestion.name;
+                              // Track the selected location FIRST to prevent suggestions from showing
+                              lastSelectedLocationRef.current = selectedName;
+                              setBar(selectedName);
+                              // Clear suggestions immediately
+                              setLocationSuggestions([]);
+                              setShowLocationSuggestions(false);
+                              setShowPollSuggestions(false);
+                              suggestionPressRef.current = false;
+                              Keyboard.dismiss();
+                            }}
+                            style={{
+                              padding: 14,
+                              borderBottomWidth: index < locationSuggestions.length - 1 ? 1 : 0,
+                              borderBottomColor: divider,
+                            }}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <MaterialCommunityIcons name="map-marker" size={18} color={IU_CRIMSON} style={{ marginRight: 8 }} />
+                              <Text style={{ color: textColor, fontSize: 14, flex: 1 }}>{suggestion.name}</Text>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                  {/* Poll suggestions dropdown (shown when no Google Places results or when poll options match) */}
+                  {showPollSuggestions && pollOptions.length > 0 && !showLocationSuggestions && (
                     <View style={[styles.pollSuggestionsContainer, { backgroundColor: surface, borderColor: border }]}>
                       <ScrollView style={styles.pollSuggestionsList} keyboardShouldPersistTaps="handled">
                         {pollOptions

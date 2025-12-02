@@ -8,6 +8,8 @@ import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { uploadImage } from '../services/storageService';
+import { searchPlaces } from '../services/placesService';
+import { getCurrentLocation } from '../services/locationService';
 
 const IU_CRIMSON = '#CC0000';
 
@@ -40,6 +42,73 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
   const [showStartPicker, setShowStartPicker] = React.useState(false);
   const [showEndPicker, setShowEndPicker] = React.useState(false);
   
+  // Autocomplete state for location
+  const [locationSuggestions, setLocationSuggestions] = React.useState([]);
+  const [showLocationSuggestions, setShowLocationSuggestions] = React.useState(false);
+  const [searchingPlaces, setSearchingPlaces] = React.useState(false);
+  const [userLocation, setUserLocation] = React.useState(null);
+  const lastSelectedLocationRef = React.useRef(null);
+
+  // Get user location for autocomplete biasing
+  React.useEffect(() => {
+    if (visible && !userLocation) {
+      getCurrentLocation().then((loc) => {
+        if (loc.lat && loc.lng) {
+          setUserLocation({ lat: loc.lat, lng: loc.lng });
+        }
+      });
+    }
+  }, [visible]);
+
+  // Search places when typing in location (debounced)
+  React.useEffect(() => {
+    if (!visible) {
+      setLocationSuggestions([]);
+      setShowLocationSuggestions(false);
+      lastSelectedLocationRef.current = null;
+      return;
+    }
+    
+    if (location.trim().length < 2) {
+      setLocationSuggestions([]);
+      setShowLocationSuggestions(false);
+      // Clear the ref when input is cleared
+      if (!location.trim()) {
+        lastSelectedLocationRef.current = null;
+      }
+      return;
+    }
+    
+    // If the current input matches the last selected location, don't show suggestions
+    if (lastSelectedLocationRef.current === location.trim()) {
+      setShowLocationSuggestions(false);
+      return;
+    }
+    
+    setSearchingPlaces(true);
+    const timeoutId = setTimeout(async () => {
+      try {
+        const results = await searchPlaces(location, userLocation);
+        setLocationSuggestions(results || []);
+        // Only show suggestions if the current input doesn't exactly match any suggestion
+        // and it's not the last selected location
+        const hasExactMatch = results?.some(s => s.name === location.trim());
+        if (results && results.length > 0 && !hasExactMatch && lastSelectedLocationRef.current !== location.trim()) {
+          setShowLocationSuggestions(true);
+        } else {
+          setShowLocationSuggestions(false);
+        }
+      } catch (error) {
+        console.error('Error searching places:', error);
+        setLocationSuggestions([]);
+        setShowLocationSuggestions(false);
+      } finally {
+        setSearchingPlaces(false);
+      }
+    }, 300); // Debounce 300ms
+
+    return () => clearTimeout(timeoutId);
+  }, [location, userLocation, visible]);
 
   // Set default host from current user when modal opens, or load event data if editing
   React.useEffect(() => {
@@ -85,6 +154,9 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
         setName('');
         setDescription('');
         setLocation('');
+        setLocationSuggestions([]);
+        setShowLocationSuggestions(false);
+        lastSelectedLocationRef.current = null;
         setHost(currentUser?.name || currentUser?.username || '');
         setPhoto(null);
         setFriendsOnly(false);
@@ -102,6 +174,8 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
       setName('');
       setDescription('');
       setLocation('');
+      setLocationSuggestions([]);
+      setShowLocationSuggestions(false);
       setHost('');
       setPhoto(null);
       setSubmitting(false);
@@ -341,15 +415,16 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
         flexGrow: 1, 
         justifyContent: 'flex-start', 
         paddingHorizontal: 16,
-        paddingTop: Math.max(20, insets.top + 10),
+        paddingTop: Math.max(10, insets.top),
         paddingBottom: 24
       }}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
     >
-      <Text style={{ color: text, fontSize: 24, fontWeight: 'bold', marginBottom: 8, textAlign: 'center' }}>
+      <Text style={{ color: text, fontSize: 22, fontWeight: 'bold', marginBottom: 4, textAlign: 'center' }}>
         What's the event name?
       </Text>
-      <Text style={{ color: subText, fontSize: 16, marginBottom: 32, textAlign: 'center' }}>
+      <Text style={{ color: subText, fontSize: 14, marginBottom: 16, textAlign: 'center' }}>
         Give your event a memorable name
       </Text>
       <TextInput
@@ -359,7 +434,7 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
           padding: 16,
           color: text,
           fontSize: 18,
-          marginBottom: 24,
+          marginBottom: 16,
           width: '100%',
           borderWidth: 1,
           borderColor: border,
@@ -371,30 +446,104 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
         maxLength={100}
         autoFocus
       />
-      <Text style={{ color: text, fontSize: 24, fontWeight: 'bold', marginBottom: 8, textAlign: 'center', marginTop: 8 }}>
+      <Text style={{ color: text, fontSize: 22, fontWeight: 'bold', marginBottom: 4, textAlign: 'center' }}>
         Where is the event?
       </Text>
-      <Text style={{ color: subText, fontSize: 16, marginBottom: 32, textAlign: 'center' }}>
+      <Text style={{ color: subText, fontSize: 14, marginBottom: 16, textAlign: 'center' }}>
         Enter the event location
       </Text>
-      <TextInput
-        style={{
-          backgroundColor: background,
-          borderRadius: 12,
-          padding: 16,
-          color: text,
-          fontSize: 18,
-          marginBottom: 24,
-          width: '100%',
-          borderWidth: 1,
-          borderColor: border,
-        }}
-        placeholder="Enter location"
-        placeholderTextColor={subText}
-        value={location}
-        onChangeText={setLocation}
-        maxLength={100}
-      />
+      <View style={{ position: 'relative', width: '100%', marginBottom: 24 }}>
+        <TextInput
+          style={{
+            backgroundColor: background,
+            borderRadius: 12,
+            padding: 16,
+            color: text,
+            fontSize: 18,
+            width: '100%',
+            borderWidth: 1,
+            borderColor: border,
+          }}
+          placeholder="Enter location"
+          placeholderTextColor={subText}
+          value={location}
+          onChangeText={(text) => {
+            setLocation(text);
+            // Clear the last selected location ref when user types something different
+            if (lastSelectedLocationRef.current && text !== lastSelectedLocationRef.current) {
+              lastSelectedLocationRef.current = null;
+            }
+          }}
+          onFocus={() => {
+            // Only show suggestions if we haven't just selected one
+            if (locationSuggestions.length > 0 && lastSelectedLocationRef.current !== location.trim()) {
+              setShowLocationSuggestions(true);
+            }
+          }}
+          onBlur={() => {
+            // Don't hide suggestions on blur - let user tap on them
+          }}
+          maxLength={100}
+        />
+        {/* Autocomplete Suggestions */}
+        {showLocationSuggestions && locationSuggestions.length > 0 && (
+          <View style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            zIndex: 1000,
+            backgroundColor: surface,
+            borderRadius: 12,
+            marginTop: 4,
+            maxHeight: 150,
+            borderWidth: 1,
+            borderColor: border,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 4,
+            elevation: 5,
+          }}>
+            <ScrollView 
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled={true}
+              showsVerticalScrollIndicator={true}
+            >
+              {locationSuggestions.map((suggestion, index) => (
+                <TouchableOpacity
+                  key={suggestion.id || index}
+                  activeOpacity={0.7}
+                  onPressIn={() => {
+                    // Prevent blur from interfering
+                  }}
+                  onPress={() => {
+                    const selectedName = suggestion.name;
+                    // Track the selected location FIRST to prevent suggestions from showing
+                    lastSelectedLocationRef.current = selectedName;
+                    setLocation(selectedName);
+                    // Clear suggestions immediately
+                    setLocationSuggestions([]);
+                    setShowLocationSuggestions(false);
+                    // Blur the input to dismiss keyboard
+                    Keyboard.dismiss();
+                  }}
+                  style={{
+                    padding: 14,
+                    borderBottomWidth: index < locationSuggestions.length - 1 ? 1 : 0,
+                    borderBottomColor: divider,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <MaterialCommunityIcons name="map-marker" size={18} color={IU_CRIMSON} style={{ marginRight: 8 }} />
+                    <Text style={{ color: text, fontSize: 14, flex: 1 }}>{suggestion.name}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+      </View>
       <Button
         mode="contained"
         buttonColor={IU_CRIMSON}
@@ -914,7 +1063,7 @@ export default function CreateEventModal({ visible, onClose, onSubmit, currentUs
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? -insets.top : 20}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={[isEditMode ? styles.overlay : styles.overlayFullScreen, { backgroundColor: isEditMode ? 'transparent' : surface }]}>

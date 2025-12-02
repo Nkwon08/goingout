@@ -25,11 +25,20 @@ export function AuthProvider({ children }) {
   const refreshUserData = React.useCallback(async (uid, forceRefresh = true) => {
     if (!uid) return;
     try {
+      // Check if this is an email/password user (they already have username from signup)
+      const currentUser = auth.currentUser;
+      const isEmailPasswordUser = currentUser && currentUser.providerData && 
+                                 currentUser.providerData.length > 0 &&
+                                 currentUser.providerData.some(p => p.providerId === 'password');
+      
       const { userData: data } = await getCurrentUserData(uid, forceRefresh);
       if (data) {
         // Check if user needs a username (temp document or no username)
         const hasUsername = data.username && data.username.trim() && !data.username.startsWith('temp_');
-        setNeedsUsername(!hasUsername);
+        
+        // Email/password users should already have a username from signup
+        // Only require username if username is missing/invalid AND not an email signup
+        setNeedsUsername(!hasUsername && !isEmailPasswordUser);
         
         // Prevent overwriting with stale/null data if we already have valid data
         // Only update if the new data has a photoURL or if we don't have one yet
@@ -61,10 +70,11 @@ export function AuthProvider({ children }) {
           const userDoc = snapshots.docs[0];
           const userData = userDoc.data();
           const isTempDoc = userDoc.id.startsWith('temp_') || !userData.username || !userData.username.trim();
-          setNeedsUsername(isTempDoc);
+          // Email/password users should already have a username from signup
+          setNeedsUsername(isTempDoc && !isEmailPasswordUser);
         } else {
-          // No document found - user needs to set username
-          setNeedsUsername(true);
+          // No document found - only require username for OAuth users
+          setNeedsUsername(!isEmailPasswordUser);
         }
       }
     } catch (error) {
@@ -135,11 +145,33 @@ export function AuthProvider({ children }) {
           console.log('✅ User document ensured:', firebaseUser.uid);
 
           // Fetch full user data after ensuring document
-          const { userData: data } = await getCurrentUserData(firebaseUser.uid);
+          // Use forceRefresh to get latest data
+          const { userData: data } = await getCurrentUserData(firebaseUser.uid, true); // forceRefresh = true
+          
+          // Check if this is an email/password signup (they already have username from signup form)
+          const isEmailPasswordUser = firebaseUser.providerData && 
+                                     firebaseUser.providerData.length > 0 &&
+                                     firebaseUser.providerData.some(p => p.providerId === 'password');
+          
           if (isMounted && data) {
             // Check if user needs a username (temp document or no username)
+            // IMPORTANT: For email signups, username is set during signup, so we should have it
             const hasUsername = data.username && data.username.trim() && !data.username.startsWith('temp_');
-            setNeedsUsername(!hasUsername);
+            
+            // Also check the document directly to see if it's a temp document
+            const usersRef = collection(db, 'users');
+            const q = query(usersRef, where('authUid', '==', firebaseUser.uid), limit(1));
+            const snapshots = await getDocs(q);
+            let isTempDocument = false;
+            if (!snapshots.empty) {
+              const userDoc = snapshots.docs[0];
+              // Document ID starting with temp_ indicates a temporary OAuth user document
+              isTempDocument = userDoc.id.startsWith('temp_');
+            }
+            
+            // Email/password users should already have a username from signup
+            // Only require username if it's a temp document OR if username is missing/invalid AND not an email signup
+            setNeedsUsername((isTempDocument || !hasUsername) && !isEmailPasswordUser);
             
             setUserData({
               username: data.username,
@@ -152,47 +184,97 @@ export function AuthProvider({ children }) {
             });
           } else {
             // No user data found - check if it's a temp document
+            // Retry once more with a delay in case document is still being written
+            await new Promise(resolve => setTimeout(resolve, 1000));
             const usersRef = collection(db, 'users');
             const q = query(usersRef, where('authUid', '==', firebaseUser.uid), limit(1));
             const snapshots = await getDocs(q);
             if (!snapshots.empty) {
               const userDoc = snapshots.docs[0];
               const userData = userDoc.data();
-              const isTempDoc = userDoc.id.startsWith('temp_') || !userData.username || !userData.username.trim();
+              // Check if document ID starts with temp_ OR if username is missing/empty
+              // But also check if username field exists and is valid
+              const hasValidUsername = userData.username && userData.username.trim() && !userData.username.startsWith('temp_');
+              const isTempDoc = userDoc.id.startsWith('temp_') || !hasValidUsername;
               setNeedsUsername(isTempDoc);
+              
+              // If we found a valid username, update userData
+              if (hasValidUsername && isMounted) {
+                setUserData({
+                  username: userData.username,
+                  name: userData.name || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+                  avatar: userData.photoURL || userData.avatar || firebaseUser.photoURL || null,
+                  photoURL: userData.photoURL || userData.avatar || firebaseUser.photoURL || null,
+                  bio: userData.bio || null,
+                  age: userData.age || null,
+                  gender: userData.gender || null,
+                });
+              }
             } else {
-              // No document found - user needs to set username
-              setNeedsUsername(true);
+              // No document found after retry - check if this is an email/password signup
+              // Email signups should have a document with username already
+              const isEmailPasswordUser = firebaseUser.providerData && 
+                                         firebaseUser.providerData.length > 0 &&
+                                         firebaseUser.providerData.some(p => p.providerId === 'password');
+              
+              // Only require username for OAuth users (email signups should have username already)
+              // If it's an email signup and no document found, there might be a delay - don't show username screen
+              setNeedsUsername(!isEmailPasswordUser);
             }
           }
 
           // Register for push notifications and save token
           try {
+            console.log('📱 Starting push notification registration for user:', firebaseUser.uid);
             const { success, token, error } = await registerForPushNotifications();
-            if (success && token && db && typeof db === 'object' && Object.keys(db).length > 0) {
-              // Get username from user document (document ID is now username, not UID)
-              // We need to find the user document by authUid to get the username
-              const usersRef = collection(db, 'users');
-              const q = query(usersRef, where('authUid', '==', firebaseUser.uid), limit(1));
-              const snapshots = await getDocs(q);
+            
+            if (success && token) {
+              console.log('✅ Push token obtained, attempting to save to Firestore...');
               
-              if (!snapshots.empty) {
-                const userDoc = snapshots.docs[0];
-                const username = userDoc.id; // Document ID is the username_lowercase
-                const userRef = doc(db, 'users', username);
-                await updateDoc(userRef, {
-                  pushToken: token,
-                  updatedAt: new Date().toISOString(),
-                });
-                console.log('✅ Push notification token saved to user document:', username);
+              if (db && typeof db === 'object' && Object.keys(db).length > 0) {
+                // Get username from user document (document ID is now username, not UID)
+                // We need to find the user document by authUid to get the username
+                const usersRef = collection(db, 'users');
+                const q = query(usersRef, where('authUid', '==', firebaseUser.uid), limit(1));
+                const snapshots = await getDocs(q);
+                
+                if (!snapshots.empty) {
+                  const userDoc = snapshots.docs[0];
+                  const username = userDoc.id; // Document ID is the username_lowercase
+                  const userRef = doc(db, 'users', username);
+                  
+                  console.log('💾 Saving push token to Firestore:', {
+                    username,
+                    tokenPreview: token.substring(0, 30) + '...',
+                  });
+                  
+                  await updateDoc(userRef, {
+                    pushToken: token,
+                    updatedAt: new Date().toISOString(),
+                  });
+                  console.log('✅ Push notification token saved to user document:', username);
+                } else {
+                  console.warn('⚠️ User document not found, cannot save push token');
+                  console.warn('💡 User document may not be created yet. Will retry on next login.');
+                }
               } else {
-                console.warn('⚠️ User document not found, cannot save push token');
+                console.warn('⚠️ Firestore not configured, cannot save push token');
               }
-            } else if (error) {
-              console.warn('⚠️ Failed to register for push notifications:', error);
+            } else {
+              console.warn('⚠️ Failed to register for push notifications:', error || 'Unknown error');
+              if (error) {
+                console.warn('💡 Common causes:');
+                console.warn('   - Notification permissions not granted');
+                console.warn('   - Using Expo Go (push notifications don\'t work in Expo Go)');
+                console.warn('   - Project ID not configured in app.json');
+              }
             }
           } catch (notifError) {
-            console.warn('⚠️ Error registering for push notifications:', notifError);
+            console.error('❌ Error registering for push notifications:', notifError);
+            console.error('❌ Error details:', {
+              message: notifError.message,
+              stack: notifError.stack,
+            });
           }
 
           // Debug: List all usernames after ensuring document (one-time per session)

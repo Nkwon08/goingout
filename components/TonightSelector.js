@@ -1,7 +1,7 @@
 // Tonight Selector component - allows users to vote on bars and add custom options
 // Votes are public and location-based - everyone can see each other's votes
 import * as React from 'react';
-import { View, Modal, TouchableOpacity, TextInput, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Alert } from 'react-native';
+import { View, Modal, TouchableOpacity, TextInput, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Keyboard, TouchableWithoutFeedback, FlatList } from 'react-native';
 import { Card, Text, Button, Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,6 +10,7 @@ import { getCardBorderOnly } from '../utils/cardStyles';
 import { useAuth } from '../context/AuthContext';
 import { voteForOption, subscribeToVotesForLocation, getUserVoteForLocation } from '../services/votesService';
 import { getCurrentLocation } from '../services/locationService';
+import { searchPlaces } from '../services/placesService';
 
 const IU_CRIMSON = '#CC0000';
 
@@ -36,6 +37,13 @@ export default function TonightSelector() {
   const [loading, setLoading] = React.useState(true);
   const [voting, setVoting] = React.useState(false);
   const [expandedOption, setExpandedOption] = React.useState(null); // To show/hide voter list
+  
+  // Autocomplete state for location suggestions
+  const [locationSuggestions, setLocationSuggestions] = React.useState([]);
+  const [showLocationSuggestions, setShowLocationSuggestions] = React.useState(false);
+  const [searchingPlaces, setSearchingPlaces] = React.useState(false);
+  const [userLocationForAutocomplete, setUserLocationForAutocomplete] = React.useState(null);
+  const lastSelectedLocationRef = React.useRef(null);
 
   // Get all options that have been voted on (only show options that exist in voteCounts)
   // Poll starts empty - users add options by voting for them
@@ -176,8 +184,72 @@ export default function TonightSelector() {
 
   const handleOtherCancel = () => {
     setOtherText('');
+    setLocationSuggestions([]);
+    setShowLocationSuggestions(false);
+    lastSelectedLocationRef.current = null;
     setOtherModalVisible(false);
   };
+  
+  // Get user location for autocomplete biasing when modal opens
+  React.useEffect(() => {
+    if (otherModalVisible && !userLocationForAutocomplete) {
+      getCurrentLocation().then((loc) => {
+        if (loc.lat && loc.lng) {
+          setUserLocationForAutocomplete({ lat: loc.lat, lng: loc.lng });
+        }
+      });
+    }
+  }, [otherModalVisible]);
+  
+  // Search places when typing (debounced)
+  React.useEffect(() => {
+    if (!otherModalVisible) {
+      setLocationSuggestions([]);
+      setShowLocationSuggestions(false);
+      lastSelectedLocationRef.current = null;
+      return;
+    }
+    
+    if (!otherText || otherText.trim().length < 2) {
+      setLocationSuggestions([]);
+      setShowLocationSuggestions(false);
+      // Clear the ref when input is cleared
+      if (!otherText.trim()) {
+        lastSelectedLocationRef.current = null;
+      }
+      return;
+    }
+    
+    // If the current input matches the last selected location, don't show suggestions
+    if (lastSelectedLocationRef.current === otherText.trim()) {
+      setShowLocationSuggestions(false);
+      return;
+    }
+    
+    const timeoutId = setTimeout(async () => {
+      setSearchingPlaces(true);
+      try {
+        const suggestions = await searchPlaces(otherText.trim(), userLocationForAutocomplete);
+        setLocationSuggestions(suggestions || []);
+        // Only show suggestions if the current input doesn't exactly match any suggestion
+        // and it's not the last selected location
+        const hasExactMatch = suggestions?.some(s => s.name === otherText.trim());
+        if (suggestions && suggestions.length > 0 && !hasExactMatch && lastSelectedLocationRef.current !== otherText.trim()) {
+          setShowLocationSuggestions(true);
+        } else {
+          setShowLocationSuggestions(false);
+        }
+      } catch (error) {
+        console.error('Error searching places:', error);
+        setLocationSuggestions([]);
+        setShowLocationSuggestions(false);
+      } finally {
+        setSearchingPlaces(false);
+      }
+    }, 300);
+    
+    return () => clearTimeout(timeoutId);
+  }, [otherText, otherModalVisible, userLocationForAutocomplete]);
 
   if (loading) {
     return (
@@ -369,14 +441,87 @@ export default function TonightSelector() {
               <Text style={[styles.otherModalSubtitle, { color: subText, marginBottom: 16 }]}>
                 Add an option to vote for. You'll automatically vote for it when you add it.
               </Text>
-              <TextInput
-                style={[styles.otherInput, { color: text, borderColor: border, backgroundColor: background }]}
-                placeholder="Enter option name..."
-                placeholderTextColor={subText}
-                value={otherText}
-                onChangeText={setOtherText}
-                autoFocus
-              />
+              <View style={{ position: 'relative', width: '100%', marginBottom: 20 }}>
+                <TextInput
+                  style={[styles.otherInput, { color: text, borderColor: border, backgroundColor: background }]}
+                  placeholder="Enter option name..."
+                  placeholderTextColor={subText}
+                  value={otherText}
+                  onChangeText={(text) => {
+                    setOtherText(text);
+                    // Clear the last selected location ref when user types something different
+                    if (lastSelectedLocationRef.current && text !== lastSelectedLocationRef.current) {
+                      lastSelectedLocationRef.current = null;
+                    }
+                  }}
+                  onFocus={() => {
+                    // Only show suggestions if we haven't just selected one
+                    if (locationSuggestions.length > 0 && lastSelectedLocationRef.current !== otherText.trim()) {
+                      setShowLocationSuggestions(true);
+                    }
+                  }}
+                  onBlur={() => {
+                    // Don't hide suggestions on blur - let user tap on them
+                  }}
+                  autoFocus
+                />
+                {/* Autocomplete Suggestions */}
+                {showLocationSuggestions && locationSuggestions.length > 0 && (
+                  <View style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    zIndex: 1000,
+                    backgroundColor: surface,
+                    borderRadius: 12,
+                    marginTop: 4,
+                    maxHeight: 150,
+                    borderWidth: 1,
+                    borderColor: border,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.25,
+                    shadowRadius: 4,
+                    elevation: 5,
+                  }}>
+                    <FlatList
+                      data={locationSuggestions}
+                      keyExtractor={(item, index) => item.id || index.toString()}
+                      keyboardShouldPersistTaps="handled"
+                      nestedScrollEnabled={true}
+                      renderItem={({ item, index }) => (
+                        <TouchableOpacity
+                          activeOpacity={0.7}
+                          onPressIn={() => {
+                            // Prevent blur from interfering
+                          }}
+                          onPress={() => {
+                            const selectedName = item.name;
+                            // Track the selected location FIRST to prevent suggestions from showing
+                            lastSelectedLocationRef.current = selectedName;
+                            setOtherText(selectedName);
+                            // Clear suggestions immediately
+                            setLocationSuggestions([]);
+                            setShowLocationSuggestions(false);
+                            Keyboard.dismiss();
+                          }}
+                          style={{
+                            padding: 14,
+                            borderBottomWidth: index < locationSuggestions.length - 1 ? 1 : 0,
+                            borderBottomColor: divider,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <MaterialCommunityIcons name="map-marker" size={18} color={IU_CRIMSON} style={{ marginRight: 8 }} />
+                            <Text style={{ color: text, fontSize: 14, flex: 1 }}>{item.name}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      )}
+                    />
+                  </View>
+                )}
+              </View>
               <View style={styles.otherModalActions}>
                 <Button
                   mode="outlined"

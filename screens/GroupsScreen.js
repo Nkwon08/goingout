@@ -22,6 +22,7 @@ import { subscribeToUserGroups, deleteGroup, addMemberToGroup, removeMemberFromG
 import { getLatestMessage } from '../services/groupChatService';
 import { shareLocationInGroup, stopSharingLocationInGroup, subscribeToGroupLocations } from '../services/groupLocationService';
 import { getCurrentLocation } from '../services/locationService';
+import { searchPlaces, getPlaceDetails } from '../services/placesService';
 import { createGroupPoll, voteOnGroupPoll, subscribeToGroupPolls } from '../services/groupPollsService';
 import { subscribeToGroupPhotos, addPhotoToAlbum, addVideoToAlbum } from '../services/groupPhotosService';
 import { uploadImage } from '../services/storageService';
@@ -1979,6 +1980,12 @@ function PollsTab({ groupId }) {
   const [pollQuestion, setPollQuestion] = React.useState('');
   const [pollOptions, setPollOptions] = React.useState(['', '']);
   
+  // Autocomplete state for poll options
+  const [autocompleteSuggestions, setAutocompleteSuggestions] = React.useState({}); // { index: [suggestions] }
+  const [activeAutocompleteIndex, setActiveAutocompleteIndex] = React.useState(null); // Which option is showing suggestions
+  const [searchingPlaces, setSearchingPlaces] = React.useState(false);
+  const [userLocation, setUserLocation] = React.useState(null);
+  
   // Subscribe to polls
   React.useEffect(() => {
     if (!groupId) {
@@ -2054,6 +2061,8 @@ function PollsTab({ groupId }) {
         // Reset form
         setPollQuestion('');
         setPollOptions(['', '']);
+        setAutocompleteSuggestions({});
+        setActiveAutocompleteIndex(null);
         setShowCreatePoll(false);
       }
     } catch (error) {
@@ -2064,6 +2073,52 @@ function PollsTab({ groupId }) {
     }
   }, [groupId, user?.uid, userData, pollQuestion, pollOptions, creatingPoll]);
   
+  // Get user location for autocomplete biasing
+  React.useEffect(() => {
+    if (showCreatePoll && !userLocation) {
+      getCurrentLocation().then((location) => {
+        if (location.lat && location.lng) {
+          setUserLocation({ lat: location.lat, lng: location.lng });
+        }
+      });
+    }
+  }, [showCreatePoll]);
+
+  // Search places when typing in an option (debounced)
+  React.useEffect(() => {
+    if (activeAutocompleteIndex === null) return;
+    
+    const optionValue = pollOptions[activeAutocompleteIndex] || '';
+    
+    if (optionValue.trim().length >= 2) {
+      setSearchingPlaces(true);
+      const timeoutId = setTimeout(async () => {
+        try {
+          const results = await searchPlaces(optionValue, userLocation);
+          setAutocompleteSuggestions(prev => ({
+            ...prev,
+            [activeAutocompleteIndex]: results || []
+          }));
+        } catch (error) {
+          console.error('Error searching places:', error);
+          setAutocompleteSuggestions(prev => ({
+            ...prev,
+            [activeAutocompleteIndex]: []
+          }));
+        } finally {
+          setSearchingPlaces(false);
+        }
+      }, 300); // Debounce 300ms
+
+      return () => clearTimeout(timeoutId);
+    } else {
+      setAutocompleteSuggestions(prev => ({
+        ...prev,
+        [activeAutocompleteIndex]: []
+      }));
+    }
+  }, [pollOptions, activeAutocompleteIndex, userLocation]);
+
   const addOption = () => {
     setPollOptions([...pollOptions, '']);
   };
@@ -2071,6 +2126,27 @@ function PollsTab({ groupId }) {
   const removeOption = (index) => {
     if (pollOptions.length > 2) {
       setPollOptions(pollOptions.filter((_, i) => i !== index));
+      // Clear autocomplete for removed option
+      setAutocompleteSuggestions(prev => {
+        const newSuggestions = { ...prev };
+        delete newSuggestions[index];
+        // Reindex remaining suggestions
+        const reindexed = {};
+        Object.keys(newSuggestions).forEach(key => {
+          const oldIndex = parseInt(key);
+          if (oldIndex < index) {
+            reindexed[oldIndex] = newSuggestions[key];
+          } else if (oldIndex > index) {
+            reindexed[oldIndex - 1] = newSuggestions[key];
+          }
+        });
+        return reindexed;
+      });
+      if (activeAutocompleteIndex === index) {
+        setActiveAutocompleteIndex(null);
+      } else if (activeAutocompleteIndex > index) {
+        setActiveAutocompleteIndex(activeAutocompleteIndex - 1);
+      }
     }
   };
   
@@ -2078,6 +2154,20 @@ function PollsTab({ groupId }) {
     const newOptions = [...pollOptions];
     newOptions[index] = value;
     setPollOptions(newOptions);
+    // Show autocomplete for this option
+    setActiveAutocompleteIndex(index);
+  };
+
+  const handleSelectSuggestion = (index, suggestion) => {
+    const newOptions = [...pollOptions];
+    newOptions[index] = suggestion.name;
+    setPollOptions(newOptions);
+    // Clear suggestions for this option
+    setAutocompleteSuggestions(prev => ({
+      ...prev,
+      [index]: []
+    }));
+    setActiveAutocompleteIndex(null);
   };
   
   return (
@@ -2119,19 +2209,31 @@ function PollsTab({ groupId }) {
         visible={showCreatePoll}
         transparent={true}
         animationType="slide"
-        onRequestClose={() => setShowCreatePoll(false)}
+        onRequestClose={() => {
+          setShowCreatePoll(false);
+          setAutocompleteSuggestions({});
+          setActiveAutocompleteIndex(null);
+        }}
       >
         <KeyboardAvoidingView 
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1 }}
         >
-          <TouchableWithoutFeedback onPress={() => setShowCreatePoll(false)}>
+          <TouchableWithoutFeedback onPress={() => {
+            setShowCreatePoll(false);
+            setAutocompleteSuggestions({});
+            setActiveAutocompleteIndex(null);
+          }}>
             <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' }}>
               <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
                 <View style={{ backgroundColor: background, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '90%' }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                     <Text style={{ color: text, fontSize: 20, fontWeight: 'bold' }}>Create Poll</Text>
-                    <TouchableOpacity onPress={() => setShowCreatePoll(false)}>
+                    <TouchableOpacity onPress={() => {
+                      setShowCreatePoll(false);
+                      setAutocompleteSuggestions({});
+                      setActiveAutocompleteIndex(null);
+                    }}>
                       <MaterialCommunityIcons name="close" size={24} color={text} />
                     </TouchableOpacity>
                   </View>
@@ -2168,32 +2270,86 @@ function PollsTab({ groupId }) {
                     />
                     
                     <Text style={{ color: text, fontSize: 16, marginBottom: 8 }}>Options</Text>
-                    {pollOptions.map((option, index) => (
-                      <View key={index} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                        <TextInput
-                          style={{
-                            flex: 1,
-                            backgroundColor: surface,
-                            borderRadius: 8,
-                            padding: 12,
-                            color: text,
-                            fontSize: 16,
-                          }}
-                          placeholder={`Option ${index + 1}`}
-                          placeholderTextColor={subText}
-                          value={option}
-                          onChangeText={(value) => updateOption(index, value)}
-                        />
-                        {pollOptions.length > 2 && (
-                          <TouchableOpacity
-                            onPress={() => removeOption(index)}
-                            style={{ marginLeft: 8, padding: 8 }}
-                          >
-                            <MaterialCommunityIcons name="close-circle" size={24} color={IU_CRIMSON} />
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    ))}
+                    {pollOptions.map((option, index) => {
+                      const suggestions = autocompleteSuggestions[index] || [];
+                      const showSuggestions = activeAutocompleteIndex === index && suggestions.length > 0;
+                      
+                      return (
+                        <View key={index} style={{ marginBottom: 12, position: 'relative' }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <View style={{ flex: 1, position: 'relative' }}>
+                              <TextInput
+                                style={{
+                                  flex: 1,
+                                  backgroundColor: surface,
+                                  borderRadius: 8,
+                                  padding: 12,
+                                  color: text,
+                                  fontSize: 16,
+                                }}
+                                placeholder={`Option ${index + 1}`}
+                                placeholderTextColor={subText}
+                                value={option}
+                                onChangeText={(value) => updateOption(index, value)}
+                                onFocus={() => setActiveAutocompleteIndex(index)}
+                                onBlur={() => {
+                                  // Delay hiding suggestions to allow selection
+                                  setTimeout(() => setActiveAutocompleteIndex(null), 200);
+                                }}
+                              />
+                              {/* Autocomplete Suggestions */}
+                              {showSuggestions && (
+                                <View style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: 0,
+                                  right: 0,
+                                  zIndex: 1000,
+                                  backgroundColor: surface,
+                                  borderRadius: 8,
+                                  marginTop: 4,
+                                  maxHeight: 200,
+                                  borderWidth: 1,
+                                  borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                                  shadowColor: '#000',
+                                  shadowOffset: { width: 0, height: 2 },
+                                  shadowOpacity: 0.25,
+                                  shadowRadius: 4,
+                                  elevation: 5,
+                                }}>
+                                  <ScrollView keyboardShouldPersistTaps="handled">
+                                    {suggestions.map((suggestion, sugIndex) => (
+                                      <TouchableOpacity
+                                        key={suggestion.id || sugIndex}
+                                        onPress={() => handleSelectSuggestion(index, suggestion)}
+                                        style={{
+                                          padding: 12,
+                                          borderBottomWidth: sugIndex < suggestions.length - 1 ? 1 : 0,
+                                          borderBottomColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                                        }}
+                                      >
+                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                          <MaterialCommunityIcons name="map-marker" size={18} color={IU_CRIMSON} style={{ marginRight: 8 }} />
+                                          <Text style={{ color: text, fontSize: 14, flex: 1 }}>{suggestion.name}</Text>
+                                        </View>
+                                      </TouchableOpacity>
+                                    ))}
+                                  </ScrollView>
+                                </View>
+                              )}
+                            </View>
+                            {pollOptions.length > 2 && (
+                              <TouchableOpacity
+                                onPress={() => removeOption(index)}
+                                style={{ marginLeft: 8, padding: 8 }}
+                              >
+                                <MaterialCommunityIcons name="close-circle" size={24} color={IU_CRIMSON} />
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })}
                     
                     <Button
                       mode="text"
@@ -2221,6 +2377,7 @@ function PollsTab({ groupId }) {
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </Modal>
+
     </View>
   );
 }
