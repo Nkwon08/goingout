@@ -2,7 +2,7 @@
   "expo": {
     "name": "Roll",
     "slug": "roll",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -35,6 +35,7 @@
     "scheme": "roll",
     "ios": {
       "supportsTablet": true,
+      "buildNumber": "4",
       "infoPlist": {
         "NSCameraUsageDescription": "Allow access to your camera to take photos and videos",
         "NSMicrophoneUsageDescription": "Allow access to your microphone to record audio with videos",

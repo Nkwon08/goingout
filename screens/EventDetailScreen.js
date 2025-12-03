@@ -7,7 +7,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useThemeColors } from '../hooks/useThemeColors';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { getEventById, joinEvent, checkEventJoinStatus, updateEvent, deleteEvent } from '../services/eventsService';
 import { getGroupById } from '../services/groupsService';
 import CreateEventModal from '../components/CreateEventModal';
@@ -189,7 +189,7 @@ export default function EventDetailScreen({ route, navigation }) {
             setGroupMembers(group.members);
           }
           
-          // Navigate to Groups tab with groupId
+          // Store groupId for navigation
           try {
             await AsyncStorage.setItem('pendingGroupId', result.groupId);
           } catch (storageError) {
@@ -205,14 +205,19 @@ export default function EventDetailScreen({ route, navigation }) {
             parent = parent.getParent();
           }
           
-          // Navigate to Groups tab through MainTabs (EventDetailScreen is a modal in RootNavigator)
-          rootNavigator.navigate('MainTabs', {
-            screen: 'Groups',
-            params: {
-              screen: 'GroupsMain',
-              params: { groupId: result.groupId }
-            }
-          });
+          // Close the modal first, then navigate
+          navigation.goBack();
+          
+          // Navigate to Groups tab after modal closes
+          setTimeout(() => {
+            rootNavigator.navigate('MainTabs', {
+              screen: 'Groups',
+              params: {
+                screen: 'GroupsMain',
+                params: { groupId: result.groupId }
+              }
+            });
+          }, 200);
         }
       }
     } catch (error) {
